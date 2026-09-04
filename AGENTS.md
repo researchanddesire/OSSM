@@ -17,6 +17,10 @@ separate reviewed hub proposal. Main follows normal staging-to-main promotion.
 The notifier uses `RAD_VERSION_CONTROL_APP_ID` and
 `RAD_VERSION_CONTROL_PRIVATE_KEY` with a token scoped only to rad-app.
 
+The historical `Documentation/` folder is not part of content synchronization.
+It may remain as reference material; CI must not reject its presence. The hub
+and `assembly-docs/` are the active assembly publication sources.
+
 ## Branch and Release Policy
 
 - Persistent branches are lowercase `staging` and `main`.
