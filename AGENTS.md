@@ -1,5 +1,26 @@
 # AGENTS.md
 
+## Assembly content synchronization
+
+This repository (`researchanddesire/OSSM`, not `__ossm`) is the English-only OSSM
+spoke of the rad-app hub. `assembly-docs/**` mirrors only
+`rad-app/apps/docs-ohai/content/docs/ossm/**`. Hub `page.en.mdx` becomes
+`page.mdx` here; `meta.en.json` becomes `meta.json`. Shared product assets,
+KiCad sources, and any `_bom/` snapshots travel unchanged. Do not add translations
+or other products here; all locales live in the hub and assembly-docs full mirror.
+
+The notifier wakes rad-app after content changes. Reviewed sync PRs import to
+hub staging, then fan out to the full mirror. Never dispatch directly to
+assembly-docs or write another spoke. `.github/assembly-sync.json` is the
+hub-managed baseline; do not hand-edit it. Initial content seeding requires a
+separate reviewed hub proposal. Main follows normal staging-to-main promotion.
+The notifier uses `RAD_VERSION_CONTROL_APP_ID` and
+`RAD_VERSION_CONTROL_PRIVATE_KEY` with a token scoped only to rad-app.
+
+The historical `Documentation/` folder is not part of content synchronization.
+It may remain as reference material; CI must not reject its presence. The hub
+and `assembly-docs/` are the active assembly publication sources.
+
 ## Branch and Release Policy
 
 - Persistent branches are lowercase `staging` and `main`.
