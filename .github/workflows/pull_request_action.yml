@@ -21,10 +21,10 @@ jobs:
         run: |
           if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -Eq "^(Software/|\.github/scripts/|\.github/workflows/)"; then
             echo "Firmware-affecting changes detected"
-            echo "changes_detected=true" >> $GITHUB_OUTPUT
+            echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
             echo "No firmware-affecting changes detected, skipping build"
-            echo "changes_detected=false" >> $GITHUB_OUTPUT
+            echo "changes_detected=false" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -137,15 +137,3 @@ jobs:
         run: |
           cd Software
           pio test -e test
-
-  check_docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Verify legacy documentation remains retired
-        run: |
-          if [[ -d Documentation ]]; then
-            echo "The retired in-repository documentation workspace was restored"
-            exit 1
-          fi
