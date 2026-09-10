@@ -1,11 +1,4 @@
 {
-  "title": "OSSM Assembly Docs",
-  "pages": [
-    "index",
-    "pcb-overview",
-    "cable-harnesses",
-    "bom",
-    "assembly-guide",
-    "..."
-  ]
+  "title": "OSSM",
+  "pages": ["index", "cable-harnesses"]
 }

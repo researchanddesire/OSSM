@@ -1,0 +1,12 @@
+# Research and Desire — OSSM License and Copyright Notices
+
+OSSM (Open Source Sex Machine) hardware is (c) Research and Desire.
+
+Hardware designs and their supporting source files are available under
+CERN-OHL-S v2 (strongly reciprocal). The complete license is in
+`LICENSES/CERN-OHL-S-2.0.txt`.
+
+The motor control harness was authored by Lucy Chapar. Its source provenance is
+recorded in `hardware/cables/README.md`.
+
+Research and Desire / OSSM branding: all rights reserved; remove from derivatives.
