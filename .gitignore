@@ -11,3 +11,6 @@ cable-export/
 *.lck
 fp-info-cache
 *~
+
+# Local development display captures
+captures/
