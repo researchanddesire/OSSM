@@ -18,6 +18,18 @@
 #include <esp_partition.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+// MQTT and the staging HTTPS observer share limited internal RAM. CMake can
+// retain an older sdkconfig even when sdkconfig.hil.defaults has changed.
+// Fail the build instead of silently shipping that incompatible TLS setup.
+#if !CONFIG_MBEDTLS_DYNAMIC_BUFFER || !CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT
+#error "Staging requires the dynamic TLS buffers in sdkconfig.hil.defaults"
+#endif
+#if CONFIG_MBEDTLS_SSL_KEEP_PEER_CERTIFICATE || CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
+#error "Staging must release peer certificates and retain reusable TLS configuration"
+#endif
+static_assert(CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN == 16384 &&
+              CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN == 4096,
+              "Staging must retain standard TLS record capacities");
 #if __has_include("mqtt.h")
 #include "mqtt.h"
 #define RAD_HIL_LOCKBOX_MQTT
