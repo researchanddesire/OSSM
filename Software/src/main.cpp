@@ -1,0 +1,111 @@
+#include "Arduino.h"
+#include "OneButton.h"
+#include "components/HeaderBar.h"
+#include "esp_log.h"
+#include "ossm/Events.h"
+#include "ossm/OSSM.h"
+#include "ossm/pages/pairing.h"
+#include "ossm/state/state.h"
+#include "services/board.h"
+#include "services/radHil.h"
+#include "services/communication/mqtt.h"
+#include "services/communication/nimble.h"
+#include "services/display.h"
+#include "services/encoder.h"
+#include "services/led.h"
+#include "services/stepper.h"
+#include "services/wm.h"
+#include "utils/update.h"
+
+namespace sml = boost::sml;
+using namespace sml;
+
+/*
+ *  ██████╗ ███████╗███████╗███╗   ███╗
+ * ██╔═══██╗██╔════╝██╔════╝████╗ ████║
+ * ██║   ██║███████╗███████╗██╔████╔██║
+ * ██║   ██║╚════██║╚════██║██║╚██╔╝██║
+ * ╚██████╔╝███████║███████║██║ ╚═╝ ██║
+ *  ╚═════╝ ╚══════╝╚══════╝╚═╝     ╚═╝
+ *
+ * Welcome to the open source sex machine!
+ * This is a product of Kinky Makers and is licensed under the MIT license.
+ *
+ * Research and Desire is a financial sponsor of this project.
+ *
+ * But our biggest sponsor is you! If you want to support this project, please
+ * contribute, fork, branch and share!
+ */
+
+OneButton button(Pins::Remote::encoderSwitch, false);
+
+#ifdef CONFIG_APP_ROLLBACK_ENABLE
+// Keep Arduino core startup from accepting a pending image before OSSM has
+// initialized enough of the application to confirm it explicitly.
+extern "C" bool verifyRollbackLater() { return true; }
+#endif
+
+void __attribute__((weak)) setup() {
+    // Suppress verbose GPIO configuration logs
+    esp_log_level_set("gpio", ESP_LOG_WARN);
+
+    /** Board setup */
+    initBoard();
+    radHilStart();
+
+    ESP_LOGD("MAIN", "Starting OSSM");
+
+    // Display
+    initDisplay();
+
+    // Initialize header bar task
+    initHeaderBar();
+
+    // Create OSSM instance for backward compatibility (BLE command handling)
+    ossm = new OSSM();
+
+    // Initialize state machine after global state is set up
+    initStateMachine();
+
+    // The board, display, and state machine initialized successfully. Confirm
+    // the running image if a rollback-capable bootloader marked it pending.
+    ossmConfirmRunningImage();
+
+    // ialize LED for BLE and machine status indication
+    ESP_LOGI("MAIN", "LED initialized for BLE and machine status indication");
+    updateLEDForMachineStatus();  // Set initial LED state
+
+    // // link functions to be called on events.
+    button.attachClick([]() { stateMachine->process_event(ButtonPress{}); });
+    button.attachDoubleClick(
+        []() { stateMachine->process_event(DoublePress{}); });
+    button.attachLongPressStart(
+        []() { stateMachine->process_event(LongPress{}); });
+
+    xTaskCreatePinnedToCore(
+        [](void *pvParameters) {
+            while (true) {
+                button.tick();
+                vTaskDelay(25 / portTICK_PERIOD_MS);
+            }
+        },
+        "buttonTask", 4 * configMINIMAL_STACK_SIZE, nullptr,
+        configMAX_PRIORITIES - 1, nullptr, 0);
+
+    // Communication must remain available while homing and in motor-power
+    // error states. This also makes diagnostics and recovery possible when the
+    // drive supply is intentionally disconnected.
+    xTaskCreatePinnedToCore(
+        [](void *pvParameters) {
+            ESP_LOGD("MAIN", "Initializing communication services");
+            initNimble();
+            initWM();
+            initMQTT();
+            pages::startPairingStatusCheck();
+            vTaskDelete(nullptr);
+        },
+        "initNimbleTask", 32 * configMINIMAL_STACK_SIZE, nullptr,
+        configMAX_PRIORITIES - 1, nullptr, 0);
+};
+
+void __attribute__((weak)) loop() { vTaskDelete(nullptr); };

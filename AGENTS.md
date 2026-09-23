@@ -3,9 +3,10 @@
 This repository is being rebuilt from scratch. The initial hardware source is
 Lucy Chapar's OSSM motor control harness and its six reference images.
 
-- Do not import designs, firmware, or documentation from the historical
-  KinkyMakers/OSSM-hardware repository. Add new sources intentionally as part of
-  the rebuild.
+- The user-authorized PR hardware validation work restores firmware and its
+  build/release tooling from this repository's main branch into Software/.
+  Preserve the staging rebuild's hardware and assembly documentation. Do not
+  import historical CAD, hardware, or documentation as part of firmware work.
 - Keep mechanical designs in `hardware/cad/`, PCB projects in `hardware/pcb/`,
   and WireViz sources with their image dependencies in `hardware/cables/`.
 - Preserve the harness pinout, wire specifications, and images unless the user
@@ -22,3 +23,21 @@ Lucy Chapar's OSSM motor control harness and its six reference images.
 - Do not automatically commit, publish, or attach release artifacts.
 - After changing cable tooling or sources, render with
   `bash scripts/render-cables.sh` and verify the outputs and source dependencies.
+
+## PR hardware validation
+
+- Every PR into staging or main builds all hardware variants, including docs-only changes.
+- Install the exact staging bundle for the PR merge SHA; production still builds.
+- Require Build validation and Hardware validation in addition to existing checks.
+- Firmware bundles and hardware evidence are Actions artifacts, never tracked files.
+- The reviewed harness and fixture inventory live outside the runner work directory.
+- Never infer product identity or flash capacity from a COM port or advertising name.
+- Follow scripts/hil/README.md for enrollment, shared-device locks, and rollout.
+- Keep Wi-Fi credentials, fixture identities, and raw device logs outside the repository.
+- A missing device or incomplete three-minute observation must fail validation.
+
+## Development display capture
+
+- Development builds expose the read-only USB `screen` command; staging and production omit it.
+- Follow docs/development-screen-capture.md; use the display mutex for snapshots and keep serial transmission outside it.
+- Preserve the capture mirror when adding TFT bulk drawing paths. Keep capture files outside Git.

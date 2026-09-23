@@ -1,0 +1,139 @@
+name: PlatformIO CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+
+jobs:
+  check_changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changes_detected: ${{ steps.check_changes.outputs.changes_detected }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for firmware or release workflow changes
+        id: check_changes
+        run: |
+          if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -Eq "^(Software/|\.github/scripts/|\.github/workflows/)"; then
+            echo "Firmware-affecting changes detected"
+            echo "changes_detected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No firmware-affecting changes detected, skipping build"
+            echo "changes_detected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check_changes
+    if: needs.check_changes.outputs.changes_detected == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build PlatformIO Project
+        run: |
+          cd Software
+          pio run -e staging
+          pio run -e production
+
+      - name: Build merged web installers
+        run: |
+          for environment in staging production; do
+            python .github/scripts/build_web_installer.py \
+              --build-dir "Software/.pio/build/$environment" \
+              --output "Software/.pio/build/$environment/web-installer.bin"
+          done
+
+      - name: Test immutable publisher
+        run: |
+          python .github/scripts/test_download_verified_release.py
+          python .github/scripts/test_build_web_installer.py
+          python .github/scripts/test_publish_immutable_firmware.py
+          python .github/scripts/test_release_workflow.py
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-bin
+          path: |
+            Software/.pio/build/production/firmware.bin
+            Software/.pio/build/production/partitions.bin
+            Software/.pio/build/production/bootloader.bin
+            Software/.pio/build/production/web-installer.bin
+          retention-days: 14
+
+  check:
+    needs: check_changes
+    if: needs.check_changes.outputs.changes_detected == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Check PlatformIO Project
+        run: |
+          cd Software
+          pio check --skip-packages --fail-on-defect high -e production -f src
+
+  test:
+    needs: check_changes
+    if: needs.check_changes.outputs.changes_detected == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Unit Test PlatformIO Project
+        run: |
+          cd Software
+          pio test -e test
