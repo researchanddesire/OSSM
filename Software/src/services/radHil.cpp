@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdarg>
+#include <cstdlib>
 #include <esp_heap_caps.h>
 #include <time.h>
 #include <esp_crt_bundle.h>
@@ -43,6 +44,30 @@ extern "C" esp_err_t esp_crt_bundle_attach(void *conf);
 #endif
 
 namespace {
+// Arduino 2's log_printf uses the ROM character writer, bypassing the serial
+// driver's mutex. Route both Arduino and IDF task logs through the same buffered
+// writer as health records. Keep every log (including faults) intact.
+int serialLog(const char* format, va_list arguments) {
+    char local[256];
+    va_list copy;
+    va_copy(copy, arguments);
+    const int count = vsnprintf(local, sizeof(local), format, copy);
+    va_end(copy);
+    if (count < 0) return count;
+    if (static_cast<size_t>(count) < sizeof(local)) {
+        return Serial.write(reinterpret_cast<const uint8_t*>(local), count);
+    }
+    auto* expanded = static_cast<char*>(malloc(static_cast<size_t>(count) + 1));
+    if (!expanded) {
+        Serial.print("\nRAD_HEALTH log allocation failed\n");
+        return -1;
+    }
+    vsnprintf(expanded, static_cast<size_t>(count) + 1, format, arguments);
+    const int written = Serial.write(reinterpret_cast<const uint8_t*>(expanded), count);
+    free(expanded);
+    return written;
+}
+
 // One buffered serial write prevents concurrent task logs from splitting JSON.
 // The initial newline separates a record from a partial ordinary log message.
 void emitHealth(const char* format, ...) {
@@ -53,7 +78,10 @@ void emitHealth(const char* format, ...) {
     const int count = vsnprintf(frame + 1, sizeof(frame) - 1, format, arguments);
     va_end(arguments);
     if (count > 0 && static_cast<size_t>(count) < sizeof(frame) - 1) {
-        Serial.write(reinterpret_cast<const uint8_t*>(frame), count + 1);
+        if (Serial.write(reinterpret_cast<const uint8_t*>(frame), count + 1) !=
+            static_cast<size_t>(count + 1)) {
+            Serial.print("\nRAD_HEALTH incomplete serial write\n");
+        }
     }
 }
 std::atomic<uint32_t> progressMs{0};
@@ -160,8 +188,19 @@ void observeTask(void*) {
 }
 }  // namespace
 
+extern "C" int log_printfv(const char* format, va_list arguments);
+extern "C" int __wrap_log_printf(const char* format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+    const int written = bootId == 0 ? log_printfv(format, arguments)
+                                    : serialLog(format, arguments);
+    va_end(arguments);
+    return written;
+}
+
 void radHilStart() {
     if (bootId != 0) return;
+    esp_log_set_vprintf(serialLog);
     bootId = esp_random();
     if (bootId == 0) bootId = 1;
     uint8_t mac[6] = {};

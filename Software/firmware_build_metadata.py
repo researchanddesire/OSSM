@@ -16,6 +16,7 @@ env.Append(
 # Staging hardware observation uses the ordinary application and normal updates.
 profile = env.subst("$PIOENV")
 if profile == "staging" or profile.startswith("staging-"):
+    env.Append(LINKFLAGS=["-Wl,--wrap=log_printf"])
     variant = profile.split("-", 1)[1] if "-" in profile else "16mb"
     env.Append(CPPDEFINES=[
         "RAD_HIL_ARDUINO_HTTP",
