@@ -1,10 +1,13 @@
+#include "services/serialIdentity.h"
 #include "board.h"
 
 bool USE_LATENCY_COMPENSATION = false;
 bool USE_SPEED_KNOB_AS_LIMIT = true;
 
 void initBoard() {
+    configureSerialIdentityUsb();
     Serial.begin(115200);
+    startSerialIdentity();
 
     pinMode(Pins::Remote::encoderSwitch,
             INPUT_PULLDOWN);  // Rotary Encoder Pushbutton

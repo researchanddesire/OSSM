@@ -43,7 +43,7 @@ To reduce visual distraction for users with wired remotes, the LED automatically
 
 When BLE is connected and dimmed, the LED will briefly pulse brighter during:
 - **Receiving commands** from connected device
-- **Sending responses** back to connected device  
+- **Sending responses** back to connected device
 - **State updates** sent to connected device
 
 The communication pulse is a subtle 100ms fade with minimal brightness increase.

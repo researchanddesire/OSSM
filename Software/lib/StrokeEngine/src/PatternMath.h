@@ -6,26 +6,26 @@
 
 /**************************************************************************/
 /*!
-  @brief This function will scale one set of floating point numbers (range) 
-  to another set of floating point numbers (range). It has a "curve" parameter 
-  so that it can be made to favor either the end of the output. 
+  @brief This function will scale one set of floating point numbers (range)
+  to another set of floating point numbers (range). It has a "curve" parameter
+  so that it can be made to favor either the end of the output.
   (Logarithmic mapping) Source: https://playground.arduino.cc/Main/Fscale/
-  @param originalMin the minimum value of the original range 
+  @param originalMin the minimum value of the original range
                      this MUST be less than originalMax
-  @param originalMax the maximum value of the original range 
+  @param originalMax the maximum value of the original range
                      this MUST be greater than originalMin
-  @param newBegin    the end of the new range which maps to originalMin 
-                     it can be smaller, or larger, than newEnd, to 
+  @param newBegin    the end of the new range which maps to originalMin
+                     it can be smaller, or larger, than newEnd, to
                      facilitate inverting the ranges
   @param newEnd      the end of the new range which maps to originalMax
-                     it can be larger, or smaller, than newBegin, to 
+                     it can be larger, or smaller, than newBegin, to
                      facilitate inverting the ranges
-  @param inputValue  the variable for input that will mapped to the given ranges, 
-                     this variable is constrained to 
+  @param inputValue  the variable for input that will mapped to the given ranges,
+                     this variable is constrained to
                      originaMin <= inputValue <= originalMax
-  @param curve       curve is the curve which can be made to favor either 
-                     end of the output scale in the mapping. 
-                     Parameters are from -10 to 10 with 0 being a linear mapping 
+  @param curve       curve is the curve which can be made to favor either
+                     end of the output scale in the mapping.
+                     Parameters are from -10 to 10 with 0 being a linear mapping
                      (which basically takes curve out of the equation)
   @returns the scaled value
 */
@@ -82,7 +82,7 @@ newEnd, float inputValue, float curve){
 
   }
   else     // invert the ranges
-  {  
+  {
     rangedValue =  newBegin - (pow(normalizedCurVal, curve) * NewRange);
   }
 
@@ -91,7 +91,7 @@ newEnd, float inputValue, float curve){
 
 /**************************************************************************/
 /*!
-  @brief  Float version of Arduino's map() function. 
+  @brief  Float version of Arduino's map() function.
   @param x          The value to be mapped
   @param in_min     in_min gets mapped to out_min
   @param in_max     in_max gets mapped to out_max
@@ -106,15 +106,15 @@ inline float fmap(float x, float in_min, float in_max, float out_min, float out_
 
 /**************************************************************************/
 /*!
-  @brief  Maps a Sensation value from -100 to +100 to an arbitrary factor. 
-  Positive values become a factor > 1. 0 maps to 1.0 and negative values are 
+  @brief  Maps a Sensation value from -100 to +100 to an arbitrary factor.
+  Positive values become a factor > 1. 0 maps to 1.0 and negative values are
   mapped to the invers between 0 and 1.0. A curve argument may be given if the
   mapping should be curved (log). It uses fscale() under the hood.
   @param maximumFactor   the factor +100 gets mapped to. Should be > 1.0
   @param inputValue     Input parameter to be mapped
-  @param curve          curve is the curve which can be made to favor either 
-                        end of the output scale in the mapping. 
-                        Parameters are from -10 to 10 with 0 being a linear mapping 
+  @param curve          curve is the curve which can be made to favor either
+                        end of the output scale in the mapping.
+                        Parameters are from -10 to 10 with 0 being a linear mapping
                         (which basically takes curve out of the equation)
   @returns the scaled factor
 */
@@ -125,7 +125,7 @@ inline float mapSensationToFactor(float maximumFactor, float inputValue, float c
 
     if (inputValue == 0.0) {
         return 1.0;
-    } 
+    }
 
     fscaledValue = fscale(0.0, 100.0, 1.0, maximumFactor, abs(inputValue), curve);
 
@@ -134,7 +134,5 @@ inline float mapSensationToFactor(float maximumFactor, float inputValue, float c
     } else {
         return 1.0/fscaledValue;
     }
-    
+
 }
-
-

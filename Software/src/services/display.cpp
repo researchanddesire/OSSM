@@ -1,4 +1,5 @@
 #include "display.h"
+#include "capturedDisplay.h"
 
 #include <esp_log.h>
 
@@ -27,6 +28,9 @@ void initDisplay() {
     display.setContrast(255);
     display.clearBuffer();
     display.sendBuffer();
+#ifdef VERSIONDEV
+    startScreenCaptureConsole();
+#endif
 
     ESP_LOGI(TAG, "Display initialization complete.");
 

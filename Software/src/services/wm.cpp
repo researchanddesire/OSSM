@@ -88,7 +88,7 @@ bool connectWiFi() {
 
 String getWiFiStatus() {
     JsonDocument doc;
-    
+
     bool connected = (WiFi.status() == WL_CONNECTED);
     doc["connected"] = connected;
 

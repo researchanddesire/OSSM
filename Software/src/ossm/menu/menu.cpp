@@ -1,4 +1,5 @@
 #include "menu.h"
+#include "services/radHil.h"
 
 #include <WiFi.h>
 
@@ -41,6 +42,7 @@ static void drawMenuTask(void *pvParameters) {
     };
 
     while (isInCorrectState()) {
+        radHilProgress(stateMachine->is("menu.idle"_s));
         wl_status_t newWifiState = WiFiClass::status();
 
         bool shouldRedraw = isFirstDraw || encoder.encoderChanged() ||

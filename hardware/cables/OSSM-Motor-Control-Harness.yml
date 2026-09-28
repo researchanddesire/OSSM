@@ -1,0 +1,107 @@
+metadata:
+  title: "OSSM Motor Control Harness"
+  description: "Servo control harness: TB1 to J12 with loose power ferrules"
+  notes:
+    - "TB1 pin numbering is defined from the screw head side, left-to-right, with wires exiting away from the viewer"
+    - "TB1 pin 1 is the leftmost position in this view"
+    - "Diagram order is shown to match connector orientation and avoid visual crossover"
+    - "Power branch: 18 AWG BK=GND, RD=24V"
+    - "Apply 200 mm of 6 mm PET expandable braided sleeving over the bundled middle section of W_SIG and W_PWR"
+    - "Secure the sleeving with one black zip tie at each end"
+  template:
+    name: "simple"
+
+connectors:
+  TB1:
+    type: "PLUG-IN TERMINAL BLOCK"
+    subtype: "Male Plug w/3.81mm Pitch"
+    pinlabels: ["DIR-", "DIR+", "PU-", "PU+", "GND", "24V"]
+    pincolors: ["GY", "BU", "RD", "BK", "BK", "RD"]
+    manufacturer: "KANGNEX"
+    mpn: "WJ15EDGK-3.81-06P-14-00A"
+    supplier: "LCSC"
+    spn: "C7247"
+    image:
+      src: "images/TB_1.png"
+      caption: "Pin numbering viewed from screw head side; Pin 1 is leftmost"
+      width: 350
+
+  J12:
+    type: "JST PHR-04"
+    pinlabels: ["DIR-", "DIR+", "PU-", "PU+"]
+    pincolors: ["GY", "BU", "RD", "BK"]
+    image:
+      src: "images/JST_PHR-04.png"
+      caption: "Pin 1 is leftmost"
+      width: 170
+
+  F_GND:
+    type: "Loose ferrule"
+    subtype: "18 AWG"
+    pinlabels: ["GND"]
+    color: BK
+    style: simple
+    image:
+      src: "images/F_GND.png"
+      caption: "GND ferrule"
+      width: 120
+
+  F_24V:
+    type: "Loose ferrule"
+    subtype: "18 AWG"
+    pinlabels: ["24V"]
+    color: RD
+    style: simple
+    image:
+      src: "images/F_24V.png"
+      caption: "24V ferrule"
+      width: 120
+
+cables:
+  W_SIG:
+    wirecount: 4
+    gauge: 24 AWG
+    colors: ["GY", "BU", "RD", "BK"]
+    wirelabels: ["DIR-", "DIR+", "PU-", "PU+"]
+    length: 250 mm
+    additional_components:
+      - type: "Crimp contact"
+        subtype: "JST PH series (for PHR-04)"
+        manufacturer: "JST"
+        mpn: "SPH-002T-P0.5S"
+        qty: 4
+
+  W_PWR:
+    wirecount: 2
+    gauge: 18 AWG
+    colors: ["BK", "RD"]
+    wirelabels: ["GND", "24V"]
+    length: 250 mm
+    image:
+      src: "images/OSSM_Harness.png"
+      caption: "Power wires bundled with signal wires using braided sleeving"
+      width: 600
+    additional_components:
+      - type: "Braided sleeving"
+        subtype: "6 mm PET expandable sleeving"
+        qty: 0.2
+        unit: "m"
+      - type: "Cable tie"
+        subtype: "Black nylon"
+        qty: 2
+
+connections:
+  -
+    - TB1: [1, 2, 3, 4]
+    - W_SIG: [1, 2, 3, 4]
+    - J12: [1, 2, 3, 4]
+
+  -
+    - TB1: [5]
+    - W_PWR: [1]
+    - F_GND: [1]
+
+  -
+    - TB1: [6]
+    - W_PWR: [2]
+    - F_24V: [1]

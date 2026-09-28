@@ -34,19 +34,19 @@ void ossmRestart();
 namespace actions {
 
     constexpr auto drawHello = []() { ossmDrawHello(); };
-    
+
     constexpr auto drawMenu = []() { ossmDrawMenu(); };
-    
+
     constexpr auto startHoming = []() { ossmStartHoming(); };
-    
+
     constexpr auto drawPlayControls = []() { ossmDrawPlayControls(); };
-    
+
     constexpr auto startStreaming = []() { ossmStartStreaming(); };
-    
+
     constexpr auto drawPatternControls = []() { ossmDrawPatternControls(); };
-    
+
     constexpr auto drawPreflight = []() { ossmDrawPreflight(); };
-    
+
     constexpr auto resetSettingsStrokeEngine = []() { ossmResetSettingsStrokeEngine(); };
 
     constexpr auto resetSettingsSimplePen = []() { ossmResetSettingsSimplePen(); };
@@ -60,17 +60,17 @@ namespace actions {
     constexpr auto startSimplePenetration = []() { ossmStartSimplePenetration(); };
 
     constexpr auto startStrokeEngine = []() { ossmStartStrokeEngine(); };
-    
+
     constexpr auto emergencyStop = []() { ossmEmergencyStop(); };
-    
+
     constexpr auto drawHelp = []() { ossmDrawHelp(); };
-    
+
     constexpr auto drawWiFi = []() { ossmDrawWiFi(); };
-    
+
     constexpr auto drawUpdate = []() { ossmDrawUpdate(); };
-    
+
     constexpr auto drawNoUpdate = []() { ossmDrawNoUpdate(); };
-    
+
     constexpr auto drawUpdating = []() { ossmDrawUpdating(); };
 
     // Spawns the OTA update task (TLS check + download run there, not on the
@@ -78,19 +78,19 @@ namespace actions {
     constexpr auto startUpdate = []() { ossmStartUpdate(); };
 
     constexpr auto stopWifiPortal = []() {};
-    
+
     constexpr auto resetWiFi = []() { ossmResetWiFi(); };
-    
+
     constexpr auto drawError = []() { ossmDrawError(); };
-    
+
     constexpr auto checkPairing = []() { ossmCheckPairing(); };
 
     constexpr auto drawPairingSuccess = []() { ossmDrawPairingSuccess(); };
 
     constexpr auto setHomed = []() { ossmSetHomed(); };
-    
+
     constexpr auto setNotHomed = []() { ossmSetNotHomed(); };
-    
+
     constexpr auto restart = []() { ossmRestart(); };
 
 }  // namespace actions

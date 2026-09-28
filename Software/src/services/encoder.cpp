@@ -2,15 +2,15 @@
 
 // Define the global encoder instance
 AiEsp32RotaryEncoder encoder(
-    Pins::Remote::encoderA, 
-    Pins::Remote::encoderB, 
+    Pins::Remote::encoderA,
+    Pins::Remote::encoderB,
     Pins::Remote::encoderSwitch,
-    Pins::Remote::encoderPower, 
+    Pins::Remote::encoderPower,
     Pins::Remote::encoderStepsPerNotch
 );
 
-void IRAM_ATTR readEncoderISR() { 
-    encoder.readEncoder_ISR(); 
+void IRAM_ATTR readEncoderISR() {
+    encoder.readEncoder_ISR();
 }
 
 void initEncoder() {
@@ -19,4 +19,4 @@ void initEncoder() {
     encoder.setBoundaries(0, 99, false);
     encoder.setAcceleration(0);
     encoder.disableAcceleration();
-} 
+}

@@ -16,7 +16,7 @@ class WiFiConfigCallbacks : public NimBLECharacteristicCallbacks {
         std::string value = pCharacteristic->getValue();
         String wifiCommand = String(value.c_str());
 
-        ESP_LOGI("NIMBLE_WIFI", "WiFi config write: %s", wifiCommand.c_str());
+        ESP_LOGI("NIMBLE_WIFI", "WiFi configuration received");
 
         // Expected format: set:wifi:<ssid>|<password>
         if (!wifiCommand.startsWith("set:wifi:")) {
@@ -56,7 +56,7 @@ class WiFiConfigCallbacks : public NimBLECharacteristicCallbacks {
         // Save credentials and attempt connection
         if (setWiFiCredentials(ssid, password)) {
             pCharacteristic->setValue("ok:wifi:saved");
-            
+
             // Attempt to connect
             if (connectWiFi()) {
                 ESP_LOGI("NIMBLE_WIFI", "WiFi connected successfully");
@@ -92,7 +92,7 @@ inline NimBLECharacteristic* initWiFiConfigCharacteristic(NimBLEService* pServic
         uuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ);
 
     pWiFiConfigChar->setCallbacks(&wifiConfigCallbacks);
-    
+
     // Set initial value to current WiFi status
     pWiFiConfigChar->setValue(getWiFiStatus());
 

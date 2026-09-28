@@ -7,6 +7,7 @@
 #include "ossm/pages/pairing.h"
 #include "ossm/state/state.h"
 #include "services/board.h"
+#include "services/radHil.h"
 #include "services/communication/mqtt.h"
 #include "services/communication/nimble.h"
 #include "services/display.h"
@@ -50,6 +51,7 @@ void __attribute__((weak)) setup() {
 
     /** Board setup */
     initBoard();
+    radHilStart();
 
     ESP_LOGD("MAIN", "Starting OSSM");
 
