@@ -7,17 +7,39 @@ from release_workflow import branch_configuration, main, tag_action
 
 
 class ReleaseWorkflowTests(unittest.TestCase):
-    def test_publisher_uses_scoped_deploy_key_for_git_writes(self):
-        workflow = (
-            Path(__file__).resolve().parents[1] / "workflows" / "publish_firmware.yml"
-        ).read_text()
+    def test_release_writes_use_repository_scoped_app_tokens(self):
+        workflows = Path(__file__).resolve().parents[1] / "workflows"
+        for name in ["publish_firmware.yml", "hotfix-sync.yml"]:
+            with self.subTest(workflow=name):
+                workflow = (workflows / name).read_text()
+                self.assertIn("uses: actions/create-github-app-token@v2", workflow)
+                self.assertIn(
+                    "app-id: ${{ vars.RAD_VERSION_CONTROL_APP_ID }}", workflow
+                )
+                self.assertIn(
+                    "private-key: ${{ secrets.RAD_VERSION_CONTROL_PRIVATE_KEY }}",
+                    workflow,
+                )
+                self.assertIn(
+                    "repositories: ${{ github.event.repository.name }}", workflow
+                )
+                self.assertNotIn("RAD_VERSION_CONTROL_DEPLOY_KEY", workflow)
+                self.assertNotIn("HOTFIX_SYNC_TOKEN", workflow)
+                self.assertNotRegex(
+                    workflow,
+                    r"(?m)^\s+(?:token|github-token):\s+\$\{\{ github\.token \}\}$",
+                )
+        workflow = (workflows / "publish_firmware.yml").read_text()
         self.assertIn(
-            "ssh-key: ${{ secrets.RAD_VERSION_CONTROL_DEPLOY_KEY }}", workflow
+            "token: ${{ steps.version_token.outputs.token }}", workflow
         )
-        self.assertNotRegex(
-            workflow, r"(?m)^\s+token:\s+\$\{\{ github\.token \}\}$"
+        self.assertIn(
+            "github-token: ${{ steps.version_token.outputs.token }}", workflow
         )
-        self.assertIn("github-token: ${{ github.token }}", workflow)
+        self.assertIn(
+            "GH_TOKEN: ${{ steps.version_token.outputs.token }}",
+            (workflows / "hotfix-sync.yml").read_text(),
+        )
 
     def test_branch_configuration_maps_tracks_and_projects(self):
         self.assertEqual(branch_configuration("main")["PIO_ENV"], "production")

@@ -34,17 +34,22 @@ jobs:
             echo "sync=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Generate version-control token
+        id: version_token
+        if: steps.policy.outputs.sync == 'true'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RAD_VERSION_CONTROL_APP_ID }}
+          private-key: ${{ secrets.RAD_VERSION_CONTROL_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Open or update main-to-staging synchronization
         if: steps.policy.outputs.sync == 'true'
         env:
-          GH_TOKEN: ${{ secrets.HOTFIX_SYNC_TOKEN }}
+          GH_TOKEN: ${{ steps.version_token.outputs.token }}
         shell: bash
         run: |
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error::HOTFIX_SYNC_TOKEN is not configured."
-            exit 1
-          fi
-
           ahead_by="$(gh api "repos/${GITHUB_REPOSITORY}/compare/staging...main" --jq '.ahead_by')"
           if [[ "$ahead_by" == "0" ]]; then
             echo "staging already contains main."
