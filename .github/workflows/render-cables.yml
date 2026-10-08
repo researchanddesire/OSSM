@@ -66,7 +66,7 @@ jobs:
         with:
           name: cable-export
           path: cable-export/
-      - name: Update README diagram previews
+      - name: Update cable diagrams and BOMs
         env:
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_BRANCH: ${{ github.ref_name }}
@@ -82,11 +82,12 @@ jobs:
           git checkout -B "$SOURCE_BRANCH" FETCH_HEAD
           mkdir -p hardware/cables/generated
           cp cable-export/*.png hardware/cables/generated/
-          git add hardware/cables/generated/*.png
+          cp cable-export/*.bom.tsv hardware/cables/
+          git add hardware/cables/generated/*.png hardware/cables/*.bom.tsv
           if git diff --cached --quiet; then
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Refresh cable harness diagram previews'
+          git commit -m 'Refresh cable harness diagrams and BOMs'
           git push origin "HEAD:$SOURCE_BRANCH"
