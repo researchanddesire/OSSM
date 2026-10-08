@@ -1,0 +1,10 @@
+Id	Description	Qty	Unit	Designators	Manufacturer	MPN	Supplier	SPN
+1	Braided sleeving, 6 mm PET expandable sleeving	0.2	m	W_PWR				
+2	Cable tie, Black nylon	2		W_PWR				
+3	Cable, 2 x 18 AWG	250	mm	W_PWR				
+4	Cable, 4 x 24 AWG	250	mm	W_SIG				
+5	Connector, JST PHR-04, 4 pins	1		J12				
+6	Connector, Loose ferrule, 18 AWG, BK	1						
+7	Connector, Loose ferrule, 18 AWG, RD	1						
+8	Connector, PLUG-IN TERMINAL BLOCK, Male Plug w/3.81mm Pitch, 6 pins	1		TB1	KANGNEX	WJ15EDGK-3.81-06P-14-00A	LCSC	C7247
+9	Crimp contact, JST PH series (for PHR-04)	4		W_SIG	JST	SPH-002T-P0.5S		

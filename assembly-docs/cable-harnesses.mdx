@@ -1,19 +1,7 @@
 ---
-title: Motor Control Harness
-description: Source files and reference images for Lucy Chapar's OSSM harness.
+title: Cable Harnesses
 ---
 
-The motor control harness connects a six-position TB1 terminal block to a
-four-position J12 connector and separate GND and 24V ferrules.
+## Motor Control Harness
 
-The design source is `hardware/cables/OSSM-Motor-Control-Harness.yml`. It specifies
-four 24 AWG signal wires and two 18 AWG power wires, each 250 mm long. Connector
-orientation, pin numbering, colors, sleeving, contacts, and cable ties are
-defined in the source.
-
-The reference images are in `hardware/cables/images/`, including an installed
-harness photo. Run `bash scripts/render-cables.sh` to generate the diagram, PDF,
-and detailed cable BOM under `cable-export/`.
-
-This preserved harness is the starting point for the new hardware design. Its
-compatibility with a future PCB must be checked against that PCB's pinout.
+[View wiring diagram](https://github.com/researchanddesire/OSSM/tree/main/hardware/cables#readme) · [WireViz YAML](https://github.com/researchanddesire/OSSM/blob/main/hardware/cables/OSSM-Motor-Control-Harness.yml) · [Cable BOM](https://github.com/researchanddesire/OSSM/blob/main/hardware/cables/OSSM-Motor-Control-Harness.bom.tsv) · [Download PDF](https://github.com/researchanddesire/OSSM/actions/workflows/render-cables.yml)

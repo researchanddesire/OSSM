@@ -1,0 +1,2 @@
+# Preserve original STEP export bytes, including embedded line endings.
+*.step binary

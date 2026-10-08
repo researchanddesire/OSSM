@@ -27,11 +27,10 @@ bash scripts/render-cables.sh
 ```
 
 The command writes the diagram, PDF, HTML, and cable BOM to `cable-export/`.
-Generated exports are excluded from Git. The electrical connections and wire
-specifications remain in the WireViz source.
+CI updates the diagram shown in [`hardware/cables/README.md`](hardware/cables/README.md).
+PDF, SVG, HTML, and detailed cable BOM exports are available from the
+[Render Cable Harnesses workflow](https://github.com/researchanddesire/OSSM/actions/workflows/render-cables.yml).
 
 ## License
 
 Hardware designs use [CERN-OHL-S v2](LICENSES/CERN-OHL-S-2.0.txt).
-The preserved harness and images retain their original provenance; see
-[`hardware/cables/README.md`](hardware/cables/README.md).
