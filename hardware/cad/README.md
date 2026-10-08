@@ -3,8 +3,7 @@
 STEP component exports for the parts in [the hardware BOM](../bom.csv).
 
 - `actuator/`: body, belt clamps, tensioner and jam nut.
-- `mounting/`: PCB enclosure and PitClamp components.
-- `stand/`: pivot plates, handle spacer, feet and extrusion end caps.
+- `stand/`: PCB enclosure, PitClamp components, pivot plates, handle spacer, feet and extrusion end caps.
 
 Exports retain their original Fusion 360 geometry and embedded STEP units.
 Most use millimetres; the PCB mount base and lid use metres.

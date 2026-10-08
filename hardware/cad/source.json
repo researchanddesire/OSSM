@@ -52,59 +52,10 @@
       "lengthUnit": "mm"
     },
     {
-      "file": "mounting/57aim-ring-v1.1.step",
+      "file": "stand/57aim-ring-v1.1.step",
       "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Mounting Ring - PitClamp Mini - 57AIM V1.1.stp",
       "gitBlobSha": "72b8b6fe5c182a6277598dec97a431320bc845df",
       "sha256": "75b68790420623422da383f298e706931c4639ab96b30d39c8a52b76c57b37f4",
-      "lengthUnit": "mm"
-    },
-    {
-      "file": "mounting/pcb-mount-base.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - PCB - Box.stp",
-      "gitBlobSha": "7fd25d1141c3bae089513ca3dc47433878652d46",
-      "sha256": "bf729708dd8b86a9e66625d4f0442305987a39388cd7cbd7ed3b2ebb5770ba89",
-      "lengthUnit": "m"
-    },
-    {
-      "file": "mounting/pcb-mount-lid.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - PCB - Lid.stp",
-      "gitBlobSha": "1889daea8761237fceed9ee06b19574d38129791",
-      "sha256": "944e166a2e2a56999700df8772c91c2156cf4024cfc94d13c6a32a7e236b580a",
-      "lengthUnit": "m"
-    },
-    {
-      "file": "mounting/pitclamp-dogbone-hex.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Dogbone Nuts.stp",
-      "gitBlobSha": "67aa4ef6694fc4c349da8d32b75b48de556b0f4e",
-      "sha256": "25763bbd16fdf98d39ac3890e36f1f5fd77fdbec2817b43e51ac214afd091cfc",
-      "lengthUnit": "mm"
-    },
-    {
-      "file": "mounting/pitclamp-dogbone-round.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Dogbone Bolts.stp",
-      "gitBlobSha": "486231305f134d2949070018c4ecda8202078ef2",
-      "sha256": "284c98b4454862f1ae2672ab0118d11cc60fa78a778d6718531927e09900dd3a",
-      "lengthUnit": "mm"
-    },
-    {
-      "file": "mounting/pitclamp-handle.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Handle.stp",
-      "gitBlobSha": "20f975911f7853c6b87c18f8fe7eb38e4a657901",
-      "sha256": "f8e8ce495c775a0a4ed1e75fd8d8cc0248f0f88e5206a101f330e375b873ea11",
-      "lengthUnit": "mm"
-    },
-    {
-      "file": "mounting/pitclamp-lower-v1.1.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Lower V1.1.stp",
-      "gitBlobSha": "78a24d5c75c6644f92007073080a5a79f10744b2",
-      "sha256": "71a95815d0a8a8e15edd7515abbced13780a14b5c38c175be1ee4d81b7458a18",
-      "lengthUnit": "mm"
-    },
-    {
-      "file": "mounting/pitclamp-upper-v1.1.step",
-      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Upper V1.1.stp",
-      "gitBlobSha": "6190527c06cfc3af7dfbe67059f1e09b713f4e27",
-      "sha256": "71f07cbba7048bb061ca5058883170b41212d969db9a8b527c4ac31d37518f3b",
       "lengthUnit": "mm"
     },
     {
@@ -126,6 +77,55 @@
       "upstreamPath": "Printed Parts/Stand/STEP/OSSM - Stand - 3030 Extrusion Base - Handle Spacer.stp",
       "gitBlobSha": "b35a8a5edc62cbb2afc90f942847362d73538d5f",
       "sha256": "166c0cd5d432f23c877b92aefa1e43ff155c9d62ed0c7e932de97c23e0ae4f21",
+      "lengthUnit": "mm"
+    },
+    {
+      "file": "stand/pcb-mount-base.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - PCB - Box.stp",
+      "gitBlobSha": "7fd25d1141c3bae089513ca3dc47433878652d46",
+      "sha256": "bf729708dd8b86a9e66625d4f0442305987a39388cd7cbd7ed3b2ebb5770ba89",
+      "lengthUnit": "m"
+    },
+    {
+      "file": "stand/pcb-mount-lid.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - PCB - Lid.stp",
+      "gitBlobSha": "1889daea8761237fceed9ee06b19574d38129791",
+      "sha256": "944e166a2e2a56999700df8772c91c2156cf4024cfc94d13c6a32a7e236b580a",
+      "lengthUnit": "m"
+    },
+    {
+      "file": "stand/pitclamp-dogbone-hex.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Dogbone Nuts.stp",
+      "gitBlobSha": "67aa4ef6694fc4c349da8d32b75b48de556b0f4e",
+      "sha256": "25763bbd16fdf98d39ac3890e36f1f5fd77fdbec2817b43e51ac214afd091cfc",
+      "lengthUnit": "mm"
+    },
+    {
+      "file": "stand/pitclamp-dogbone-round.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Dogbone Bolts.stp",
+      "gitBlobSha": "486231305f134d2949070018c4ecda8202078ef2",
+      "sha256": "284c98b4454862f1ae2672ab0118d11cc60fa78a778d6718531927e09900dd3a",
+      "lengthUnit": "mm"
+    },
+    {
+      "file": "stand/pitclamp-handle.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Handle.stp",
+      "gitBlobSha": "20f975911f7853c6b87c18f8fe7eb38e4a657901",
+      "sha256": "f8e8ce495c775a0a4ed1e75fd8d8cc0248f0f88e5206a101f330e375b873ea11",
+      "lengthUnit": "mm"
+    },
+    {
+      "file": "stand/pitclamp-lower-v1.1.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Lower V1.1.stp",
+      "gitBlobSha": "78a24d5c75c6644f92007073080a5a79f10744b2",
+      "sha256": "71a95815d0a8a8e15edd7515abbced13780a14b5c38c175be1ee4d81b7458a18",
+      "lengthUnit": "mm"
+    },
+    {
+      "file": "stand/pitclamp-upper-v1.1.step",
+      "upstreamPath": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Upper V1.1.stp",
+      "gitBlobSha": "6190527c06cfc3af7dfbe67059f1e09b713f4e27",
+      "sha256": "71f07cbba7048bb061ca5058883170b41212d969db9a8b527c4ac31d37518f3b",
       "lengthUnit": "mm"
     },
     {
