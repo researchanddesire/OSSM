@@ -1,0 +1,457 @@
+{
+  "type": "google-sheets-and-hardware-references",
+  "assemblies": [
+    {
+      "id": "actuator",
+      "title": "Actuator",
+      "spreadsheetId": "1EAJ-i2w81UQTPMZ884IqXnv6inoJdsq9XYi_0mB4RF0",
+      "sheet": "V1.1",
+      "gid": 1274520471,
+      "url": "https://docs.google.com/spreadsheets/d/1EAJ-i2w81UQTPMZ884IqXnv6inoJdsq9XYi_0mB4RF0/edit?gid=1274520471",
+      "exportSha256": "aefc7e8965da9adb50a2214242769b3bd6d60af5b0ab3fdf14319cf79ae7c3dd",
+      "lineItems": [
+        {
+          "line": 1,
+          "sourceRow": 5
+        },
+        {
+          "line": 2,
+          "sourceRow": 6
+        },
+        {
+          "line": 3,
+          "sourceRow": 7
+        },
+        {
+          "line": 4,
+          "sourceRow": 9
+        },
+        {
+          "line": 5,
+          "sourceRow": 10
+        },
+        {
+          "line": 6,
+          "sourceRow": 12
+        },
+        {
+          "line": 7,
+          "sourceRow": 13
+        },
+        {
+          "line": 8,
+          "sourceRow": 14
+        },
+        {
+          "line": 9,
+          "sourceRow": 16
+        },
+        {
+          "line": 10,
+          "sourceRow": 17
+        },
+        {
+          "line": 11,
+          "sourceRow": 19
+        },
+        {
+          "line": 12,
+          "sourceRow": 21
+        },
+        {
+          "line": 13,
+          "sourceRow": 22
+        },
+        {
+          "line": 14,
+          "sourceRow": 25
+        },
+        {
+          "line": 15,
+          "sourceRow": 26
+        },
+        {
+          "line": 16,
+          "sourceRow": 29
+        },
+        {
+          "line": 17,
+          "sourceRow": 30
+        },
+        {
+          "line": 18,
+          "sourceRow": 31
+        },
+        {
+          "line": 19,
+          "sourceRow": 32
+        },
+        {
+          "line": 20,
+          "sourceRow": 33
+        },
+        {
+          "line": 21,
+          "sourceRow": 34
+        },
+        {
+          "line": 22,
+          "sourceRow": 35
+        },
+        {
+          "line": 23,
+          "sourceRow": 36
+        },
+        {
+          "line": 24,
+          "sourceRow": 37
+        },
+        {
+          "line": 25,
+          "sourceRow": 38
+        },
+        {
+          "line": 26,
+          "sourceRow": 39
+        },
+        {
+          "line": 27,
+          "sourceRow": 40
+        },
+        {
+          "line": 28,
+          "sourceRow": 41
+        },
+        {
+          "line": 29,
+          "sourceRow": 42
+        }
+      ],
+      "sourceLabel": "Actuator BOM · V1.1"
+    },
+    {
+      "id": "stand",
+      "title": "Extrusion stand",
+      "spreadsheetId": "15bvp-CqL_AXYSFGotP8OgA4xoClJJh7Wz1QwajNq2mY",
+      "sheet": "V1.1",
+      "gid": 752969633,
+      "url": "https://docs.google.com/spreadsheets/d/15bvp-CqL_AXYSFGotP8OgA4xoClJJh7Wz1QwajNq2mY/edit?gid=752969633",
+      "exportSha256": "c07f82cea52b8e2d35f84bd8974b810b0fdec83b5466d4d0446c1f8d00ef9d6d",
+      "lineItems": [
+        {
+          "line": 30,
+          "sourceRow": 4
+        },
+        {
+          "line": 31,
+          "sourceRow": 5
+        },
+        {
+          "line": 32,
+          "sourceRow": 6
+        },
+        {
+          "line": 33,
+          "sourceRow": 7
+        },
+        {
+          "line": 34,
+          "sourceRow": 8
+        },
+        {
+          "line": 35,
+          "sourceRow": 10
+        },
+        {
+          "line": 36,
+          "sourceRow": 11
+        },
+        {
+          "line": 37,
+          "sourceRow": 12
+        },
+        {
+          "line": 38,
+          "sourceRow": 14
+        },
+        {
+          "line": 39,
+          "sourceRow": 15
+        },
+        {
+          "line": 40,
+          "sourceRow": 16
+        },
+        {
+          "line": 41,
+          "sourceRow": 17
+        },
+        {
+          "line": 42,
+          "sourceRow": 19
+        },
+        {
+          "line": 43,
+          "sourceRow": 21
+        },
+        {
+          "line": 44,
+          "sourceRow": 22
+        },
+        {
+          "line": 45,
+          "sourceRow": 23
+        },
+        {
+          "line": 46,
+          "sourceRow": 24
+        },
+        {
+          "line": 47,
+          "sourceRow": 27
+        },
+        {
+          "line": 48,
+          "sourceRow": 28
+        },
+        {
+          "line": 49,
+          "sourceRow": 29
+        },
+        {
+          "line": 50,
+          "sourceRow": 30
+        }
+      ],
+      "sourceLabel": "Extrusion stand BOM · V1.1"
+    },
+    {
+      "id": "electronics",
+      "title": "Electronics and cables",
+      "url": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md",
+      "sourceLabel": "Hardware references and linked product sources",
+      "repository": "researchanddesire/ossm",
+      "commit": "82c124c19f5a219288c71b431a415fc73f786b92",
+      "lineItems": [
+        {
+          "line": 51,
+          "sourceUrl": "https://www.researchanddesire.com/products/ossm-reference-board",
+          "quantitySource": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md"
+        },
+        {
+          "line": 52,
+          "sourceUrl": "https://www.researchanddesire.com/products/ossm-24v-power-supply",
+          "quantitySource": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md"
+        },
+        {
+          "line": 53,
+          "sourceUrl": "https://www.researchanddesire.com/products/ossm-reference-board",
+          "quantitySource": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md",
+          "selection": "Wired OSSM remote, confirmed by user"
+        },
+        {
+          "line": 54,
+          "sourceUrl": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md"
+        },
+        {
+          "line": 55,
+          "sourceUrl": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md"
+        },
+        {
+          "line": 56,
+          "sourceUrl": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/hardware/cables/OSSM-Motor-Control-Harness.yml",
+          "quantitySource": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md",
+          "sourceBlobSha": "29a6749a2be4e2ac47f16aebf3a3aee284173324"
+        }
+      ]
+    }
+  ],
+  "quantityBasis": "V1.1 sheet quantities, including stated spares, for one actuator and one stand. Electronics and cable quantities use the OSSM hardware reference list for one build, with the wired remote selected by the user. Duplicate mechanical parts are not combined.",
+  "omitted": "Deprecated tabs, alternative accordion view, costing, exchange rates, shipping factors, filament cost/weight calculations, totals and blank-name rows. Newsprint roll packing paper (stand V1.1 row 31) is excluded at user request. Wireless remote and USB-C charging cable are excluded because the user selected the wired remote.",
+  "unresolved": [
+    {
+      "assembly": "stand",
+      "range": "A34:J34",
+      "reason": "Unnamed costing row (quantity 0.25). No part identity or unit is given, so no BOM item is created."
+    },
+    {
+      "assembly": "actuator",
+      "range": "J16",
+      "reason": "Unlabeled value 6; the M6x16mm quantity is taken from B16 (2)."
+    },
+    {
+      "assembly": "electronics",
+      "part": "Motor Control Harness",
+      "reason": "Store product lists 190 mm harness length; pinned Wireviz source specifies 250 mm wires. Top-level BOM omits length pending reconciliation."
+    }
+  ],
+  "scope": "Mechanical actuator and extrusion stand from the supplied V1.1 sheets, plus controller PCBA, power supply, wired remote, remote cable and screws, and one combined motor signal/power harness.",
+  "mapping": "Generic Factory is the user-requested manufacturer label for standard purchased parts whose maker is not specified. R+D is used for custom printed parts, controller, remote and harness. Known manufacturer/model identifiers MR115-2RS and 57AIM30, and R+D internal printed-part identifiers, are stored in MFG PN. Distributor SKUs and unverified supplier identifiers remain in Vendor PN. Description contains physical specifications without redundant part numbers. Unknown identifiers use an en dash. Source links retain supplier or sheet targets; the harness Source is relative to hardware/ and resolves to the pinned Wireviz file. Costing fields are not published.",
+  "specificationReferences": [
+    {
+      "title": "WuXi Quote Request",
+      "spreadsheetId": "1HCyAoDs4Pl3iQCSLczLRh5fwFTpqXaDeUU75MNcsN7M",
+      "sheet": "Sheet1",
+      "gid": 0,
+      "url": "https://docs.google.com/spreadsheets/d/1HCyAoDs4Pl3iQCSLczLRh5fwFTpqXaDeUU75MNcsN7M/edit?gid=0",
+      "exportSha256": "2189d68928aa1c5f55be2d2a62a31609461013c7848be84839bbb7d836d85f48",
+      "lineItems": [
+        {
+          "line": 1,
+          "sourceRow": 2,
+          "designation": "ISO 4762 - M3x8",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 2,
+          "sourceRow": 3,
+          "designation": "ISO 4762 - M3x20",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 3,
+          "sourceRow": 4,
+          "designation": "ISO 4032 - M3",
+          "finish": "Black oxide",
+          "propertyClass": null
+        },
+        {
+          "line": 4,
+          "sourceRow": 5,
+          "designation": "ISO 4762 - M4x25",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 5,
+          "sourceRow": 6,
+          "designation": "ISO 4032 - M4",
+          "finish": "Black oxide",
+          "propertyClass": null
+        },
+        {
+          "line": 6,
+          "sourceRow": 7,
+          "designation": "ISO 4762 - M5x20",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 7,
+          "sourceRow": 8,
+          "designation": "ISO 4762 - M5x35",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 8,
+          "sourceRow": 9,
+          "designation": "ISO 4032 - M5",
+          "finish": "Black oxide",
+          "propertyClass": null
+        },
+        {
+          "line": 9,
+          "sourceRow": 10,
+          "designation": "ISO 4762 - M6x16",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 10,
+          "sourceRow": 11,
+          "designation": "ISO 299 - M6 for 3030 extrusion",
+          "finish": "Black oxide",
+          "propertyClass": "12.9",
+          "confirmation": "User confirmed ISO 299 applies to these T-nuts."
+        },
+        {
+          "line": 38,
+          "sourceRow": 12,
+          "designation": "ISO 4762 - M6x12",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 39,
+          "sourceRow": 13,
+          "designation": "ISO 4762 - M6x25",
+          "finish": "Black oxide",
+          "propertyClass": "12.9"
+        },
+        {
+          "line": 40,
+          "sourceRow": 14,
+          "designation": "ISO 7089 - M6",
+          "finish": "Black oxide",
+          "propertyClass": null
+        },
+        {
+          "line": 41,
+          "sourceRow": 11,
+          "designation": "ISO 299 - M6 for 3030 extrusion",
+          "finish": "Black oxide",
+          "propertyClass": "12.9",
+          "confirmation": "User confirmed ISO 299 applies to these T-nuts."
+        }
+      ],
+      "standardReferences": [
+        {
+          "designation": "ISO 4762",
+          "url": "https://www.iso.org/standard/34460.html",
+          "scope": "Hexagon socket head cap screws"
+        },
+        {
+          "designation": "ISO 4032",
+          "url": "https://www.iso.org/standard/75016.html",
+          "scope": "Hexagon regular nuts (style 1)"
+        },
+        {
+          "designation": "ISO 7089",
+          "url": "https://www.iso.org/standard/13666.html",
+          "scope": "Plain washers, normal series, product grade A"
+        },
+        {
+          "designation": "ISO 299",
+          "url": "https://www.iso.org/standard/4229.html",
+          "scope": "Machine tool tables, T-slots and corresponding bolts"
+        }
+      ],
+      "mapping": "Fastener type and nominal size matched to existing BOM lines. User confirmed ISO 299 for the M6 T-nuts. ISO designations are stored in Description, with quote finish and stated property class in Notes. Quantities and purchasing identifiers remain from the actuator/stand BOMs; quote order quantities are not assembly quantities. No standard edition, washer hardness or vendor conformity is inferred."
+    }
+  ],
+  "userCorrections": [
+    "ISO 299 is correct for both M6 T-nut entries.",
+    "End caps are FDM 3D printed.",
+    "Use Generic Factory for nonspecialized items; separate known manufacturer part numbers from descriptions.",
+    "Remove newsprint roll packing paper and rename GT2 Belt without the per-meter suffix; UOM remains m.",
+    "Include controller PCBA, power supply, wired OSSM remote and cable harnesses."
+  ],
+  "hardwareReferences": [
+    {
+      "url": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md",
+      "repository": "researchanddesire/ossm",
+      "commit": "82c124c19f5a219288c71b431a415fc73f786b92",
+      "sourceBlobSha": "242268535beeeb983f5904e46dbc782ea98f2784",
+      "use": "One controller, one power supply, one harness, one wired remote with Ethernet cable and two M4x8 buttonhead screws. Read as reference only; no rendered BOM is added to developer docs."
+    },
+    {
+      "url": "https://www.researchanddesire.com/products/ossm-reference-board",
+      "use": "Controller revision 2.3, assembled ESP32 board, 24 V input; wired remote option. Revision is not presented as a manufacturer part number."
+    },
+    {
+      "url": "https://www.researchanddesire.com/products/ossm-24v-power-supply",
+      "use": "24 V and 5 A continuous PSU specification. Manufacturer model not specified."
+    },
+    {
+      "url": "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/hardware/cables/OSSM-Motor-Control-Harness.yml",
+      "use": "Top-level combined motor signal/power harness; detailed child parts stay Wireviz-owned."
+    },
+    {
+      "url": "https://www.researchanddesire.com/products/ossm-wire-harness-gold-motor",
+      "use": "Purchased gold-motor harness is offered as a complete assembly. Product page states 190 mm while the Wireviz source specifies 250 mm wires; no claim that these lengths are identical is made."
+    }
+  ]
+}

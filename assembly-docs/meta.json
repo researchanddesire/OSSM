@@ -1,4 +1,8 @@
 {
   "title": "OSSM",
-  "pages": ["index", "cable-harnesses"]
+  "pages": [
+    "index",
+    "cable-harnesses",
+    "bom"
+  ]
 }
