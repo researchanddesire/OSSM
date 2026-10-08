@@ -457,13 +457,5 @@
     "quantityChanges": [],
     "unitChanges": [],
     "lineNumbers": "Renumbered sequentially after sorting by Category; quantities and units matched by part name."
-  },
-  "cadSource": {
-    "repository": "KinkyMakers/OSSM-hardware",
-    "commit": "b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7",
-    "manifest": "hardware/cad/source.json",
-    "unavailable": [
-      "OSSM T Nut Support"
-    ]
   }
 }
