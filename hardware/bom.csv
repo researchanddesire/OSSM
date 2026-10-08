@@ -2,7 +2,7 @@
 1,Wired OSSM Remote,ASM,Wired remote control assembly,1,each,R+D,–,R+D,–,https://www.researchanddesire.com/products/ossm-reference-board,Electronics.
 2,8mm bore 20T pulley,BTP,"GT2 timing pulley, 20 teeth, 8 mm bore, 10 mm belt width",1,each,Generic Factory,–,AliExpress,20T W10 B8,https://www.aliexpress.com/item/32781681772.html,Actuator.
 3,GT2 Belt,BTP,"GT2 timing belt, 10 mm width",0.5,m,Generic Factory,–,AliExpress,10M-10MM-2GT,https://www.aliexpress.com/item/32952396111.html,Actuator.
-4,Remote Ethernet Cable,CBL,Ethernet cable connecting the wired remote to the controller,1,each,Generic Factory,–,R+D,–,https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md,Electronics. Included with wired remote.
+4,Remote Ethernet Cable,CBL,Ethernet cable connecting the wired remote to the controller,1,each,Generic Factory,–,R+D,–,–,Electronics. Included with wired remote.
 5,Motor Control Harness,CHA,Motor terminal block to controller JST PH connection with power ferrules,1,each,R+D,–,R+D,–,cables/OSSM-Motor-Control-Harness.yml,Electronics.
 6,"12"" Extrusion",EXT,"12 in long, 30 x 30 mm T-slot aluminum extrusion, black anodized",2,each,Generic Factory,–,Fazstore,30QE3030,https://www.fazstore.ca/product/30qe3030-black/,Extrusion stand.
 7,"18"" Extrusion",EXT,"18 in long, 30 x 30 mm T-slot aluminum extrusion, black anodized",1,each,Generic Factory,–,Fazstore,30QE3030,https://www.fazstore.ca/product/30qe3030-black/,Extrusion stand.
@@ -45,7 +45,7 @@
 44,M6 T-Nuts,FST,ISO 299 — M6 T-nut for 3030 extrusion,24,each,Generic Factory,–,AliExpress,30S-M6,https://www.aliexpress.com/item/1005001714123635.html,Extrusion stand. Bag 1. Black oxide. Property class 12.9.
 45,M6x25mm Handle,FST,M6x25mm Handle,2,each,Generic Factory,–,AliExpress,M6x50x25,https://www.aliexpress.com/item/1005005417338944.html,Extrusion stand. Bag 2.
 46,Rubber Washer,FST,Rubber washer,2,each,Generic Factory,–,McMaster,90131A603,https://www.mcmaster.com/catalog/130/3689/90131A603,Extrusion stand. Bag 3.
-47,M4x8mm Buttonhead Screws,FST,M4x8 buttonhead screws for the wired remote,2,each,Generic Factory,–,R+D,–,https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md,Electronics. Included with wired remote.
+47,M4x8mm Buttonhead Screws,FST,M4x8 buttonhead screws for the wired remote,2,each,Generic Factory,–,R+D,–,–,Electronics. Included with wired remote.
 48,5x11x4mm Bearings,LNM,5 x 11 x 4 mm sealed bearing,6,each,Generic Factory,MR115-2RS,AliExpress,MR115-2RS,https://www.aliexpress.com/item/1005004734688651.html,Actuator.
 49,350mm Linear Rail,LNM,350 mm MGN12 linear rail with one carriage,1,each,Generic Factory,–,Robotdigg,GS_MGN12-1H-350CH,https://www.robotdigg.com/product/1820/,Actuator.
 50,Gold Motor,MTR,"NEMA 23 integrated servo motor, gold finish",1,each,Generic Factory,57AIM30,Robotdigg,57AIM30,https://www.robotdigg.com/product/1690/BLDC-Servo-Motor-with-CANBus-or-RS485-driver-NEMA23,Actuator.
