@@ -16,13 +16,13 @@
 15,OSSM - Belt Clamp - Bottom,FDM,FDM-printed OSSM - Belt Clamp - Bottom,1,each,R+D,CLAMP 2,R+D,–,cad/actuator/belt-clamp-bottom.step,Actuator.
 16,OSSM - Body - Cover,FDM,FDM-printed OSSM - Body - Cover,1,each,R+D,COVER,R+D,–,cad/actuator/body-cover.step,Actuator.
 17,OSSM - 24mm Jam Nut,FDM,FDM-printed OSSM - 24mm Jam Nut,1,each,R+D,JAM NUT,R+D,–,cad/actuator/24mm-jam-nut.step,Actuator.
-18,OSSM - PCB Mount Base,FDM,FDM-printed OSSM - PCB Mount Base,1,each,R+D,PCB MOUNT BASE,R+D,–,cad/mounting/pcb-mount-base.step,Actuator.
-19,OSSM - PCB Mount Lid,FDM,FDM-printed OSSM - PCB Mount Lid,1,each,R+D,PCB MOUNT LID,R+D,–,cad/mounting/pcb-mount-lid.step,Actuator.
-20,57AIM Ring v1.1,FDM,FDM-printed 57AIM Ring v1.1,1,each,R+D,PITCLAMP RING V1.1,R+D,–,cad/mounting/57aim-ring-v1.1.step,Actuator.
-21,PitClamp v1.1 Lower Standard,FDM,FDM-printed PitClamp v1.1 Lower Standard,1,each,R+D,PITCLAMP LOWER,R+D,–,cad/mounting/pitclamp-lower-v1.1.step,Actuator.
-22,PitClamp v1.1 Upper + Handle,FDM,FDM-printed PitClamp v1.1 Upper + Handle,1,each,R+D,PITCLAMP UPPER,R+D,–,cad/mounting/README.md,Actuator.
-23,PitClamp Dogbones Hex,FDM,FDM-printed PitClamp Dogbones Hex,1,each,R+D,PIT DOGBONE 1,R+D,–,cad/mounting/pitclamp-dogbone-hex.step,Actuator.
-24,PitClamp Dogbones Round,FDM,FDM-printed PitClamp Dogbones Round,1,each,R+D,PIT DOGBONE 2,R+D,–,cad/mounting/pitclamp-dogbone-round.step,Actuator.
+18,OSSM - PCB Mount Base,FDM,FDM-printed OSSM - PCB Mount Base,1,each,R+D,PCB MOUNT BASE,R+D,–,cad/stand/pcb-mount-base.step,Actuator.
+19,OSSM - PCB Mount Lid,FDM,FDM-printed OSSM - PCB Mount Lid,1,each,R+D,PCB MOUNT LID,R+D,–,cad/stand/pcb-mount-lid.step,Actuator.
+20,57AIM Ring v1.1,FDM,FDM-printed 57AIM Ring v1.1,1,each,R+D,PITCLAMP RING V1.1,R+D,–,cad/stand/57aim-ring-v1.1.step,Actuator.
+21,PitClamp v1.1 Lower Standard,FDM,FDM-printed PitClamp v1.1 Lower Standard,1,each,R+D,PITCLAMP LOWER,R+D,–,cad/stand/pitclamp-lower-v1.1.step,Actuator.
+22,PitClamp v1.1 Upper + Handle,FDM,FDM-printed PitClamp v1.1 Upper + Handle,1,each,R+D,PITCLAMP UPPER,R+D,–,cad/stand/README.md,Actuator.
+23,PitClamp Dogbones Hex,FDM,FDM-printed PitClamp Dogbones Hex,1,each,R+D,PIT DOGBONE 1,R+D,–,cad/stand/pitclamp-dogbone-hex.step,Actuator.
+24,PitClamp Dogbones Round,FDM,FDM-printed PitClamp Dogbones Round,1,each,R+D,PIT DOGBONE 2,R+D,–,cad/stand/pitclamp-dogbone-round.step,Actuator.
 25,OSSM Pivot Plate 1,FDM,FDM-printed OSSM Pivot Plate 1,1,each,R+D,–,R+D,–,cad/stand/pivot-plate-1.step,Extrusion stand.
 26,OSSM Pivot Plate 2,FDM,FDM-printed OSSM Pivot Plate 2,1,each,R+D,–,R+D,–,cad/stand/pivot-plate-2.step,Extrusion stand.
 27,OSSM Handle Spacer,FDM,FDM-printed OSSM Handle Spacer,8,each,R+D,–,R+D,–,cad/stand/handle-spacer.step,Extrusion stand.

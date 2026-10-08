@@ -1,6 +1,6 @@
 {
   "repo": "OSSM",
-  "commit": "5dc932e3bd7746b58e71271390ab14126804fc85",
+  "commit": "7074e9d0ce23d9ca84abdd395cd2963a0ebca06a",
   "columns": [
     "#",
     "Part Name",
@@ -265,7 +265,7 @@
       "PCB MOUNT BASE",
       "R+D",
       "–",
-      "cad/mounting/pcb-mount-base.step",
+      "cad/stand/pcb-mount-base.step",
       "Actuator."
     ],
     [
@@ -279,7 +279,7 @@
       "PCB MOUNT LID",
       "R+D",
       "–",
-      "cad/mounting/pcb-mount-lid.step",
+      "cad/stand/pcb-mount-lid.step",
       "Actuator."
     ],
     [
@@ -293,7 +293,7 @@
       "PITCLAMP RING V1.1",
       "R+D",
       "–",
-      "cad/mounting/57aim-ring-v1.1.step",
+      "cad/stand/57aim-ring-v1.1.step",
       "Actuator."
     ],
     [
@@ -307,7 +307,7 @@
       "PITCLAMP LOWER",
       "R+D",
       "–",
-      "cad/mounting/pitclamp-lower-v1.1.step",
+      "cad/stand/pitclamp-lower-v1.1.step",
       "Actuator."
     ],
     [
@@ -321,7 +321,7 @@
       "PITCLAMP UPPER",
       "R+D",
       "–",
-      "cad/mounting/README.md",
+      "cad/stand/README.md",
       "Actuator."
     ],
     [
@@ -335,7 +335,7 @@
       "PIT DOGBONE 1",
       "R+D",
       "–",
-      "cad/mounting/pitclamp-dogbone-hex.step",
+      "cad/stand/pitclamp-dogbone-hex.step",
       "Actuator."
     ],
     [
@@ -349,7 +349,7 @@
       "PIT DOGBONE 2",
       "R+D",
       "–",
-      "cad/mounting/pitclamp-dogbone-round.step",
+      "cad/stand/pitclamp-dogbone-round.step",
       "Actuator."
     ],
     [
