@@ -1,27 +1,10 @@
 import bom from "./bom.json";
 import categoryMap from "./categories.json";
 
-// Sections are recorded in CSV Notes; ungrouped additions remain visible.
-export function OssmBomTable({
-  assembly,
-}: {
-  assembly: "actuator" | "stand" | "electronics" | "other";
-}) {
-  const groups = {
-    actuator: { title: "Actuator", prefix: "Actuator." },
-    stand: { title: "Extrusion stand", prefix: "Extrusion stand." },
-    electronics: { title: "Electronics and cables", prefix: "Electronics." },
-    other: { title: "Other parts", prefix: "" },
-  };
-  const group = groups[assembly];
-  const rows = bom.rows.filter((row) =>
-    assembly === "other"
-      ? !Object.values(groups).some(
-          ({ prefix }) => prefix && row[11].startsWith(prefix),
-        )
-      : row[11].startsWith(group.prefix),
+export function OssmBomTable() {
+  const rows = [...bom.rows].sort(
+    (a, b) => a[2].localeCompare(b[2]) || Number(a[0]) - Number(b[0]),
   );
-  if (!rows.length) return null;
   const categories: Record<
     string,
     { label: string; background: string; foreground: string }
@@ -43,13 +26,10 @@ export function OssmBomTable({
 
   return (
     <section className="bom not-prose my-6">
-      {assembly === "other" ? (
-        <h2 className="mb-4 text-xl font-semibold">Other parts</h2>
-      ) : null}
       <div
         className="bom-table-frame"
         role="region"
-        aria-label={`${group.title} Bill of Materials table`}
+        aria-label="OSSM Bill of Materials, sorted by category"
         tabIndex={0}
       >
         <table className="bom-table">
@@ -66,13 +46,7 @@ export function OssmBomTable({
             {rows.map((row) => (
               <tr key={row[0]}>
                 {row.map((raw, column) => {
-                  const value =
-                    column === 11
-                      ? raw.replace(
-                          /^(Actuator|Extrusion stand|Electronics)\.\s*/,
-                          "",
-                        ) || "–"
-                      : raw;
+                  const value = raw;
                   const sourceUrl = value.startsWith("https://")
                     ? value
                     : `https://github.com/researchanddesire/${bom.repo}/blob/${bom.commit}/hardware/${value}`;
