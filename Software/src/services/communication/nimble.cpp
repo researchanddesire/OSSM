@@ -54,6 +54,35 @@ double easeInOutSine(double t) {
     return 0.5 * (1 + sin(3.1415926 * (t - 0.5)));
 }
 
+class StateCallbacks : public NimBLECharacteristicCallbacks {
+    // A long read arrives as several ATT requests, each of which calls
+    // onRead. Rebuilding the value on every one of them hands the reader
+    // chunks from different versions (seen as corrupted JSON on the RADR).
+    // Keep the value stable for the duration of one long read.
+    uint32_t lastBuildMs = 0;
+
+    void onRead(NimBLECharacteristic* characteristic, NimBLEConnInfo&) override {
+        if (!ossm) return;
+        const uint32_t now = millis();
+        if (lastBuildMs != 0 && now - lastBuildMs < 300) return;
+        lastBuildMs = now;
+        // RADR needs full legacy state on reads; retain shared BLE metadata.
+        JsonDocument value, current;
+        const auto stored = characteristic->getValue();
+        deserializeJson(value, stored.data(), stored.size());
+        if (deserializeJson(current, ossm->getCurrentState())) return;
+        for (JsonPairConst field : current.as<JsonObjectConst>())
+            value[field.key()] = field.value();
+        String payload;
+        serializeJson(value, payload);
+        characteristic->setValue(payload);
+    }
+    void onSubscribe(NimBLECharacteristic*, NimBLEConnInfo& connection,
+                     uint16_t value) override {
+        radBleServer.onStateSubscribe(connection.getConnHandle(), value);
+    }
+} stateCallbacks;
+
 /** Handler class for server actions */
 class ServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
@@ -262,7 +291,6 @@ void nimbleLoop(void* pvParameters) {
             String cmd = messageQueue.front();
             messageQueue.pop();
             ossm->ble_click(cmd);
-            pChr->setValue("ok:" + cmd);
 
             // Trigger LED communication pulse for command processing
             pulseForCommunication();
@@ -285,8 +313,7 @@ void nimbleLoop(void* pvParameters) {
         String currentState = ossm->getCurrentState();
         if (stateChanged) {
             ESP_LOGD(NIMBLE_TAG, "State changed to: %s", currentState.c_str());
-            pChr->setValue(currentState);
-            pChr->notify();
+            radBleServer.publishStateNotification(currentState);
         }
 
         // Trigger LED communication pulse for state update
@@ -326,6 +353,7 @@ void initNimble() {
 
     pStateCharacteristic = initStateCharacteristic(
         pService, NimBLEUUID(CHARACTERISTIC_STATE_UUID));
+    pStateCharacteristic->setCallbacks(&stateCallbacks);
 
     initPatternsCharacteristic(pService,
                                NimBLEUUID(CHARACTERISTIC_PATTERNS_UUID));
