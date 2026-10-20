@@ -26,6 +26,14 @@ export function OssmBomTable() {
 
   return (
     <section className="bom not-prose my-6">
+      <p className="mb-3 text-sm">
+        <a
+          className="text-fd-primary underline underline-offset-4"
+          href={`https://github.com/researchanddesire/${bom.repo}/blob/${bom.commit}/hardware/bom.csv`}
+        >
+          View source CSV on GitHub
+        </a>
+      </p>
       <div
         className="bom-table-frame"
         role="region"
