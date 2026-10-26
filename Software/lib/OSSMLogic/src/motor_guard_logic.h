@@ -128,10 +128,20 @@ class Guard {
         if (!verified && armed_) trip(Fault::StopPathUnverified);
     }
 
-    // Call for each snapshot; duplicate sequence values cannot inflate rate
-    // or advance contact evidence. The service must call tick at least 30 Hz.
+    // Call for each snapshot; cached or duplicate sequence values cannot
+    // rewind feedback, inflate rate or advance contact evidence. The service
+    // must call tick at least 30 Hz, independently of other snapshot readers.
     void observe(const Sample &sample, uint32_t nowMs) {
         if (fault_ != Fault::None) return;
+        // Multiple callers may capture UART snapshots before acquiring the
+        // guard lock. A delayed caller can arrive after a newer snapshot was
+        // accepted, including after its own copy has become stale. Ignore it
+        // before validating timestamps/payload or changing any observation.
+        // A changed continuity is never hidden by an equal/older sequence.
+        if (haveSample_ && sample.continuity == latest_.continuity) {
+            const uint32_t sequenceDelta = sample.sequence - latest_.sequence;
+            if (sequenceDelta == 0 || sequenceDelta >= 0x80000000u) return;
+        }
         decisionAtMs_ = nowMs;
         if (!valid(sample)) {
             if (armed_) trip(Fault::InvalidTelemetry);
@@ -142,8 +152,6 @@ class Guard {
             if (armed_) trip(Fault::TelemetryStale);
             return;
         }
-        if (haveSample_ && sample.sequence == latest_.sequence) return;
-
         const bool first = !haveSample_;
         const bool changed = !first && sample.continuity != latest_.continuity;
         const uint32_t elapsed = first ? 0 : sample.atMs - latest_.atMs;

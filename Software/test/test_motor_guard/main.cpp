@@ -144,6 +144,88 @@ void test_stale_sample_latches_and_cannot_auto_resume() {
     TEST_ASSERT_TRUE(bench.guard.arm(bench.now));
 }
 
+void test_older_cached_and_duplicate_snapshots_cannot_rewind_feedback() {
+    Bench bench;
+    bench.arm();
+    // A cached reader acquires the lock after a newer sample. Its position,
+    // load and timestamp must not replace or invalidate the accepted sample.
+    bench.guard.observe({bench.sequence - 1, bench.now - 20, bench.continuity,
+                         50000, 2.21f, 12.0f, 0x14}, bench.now + 5);
+    bench.guard.observe({bench.sequence, bench.now - 200, bench.continuity,
+                         0, NAN, 0, 0}, bench.now + 10);
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0, bench.guard.speedMmS());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50, bench.guard.observedHz(bench.now));
+    bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0, bench.guard.speedMmS());
+
+    // Repeated snapshots cannot refresh either physical telemetry or the
+    // independent observer deadline, even if a reader claims a newer time.
+    const uint32_t acceptedAt = bench.now;
+    for (uint32_t elapsed = 5; elapsed <= 105; elapsed += 5) {
+        bench.guard.observe({bench.sequence, acceptedAt + elapsed,
+                             bench.continuity, 0, 0.05f, 24, 0},
+                            acceptedAt + elapsed);
+        bench.guard.tick(acceptedAt + elapsed);
+    }
+    assertFault(Fault::TelemetryStale, bench.guard);
+    TEST_ASSERT_EQUAL_UINT32(acceptedAt,
+                            bench.guard.faultDiagnostics().sampleAtMs);
+    TEST_ASSERT_EQUAL_UINT32(105,
+                            bench.guard.faultDiagnostics().sampleAgeMs);
+
+    Bench delayed;
+    delayed.arm();
+    delayed.guard.observe({delayed.sequence - 1, delayed.now - 20,
+                           delayed.continuity, 0, 0.05f, 24, 0},
+                          delayed.now + 30);
+    delayed.guard.tick(delayed.now + 35);
+    assertFault(Fault::ObserverDelayed, delayed.guard);
+}
+
+void test_snapshot_sequence_wrap_accepts_new_and_rejects_old_values() {
+    Bench bench;
+    bench.sequence = UINT32_MAX - 64;
+    bench.arm();
+    bench.sequence = UINT32_MAX - 2;
+    bench.sample();
+    bench.sample();
+    bench.sequence = 0;  // The UART publisher skips the reserved zero value.
+    bench.sample();
+    TEST_ASSERT_EQUAL_UINT32(1, bench.sequence);
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    // UINT32_MAX is behind sequence1 across wrap. A half-range ambiguous
+    // value is also not a newer snapshot and cannot inject stale evidence.
+    for (uint32_t sequence : {UINT32_MAX, uint32_t{0x80000001u}})
+        bench.guard.observe({sequence, bench.now - 200, bench.continuity,
+                             50000, 3.0f, 24, 0}, bench.now + 5);
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 50, bench.guard.observedHz(bench.now));
+}
+
+void test_equal_sequence_in_new_continuity_is_not_a_duplicate() {
+    Bench armed;
+    armed.arm();
+    armed.guard.observe({armed.sequence, armed.now + 20,
+                         armed.continuity + 1, 0, 0.05f, 24, 0},
+                        armed.now + 20);
+    assertFault(Fault::ContinuityChanged, armed.guard);
+
+    Bench discovery;
+    discovery.warmup();
+    discovery.guard.observe({discovery.sequence, discovery.now + 20,
+                             discovery.continuity + 1, 0, 0.05f, 24, 0},
+                            discovery.now + 20);
+    TEST_ASSERT_EQUAL(static_cast<int>(Fault::None),
+                      static_cast<int>(discovery.guard.fault()));
+    TEST_ASSERT_FALSE(discovery.guard.ready(discovery.now + 20));
+    TEST_ASSERT_FLOAT_WITHIN(0.001f, 0,
+                            discovery.guard.observedHz(discovery.now + 20));
+}
+
 void test_rate_drop_latches_before_a_new_arm() {
     Bench bench;
     bench.arm();
@@ -518,6 +600,9 @@ int main(int, char **) {
     RUN_TEST(test_discovery_blocks_arm_without_latching);
     RUN_TEST(test_rate_uses_distinct_physical_samples);
     RUN_TEST(test_stale_sample_latches_and_cannot_auto_resume);
+    RUN_TEST(test_older_cached_and_duplicate_snapshots_cannot_rewind_feedback);
+    RUN_TEST(test_snapshot_sequence_wrap_accepts_new_and_rejects_old_values);
+    RUN_TEST(test_equal_sequence_in_new_continuity_is_not_a_duplicate);
     RUN_TEST(test_rate_drop_latches_before_a_new_arm);
     RUN_TEST(test_guard_task_deadline_is_independent_of_uart_freshness);
     RUN_TEST(test_encoder_continuity_change_stops_an_armed_session);

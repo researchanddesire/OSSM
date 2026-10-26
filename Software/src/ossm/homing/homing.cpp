@@ -279,7 +279,10 @@ static void startHomingTask(void *pvParameters) {
             sign, calibration.measuredStrokeSteps,
             UserConfig::afterHomingPosition);
 
-        if (!moveAndWait(goToPosition)) break;
+        // Start the second HAT pass from this verified, retreated zero. The
+        // legacy first-pass return is unnecessary and would be outside the
+        // approach/retreat progress watchdog before both bounds are known.
+        if ((!useHatForHoming || backward) && !moveAndWait(goToPosition)) break;
 
         // Clear homing active flag for LED indication
         setHomingActive(false);

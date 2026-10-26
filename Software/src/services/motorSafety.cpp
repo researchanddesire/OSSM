@@ -492,8 +492,20 @@ bool motorSafetyEndHomingPass() {
 
 bool motorSafetyBeginHomingMotion() {
     if (!required()) return motorSafetyCanEnableOutputs();
+    OssmHatTelemetry sample;
+    if (!readOssmHatTelemetry(sample)) return false;
+    const uint32_t now = millis();
+    if (static_cast<uint32_t>(now - sample.updatedAtMs) > 100 ||
+        !controlsReady()) return false;
     portENTER_CRITICAL(&guardMux);
-    const bool result = guard.beginHomingMotion(millis());
+    // The homing task can see a new contact frame before the independent
+    // observer's next tick. Ingest that frame before checking its marker.
+    // Older/duplicate snapshots do not refresh any guard evidence. Only the
+    // independent task refreshes the hardware deadline heartbeat.
+    guard.observe({sample.sequence, sample.updatedAtMs, sample.continuity,
+                   sample.positionCounts, sample.currentAmps,
+                   sample.voltageVolts, sample.alarm}, now);
+    const bool result = !deadlineTripped && guard.beginHomingMotion(millis());
     publishCoreLocked(millis());
     portEXIT_CRITICAL(&guardMux);
     return result;

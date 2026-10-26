@@ -110,6 +110,10 @@ progress of 0.25 mm trips within 100 ms. Only one contact-qualified retreat mark
 can grant a new 100 ms grace period, with an absolute 200 ms no-progress cap.
 Loaded contact retains its separate 200 ms limit. Oscillation cannot renew the
 progress clock; stopped-reference capture starts before this motion clock.
+The HAT's second pass starts directly from the first retreated zero, so the
+whole uncalibrated traverse is watched. The final parking move uses the normal
+guard with both measured boundaries. Concurrent cached telemetry snapshots are
+ordered by sequence; an older snapshot cannot rewind or refresh the guard.
 
 Faults persist in NVS, including an interrupted armed run. A remembered HAT makes
 later boot failures fail closed rather than selecting ADC homing. Faults show on
