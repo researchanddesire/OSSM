@@ -13,6 +13,9 @@ parts, positioned with the front face on the bed.
 | 3 | Flush symbol inlays | White |
 | 4 | Buttons, flexures, strikers, and fixed anchors | Cyan |
 
+The four mounting counterbores are Ø6 × 2 mm with Ø3.4 mm clearance and two
+0.2 mm bridge steps. Keep 0.20 mm layers and print the front face down.
+
 The saved profile is Bambu Lab P2S, 0.4 mm nozzle, 0.20 mm layers. Select your
 printer and actual filament profiles, check the slot assignments, and slice
 before printing. The project contains no sliced toolpaths.
