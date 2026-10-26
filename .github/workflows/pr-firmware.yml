@@ -120,6 +120,7 @@ jobs:
         working-directory: Software
         env:
           PIO_ENV: ${{ matrix.environment }}
+          RAD_HIL_HAT_LISTEN_ONLY: '1'
         run: pio run -e "$PIO_ENV" -j 2
       - name: Verify development console inclusion
         env:

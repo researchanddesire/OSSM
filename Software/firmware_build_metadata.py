@@ -23,9 +23,9 @@ if profile == "staging" or profile.startswith("staging-") or profile == "hat-val
         ("RAD_HIL_PRODUCT", env.StringifyMacro("ossm")),
         ("RAD_HIL_VARIANT", env.StringifyMacro(variant)),
     ])
-    if profile != "hat-validation-16mb":
-        # Existing shared-PC HIL runs retain a single master. The explicit
-        # onboard-guard profile owns the bus and starts without auto-homing.
+    if profile != "hat-validation-16mb" and os.getenv("RAD_HIL_HAT_LISTEN_ONLY") == "1":
+        # Explicit shared-PC HIL builds retain a single master. Ordinary
+        # staging users must still discover and poll a standalone HAT.
         env.Append(CPPDEFINES=["OSSM_HAT_LISTEN_ONLY"])
 
 # Development screen rows and SDK logs share the serial writer.

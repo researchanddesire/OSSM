@@ -47,24 +47,29 @@ that conflicting pinout.
 
 Modbus RTU does not arbitrate between masters. **Build with
 `OSSM_HAT_LISTEN_ONLY` whenever the independent PC safety monitor is attached.**
-The existing staging/HIL profiles set this flag automatically. That build never
+The PR HIL workflow opts in with `RAD_HIL_HAT_LISTEN_ONLY=1`. That build never
 transmits on the HAT: it correlates the PC monitor's FC03 requests and replies,
 including its full block at `0x0E`, count 12. A position-only PC stream cannot
 make current and voltage appear fresh.
 
-Standalone production builds poll a single full block at `0x0E`, count 10, with
+Normal staging and production builds poll the full telemetry block at `0x0E`,
+count 10, plus control/telemetry at register 0, count 26, once a second, with
 a nominal 20 ms interval subject to transaction time. They listen first, require
 a quiet bus before probing, and latch receive-only mode after observing another
 master. Listen-first discovery is not an arbitration guarantee: use the explicit
 listen-only build when sharing any bus with another master.
 
-The ordinary staging/HIL profile retains the existing PC monitor contract. The
-explicit `hat-validation-16mb` profile uses the ESP32 guard as the primary safety
+The explicit `hat-validation-16mb` profile uses the ESP32 guard as the primary safety
 monitor instead: pause the PC RTU master before using it. That image requires a
 working HAT and boots into a stopped inspection menu. It cannot fall back to ADC
 homing, and it does not auto-home after flashing. Existing installed PC-based HIL
 gates remain separate; a manual onboard-guard run must not be relabeled as a
 passing PC-guard run.
+
+A passive onboard guard also needs fresh control registers: the PC master must
+read register 0 with count 26 at least once a second, alongside its regular telemetry
+polls. A telemetry-only `0x0E` block omits the STEP/DIR control mode and cannot prove
+that it is safe to arm. The guard blocks motion until those reads are available.
 
 ## Independent onboard motor guard
 
