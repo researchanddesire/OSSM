@@ -2,6 +2,7 @@
 
 #include "Strings.h"
 #include "homing_logic.h"
+#include "motor_feedback_logic.h"
 #include "constants/Config.h"
 #include "constants/Pins.h"
 #include "constants/UserConfig.h"
@@ -12,6 +13,8 @@
 #include "services/communication/mqtt.h"
 #include "services/led.h"
 #include "services/stepper.h"
+#include "services/motorFeedback.h"
+#include "services/ossmHat.h"
 #include "services/tasks.h"
 #include "utils/analog.h"
 
@@ -28,11 +31,48 @@ namespace {
 // RAM. It is paused for the whole homing run and resumed once the state
 // machine has left homing by any route (done, error, emergency stop).
 bool mqttPausedForHoming = false;
+bool useHatForHoming = false;
+
+void failHatHoming(const char *message) {
+    stepper->forceStop();
+    stepper->disableOutputs();
+    calibration.isHomed = false;
+    errorState.message = message;
+    setHomingActive(false);
+    stateMachine->process_event(Error{});
+}
+
+bool hatSampleReady(OssmHatTelemetry &sample) {
+    return readOssmHatTelemetry(sample) &&
+           static_cast<uint32_t>(millis() - sample.updatedAtMs) <= 100 &&
+           sample.voltageVolts >= Config::Hat::minimumSupplyVolts &&
+           (sample.alarm == 0 || sample.alarm == 0x10);
+}
 
 bool isInHomingState() {
     return stateMachine->is("homing"_s) ||
            stateMachine->is("homing.forward"_s) ||
            stateMachine->is("homing.backward"_s);
+}
+
+bool moveAndWait(int32_t target) {
+    stepper->moveTo(target, false);
+    while (stepper->isRunning()) {
+        if (!isInHomingState()) {
+            stepper->forceStop();
+            stepper->disableOutputs();
+            return false;
+        }
+        if (useHatForHoming) {
+            OssmHatTelemetry sample;
+            if (!hatSampleReady(sample)) {
+                failHatHoming("OSSM HAT feedback lost. Check motor power and RS485.");
+                return false;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return true;
 }
 
 void pauseMqttForHoming() {
@@ -57,6 +97,10 @@ void clearHoming() {
 
     calibration.isForward = true;
 
+    // A re-home can start after StrokeEngine changed the shared counter's
+    // frame. Restore native coordinates before recording a feedback traverse.
+    if (!stepper->isRunning()) stepperTranslateFrame(StepperFrame::Native);
+
     // Set acceleration and deceleration in steps/s^2
     stepper->setAcceleration(1000_mm);
     // Set speed in steps/s
@@ -66,8 +110,11 @@ void clearHoming() {
     calibration.measuredStrokeSteps = 0;
 
     // Recalibrate the current sensor offset.
-    calibration.currentSensorOffset = (getAnalogAveragePercent(
-        SampleOnPin{Pins::Driver::currentSensorPin, 1000}));
+    useHatForHoming = ossmHatDetected();
+    if (!useHatForHoming) {
+        calibration.currentSensorOffset = getAnalogAveragePercent(
+            SampleOnPin{Pins::Driver::currentSensorPin, 1000});
+    }
 }
 
 static void startHomingTask(void *pvParameters) {
@@ -84,6 +131,18 @@ static void startHomingTask(void *pvParameters) {
 
     pauseMqttForHoming();
 
+    if (useHatForHoming) {
+        OssmHatTelemetry sample;
+        // A previously detected HAT losing power/feedback must not silently
+        // select the unrelated ADC threshold while the carriage is moving.
+        if (!hatSampleReady(sample) || !beginMotorFeedbackHomingPass()) {
+            failHatHoming("OSSM HAT feedback unavailable. Check motor power and RS485.");
+            resumeMqttAfterHoming();
+            vTaskDelete(nullptr);
+            return;
+        }
+    }
+
     // Stroke Engine and Simple Penetration treat this differently.
     stepper->enableOutputs();
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
@@ -94,6 +153,7 @@ static void startHomingTask(void *pvParameters) {
 
     ESP_LOGD("Homing", "Target position in steps: %d", targetPositionInSteps);
     stepper->moveTo(targetPositionInSteps, false);
+    motor_feedback_logic::HatContactDetector hatContact;
 
     // run loop for 15second or until loop exits
     while (isInHomingState()) {
@@ -108,6 +168,8 @@ static void startHomingTask(void *pvParameters) {
         if (homing_logic::isHomingTimedOut(msPassed, 40000)) {
             ESP_LOGE("Homing", "Homing took too long. Check power and restart");
             errorState.message = ui::strings::homingTookTooLong;
+            stepper->forceStop();
+            stepper->disableOutputs();
 
             // Clear homing active flag for LED indication
             setHomingActive(false);
@@ -117,14 +179,32 @@ static void startHomingTask(void *pvParameters) {
         }
 
         // measure the current analog value.
-        float current = getAnalogAveragePercent(
-                            SampleOnPin{Pins::Driver::currentSensorPin, 50}) -
-                        calibration.currentSensorOffset;
+        float current;
+        bool isCurrentOverLimit;
+        if (useHatForHoming) {
+            OssmHatTelemetry sample;
+            if (!hatSampleReady(sample)) {
+                failHatHoming("OSSM HAT feedback lost. Check motor power and RS485.");
+                break;
+            }
+            current = sample.currentAmps;
+            // Repeated reads of one cached reply are not independent samples.
+            // Require sustained load with an encoder stall, not acceleration
+            // current while the carriage is still travelling.
+            isCurrentOverLimit = hatContact.update(
+                sample.sequence, sample.updatedAtMs, sample.positionCounts,
+                current, Config::Hat::sensorlessCurrentLimitAmps,
+                32768.0 / (Config::Driver::pulleyToothCount *
+                           Config::Driver::beltPitchMm));
+        } else {
+            current = getAnalogAveragePercent(
+                          SampleOnPin{Pins::Driver::currentSensorPin, 50}) -
+                      calibration.currentSensorOffset;
+            isCurrentOverLimit = homing_logic::isCurrentOverLimit(
+                current, 0, Config::Driver::sensorlessCurrentLimit);
+        }
 
         ESP_LOGV("Homing", "Current: %f", current);
-        bool isCurrentOverLimit = homing_logic::isCurrentOverLimit(
-            current, 0, Config::Driver::sensorlessCurrentLimit);
-
         if (!isCurrentOverLimit) {
             vTaskDelay(10);  // Increased from 1ms to 10ms to reduce CPU load
             continue;
@@ -136,8 +216,8 @@ static void startHomingTask(void *pvParameters) {
         stepper->setSpeedInHz(250_mm);
         // step away from the hard stop, with your hands in the air!
         int32_t currentPosition = stepper->getCurrentPosition();
-        stepper->moveTo(currentPosition - sign * Config::Driver::homingOffsetMn,
-                        true);
+        if (!moveAndWait(currentPosition - sign * Config::Driver::homingOffsetMn))
+            break;
 
         // measure and save the current position
         calibration.measuredStrokeSteps =
@@ -145,17 +225,25 @@ static void startHomingTask(void *pvParameters) {
                 stepper->getCurrentPosition(),
                 Config::Driver::maxStrokeSteps);
 
+        if (useHatForHoming) finishMotorFeedbackHomingPass();
+
         stepper->setCurrentPosition(0);
         stepper->forceStopAndNewPosition(0);
         // The counter was just re-zeroed at the homed rest position: the
         // shared frame is Native again by definition.
         stepperFrame = StepperFrame::Native;
 
+        if (useHatForHoming && !rebaseMotorFeedbackAtHome() &&
+            stateMachine->is("homing.backward"_s)) {
+            failHatHoming("OSSM HAT position reference failed. Re-home before use.");
+            break;
+        }
+
         int32_t goToPosition = homing_logic::calculatePostHomingPosition(
             sign, calibration.measuredStrokeSteps,
             UserConfig::afterHomingPosition);
 
-        stepper->moveTo(goToPosition,true);
+        if (!moveAndWait(goToPosition)) break;
 
         // Clear homing active flag for LED indication
         setHomingActive(false);

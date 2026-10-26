@@ -14,6 +14,7 @@
 #include "services/encoder.h"
 #include "services/led.h"
 #include "services/stepper.h"
+#include "services/ossmHat.h"
 #include "services/wm.h"
 #include "utils/firmware_md5.h"
 #include "utils/update.h"
@@ -58,6 +59,14 @@ void __attribute__((weak)) setup() {
 
     // Display
     initDisplay();
+
+    // Discovery must finish before homing selects its current sensor. The HAT
+    // task only reads feedback; the state machine has not started any motion.
+    const uint32_t discoveryStarted = millis();
+    while (!getOssmHatStatus().discoveryComplete &&
+           millis() - discoveryStarted < 10000) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 
     // Initialize header bar task
     initHeaderBar();

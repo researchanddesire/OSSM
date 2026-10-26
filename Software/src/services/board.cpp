@@ -1,5 +1,6 @@
 #include "services/serialIdentity.h"
 #include "board.h"
+#include "services/ossmHat.h"
 
 bool USE_LATENCY_COMPENSATION = false;
 bool USE_SPEED_KNOB_AS_LIMIT = true;
@@ -12,10 +13,13 @@ void initBoard() {
     pinMode(Pins::Remote::encoderSwitch,
             INPUT_PULLDOWN);  // Rotary Encoder Pushbutton
 
+    // The V2.3 HAT shares J9 with expansion GPIO. Never drive its RX line,
+    // and keep DE low until the UART has taken ownership.
+    digitalWrite(Pins::GPIO::pin1, LOW);
     pinMode(Pins::GPIO::pin1, OUTPUT);
     pinMode(Pins::GPIO::pin2, OUTPUT);
-    pinMode(Pins::GPIO::pin3, OUTPUT);
-    pinMode(Pins::GPIO::pin4, OUTPUT);
+    pinMode(Pins::GPIO::pin3, INPUT);
+    pinMode(Pins::GPIO::pin4, INPUT);
 
     pinMode(Pins::Driver::motorEnablePin, OUTPUT);
     pinMode(Pins::Wifi::resetPin, INPUT_PULLDOWN);
@@ -25,6 +29,7 @@ void initBoard() {
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);  // allows us to read almost full 3.3V range
     initStepper();
+    initOssmHat();
     initEncoder();
     initLED();
 }

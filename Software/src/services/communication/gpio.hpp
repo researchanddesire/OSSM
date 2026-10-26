@@ -9,6 +9,7 @@
 #include "NimBLEUUID.h"
 #include "constants/LogTags.h"
 #include "constants/Pins.h"
+#include "services/ossmHat.h"
 
 // Simple helper to map 1-4 to actual board pins
 static int mapGpioIndexToPin(int index) {
@@ -55,6 +56,10 @@ class GPIOCallbacks : public NimBLECharacteristicCallbacks {
             pCharacteristic->setValue(String(FPSTR(err)));
             return;
         }
+        if (ossmHatOwnsPin(targetPin)) {
+            pCharacteristic->setValue("error:pin_reserved_for_rs485");
+            return;
+        }
 
         int level = (stateStr == "high" || stateStr == "1") ? HIGH : LOW;
         digitalWrite(targetPin, level);
@@ -72,8 +77,9 @@ class GPIOCallbacks : public NimBLECharacteristicCallbacks {
     void onRead(NimBLECharacteristic* pCharacteristic,
                 NimBLEConnInfo& /*connInfo*/) override {
         // Return simple capabilities hint
-        static const char caps[] PROGMEM = "pins:[1,2,3,4]";
-        pCharacteristic->setValue(String(FPSTR(caps)));
+        pCharacteristic->setValue(ossmHatOwnsPin(Pins::GPIO::pin1)
+                                      ? "pins:[2];reserved:rs485"
+                                      : "pins:[1,2,3,4]");
     }
 } inline gpioCallbacks;
 

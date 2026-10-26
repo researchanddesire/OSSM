@@ -19,6 +19,8 @@
 #include "services/communication/nimble.h"
 #include "services/led.h"
 #include "services/stepper.h"
+#include "services/motorFeedback.h"
+#include "services/ossmHat.h"
 
 #ifndef FIRMWARE_BUILD_SHA
 #define FIRMWARE_BUILD_SHA "unknown"
@@ -52,6 +54,9 @@ const radble::Resource RESOURCES[] = {
      ""},
     {"motor_current_filtered", "analog.motorCurrentFiltered", "analog",
      "float", "raw", RS, ""},
+    {"motor_current_amps", "motor.currentAmps", "motor", "float", "A", RS, ""},
+    {"motor_voltage_volts", "motor.voltageVolts", "motor", "float", "V", RS, ""},
+    {"ossm_hat", "motor.hat", "motor", "object", "", RS, ""},
     {"emergency_stop", "button.emergencyStop", "button", "bool", "", RS,
      ""},
     {"limit", "button.limit", "button", "bool", "", RS, ""},
@@ -241,6 +246,13 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
     if (operation == "sensor.read") {
         JsonDocument document;
         document["path"] = path;
+        if (path.startsWith("analog.expansion")) {
+            const int index = path.substring(strlen("analog.expansion")).toInt();
+            const int pins[] = {Pins::GPIO::pin1, Pins::GPIO::pin2,
+                                Pins::GPIO::pin3, Pins::GPIO::pin4};
+            if (index >= 1 && index <= 4 && ossmHatOwnsPin(pins[index - 1]))
+                return radble::Result::failure("pin_reserved", "GPIO is reserved for RS485");
+        }
         if (path == "analog.speedKnob")
             document["value"] = analogRead(Pins::Remote::speedPotPin);
         else if (path == "analog.speedKnobPercent")
@@ -252,14 +264,36 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["value"] =
                 analogRead(Pins::Driver::currentSensorPin) -
                 calibration.currentSensorOffset;
+        else if (path == "motor.currentAmps" || path == "motor.voltageVolts") {
+            float value;
+            const bool valid = path == "motor.currentAmps"
+                                   ? readMotorCurrentAmps(value)
+                                   : readMotorVoltageVolts(value);
+            if (!valid)
+                return radble::Result::failure("unavailable", "Fresh RS485 motor telemetry is unavailable");
+            document["value"] = value;
+            document["source"] = "rs485";
+        }
+        else if (path == "motor.hat") {
+            const auto hat = getOssmHatStatus();
+            document["detected"] = hat.detected;
+            document["fresh"] = hat.fresh;
+            document["passive"] = hat.passive;
+            document["baudRate"] = hat.baudRate;
+            document["ageMs"] = hat.ageMs;
+            document["positionSource"] = motorPositionUsesRs485() ? "rs485" : "stepper";
+            OssmHatTelemetry sample;
+            if (readOssmHatTelemetry(sample)) {
+                document["encoderCounts"] = sample.positionCounts;
+                document["currentAmps"] = sample.currentAmps;
+                document["voltageVolts"] = sample.voltageVolts;
+                document["alarm"] = sample.alarm;
+            }
+        }
         else if (path == "motion.homed")
             document["value"] = calibration.isHomed;
         else if (path == "motion.position")
-            document["value"] =
-                stepper == nullptr
-                    ? 0.0f
-                    : static_cast<float>(stepper->getCurrentPosition()) /
-                          static_cast<float>(1_mm);
+            document["value"] = getMotorPositionMm();
         else if (path == "motion.currentOffset")
             document["value"] = calibration.currentSensorOffset;
         else if (path == "motion.measuredStroke")
@@ -314,6 +348,8 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (index < 1 || index > 4)
                 return radble::Result::failure("unknown_path",
                                                "Unknown expansion GPIO");
+            if (ossmHatOwnsPin(pins[index - 1]))
+                return radble::Result::failure("pin_reserved", "GPIO is reserved for RS485");
             const String mode = args["mode"] | "output";
             if (mode == "input") {
                 pinMode(pins[index - 1], INPUT);
@@ -587,13 +623,16 @@ String snapshot(radble::Surface surface, void*) {
                 document["state"] = "unknown";
             else
                 document["state"] = current["state"] | "unknown";
-            document["powered"] = true;
+            float volts;
+            if (readMotorVoltageVolts(volts))
+                document["powered"] = volts >= 20.0f;
+            else if (ossmHatDetected())
+                document["powered"] = nullptr;
+            else
+                document["powered"] = true;
             document["batteryPercent"] = nullptr;
             document["charging"] = nullptr;
-            document["positionMm"] =
-                stepper == nullptr ? 0.0f
-                                   : static_cast<float>(stepper->getCurrentPosition()) /
-                                         static_cast<float>(1_mm);
+            document["positionMm"] = getMotorPositionMm();
             document["sessionDistanceMeters"] = session.distanceMeters;
             document["sessionStrokeCount"] = session.strokeCount;
             break;
@@ -624,17 +663,29 @@ String snapshot(radble::Surface surface, void*) {
             document["motorCurrentFiltered"] =
                 analogRead(Pins::Driver::currentSensorPin) -
                 calibration.currentSensorOffset;
-            document["expansion1"] = analogRead(Pins::GPIO::pin1);
+            if (!ossmHatOwnsPin(Pins::GPIO::pin1))
+                document["expansion1"] = analogRead(Pins::GPIO::pin1);
+            else document["expansion1"] = nullptr;
             document["expansion2"] = analogRead(Pins::GPIO::pin2);
-            document["expansion3"] = analogRead(Pins::GPIO::pin3);
-            document["expansion4"] = analogRead(Pins::GPIO::pin4);
+            if (!ossmHatOwnsPin(Pins::GPIO::pin3))
+                document["expansion3"] = analogRead(Pins::GPIO::pin3);
+            else document["expansion3"] = nullptr;
+            if (!ossmHatOwnsPin(Pins::GPIO::pin4))
+                document["expansion4"] = analogRead(Pins::GPIO::pin4);
+            else document["expansion4"] = nullptr;
+            {
+                float value;
+                if (readMotorCurrentAmps(value)) document["motorCurrentAmps"] = value;
+                else document["motorCurrentAmps"] = nullptr;
+                if (readMotorVoltageVolts(value)) document["motorVoltageVolts"] = value;
+                else document["motorVoltageVolts"] = nullptr;
+                document["hatDetected"] = ossmHatDetected();
+            }
             break;
         case radble::Surface::Motion:
             document["homed"] = calibration.isHomed;
-            document["positionMm"] =
-                stepper == nullptr ? 0.0f
-                                   : static_cast<float>(stepper->getCurrentPosition()) /
-                                         static_cast<float>(1_mm);
+            document["positionMm"] = getMotorPositionMm();
+            document["positionSource"] = motorPositionUsesRs485() ? "rs485" : "stepper";
             document["speed"] = settings.speed;
             document["stroke"] = settings.stroke;
             document["depth"] = settings.depth;

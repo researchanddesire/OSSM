@@ -11,6 +11,13 @@
 */
 namespace Config {
 
+    namespace Hat {
+        // Independent of the legacy ADC threshold (percentage points).
+        // AIM current register units are 1/2000 A.
+        constexpr float sensorlessCurrentLimitAmps = 1.5f;
+        constexpr float minimumSupplyVolts = 20.0f;
+    }
+
     /**
             Motion System Config
     */

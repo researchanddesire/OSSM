@@ -20,6 +20,9 @@ if profile == "staging" or profile.startswith("staging-"):
     variant = profile.split("-", 1)[1] if "-" in profile else "16mb"
     env.Append(CPPDEFINES=[
         "RAD_HIL_ARDUINO_HTTP",
+        # The independent PC safety monitor remains the sole RTU master.
+        # HAT feedback is decoded from its requests/replies on the same bus.
+        "OSSM_HAT_LISTEN_ONLY",
         ("RAD_HIL_PRODUCT", env.StringifyMacro("ossm")),
         ("RAD_HIL_VARIANT", env.StringifyMacro(variant)),
     ])

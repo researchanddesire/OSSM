@@ -63,6 +63,14 @@ namespace Pins {
         constexpr int pin4 = 33;
     }
 
+    // OSSM V2.3 J9 + Alex Warner's RS485 HAT. IO15/J9-2 is unused by
+    // the HAT. DE/~RE has a 10k pull-down; high enables transmission.
+    namespace Hat {
+        constexpr int tx = 22;
+        constexpr int rx = 33;
+        constexpr int direction = 2;
+    }
+
     /** These are configured for the OSSM Remote - which has a screen, a
      * potentiometer and an encoder which clicks*/
     namespace Remote {
