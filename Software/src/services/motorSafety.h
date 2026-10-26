@@ -19,8 +19,24 @@ struct MotorSafetyStatus {
     int32_t upperStopCounts = 0;
 };
 
+struct MotorSafetyFaultInfo {
+    bool available = false;
+    uint32_t decisionAtMs = 0;
+    uint32_t sampleAtMs = 0;
+    uint32_t sequence = 0;
+    uint32_t gapMs = 0;
+    uint32_t ageMs = 0;
+    uint32_t continuity = 0;
+    int32_t encoderCounts = 0;
+    int64_t deltaCounts = 0;
+    float instantaneousMmS = 0;
+    float windowMmS = 0;
+    uint32_t windowMs = 0;
+};
+
 void initMotorSafety();
 MotorSafetyStatus getMotorSafetyStatus();
+MotorSafetyFaultInfo getMotorSafetyFaultInfo();
 const char *motorSafetyReason();
 bool motorSafetyCanEnableOutputs();
 bool enableMotorSafetyOutputs();

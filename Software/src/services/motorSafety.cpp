@@ -274,6 +274,12 @@ void report(void *) {
                 setLEDStatusError();
                 Serial.printf("RAD_GUARD fault=%u reason=%s; output disabled, power remains connected\n",
                               currentState.fault, motorSafetyReason());
+                const auto detail = getMotorSafetyFaultInfo();
+                if (detail.available)
+                    Serial.printf("RAD_GUARD_SAMPLE seq=%u sampleAt=%u decisionAt=%u delta=%lld gapMs=%u instantMmS=%.2f windowMmS=%.2f windowMs=%u\n",
+                                  detail.sequence, detail.sampleAtMs, detail.decisionAtMs,
+                                  static_cast<long long>(detail.deltaCounts), detail.gapMs,
+                                  detail.instantaneousMmS, detail.windowMmS, detail.windowMs);
                 if (stateMachine != nullptr)
                     stateMachine->process_event(MotorSafetyFault{});
                 else reported = UINT8_MAX;
@@ -337,6 +343,19 @@ MotorSafetyStatus getMotorSafetyStatus() {
     const auto status = published;
     portEXIT_CRITICAL(&guardMux);
     return status;
+}
+
+MotorSafetyFaultInfo getMotorSafetyFaultInfo() {
+    portENTER_CRITICAL(&guardMux);
+    const auto &detail = guard.faultDiagnostics();
+    const MotorSafetyFaultInfo result{
+        detail.available, detail.decisionAtMs, detail.sampleAtMs,
+        detail.sampleSequence, detail.sampleGapMs, detail.sampleAgeMs,
+        detail.continuity, detail.positionCounts, detail.encoderDeltaCounts,
+        static_cast<float>(detail.instantaneousMmS),
+        static_cast<float>(detail.homingWindowMmS), detail.homingWindowMs};
+    portEXIT_CRITICAL(&guardMux);
+    return result;
 }
 
 const char *motorSafetyReason() {

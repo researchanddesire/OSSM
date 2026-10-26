@@ -68,6 +68,11 @@ struct Config {
     uint32_t rateWarmupMs = 500;
     uint32_t maximumTickGapMs = 34;
     float maximumHomingSpeedMmS = 30.0f;
+    // Position is acquired before the RTU reply finishes. A long control-map
+    // reply followed by a short telemetry reply changes completion latency.
+    // Use a physical encoder window for the homing speed limit instead of
+    // dividing one position delta by that jittering completion interval.
+    uint32_t homingVelocityWindowMs = 60;
     float stationarySpeedMmS = 2.0f;
     uint32_t unexpectedLoadMs = 50;
     uint32_t maximumContactMs = 200;
@@ -89,6 +94,23 @@ struct Sample {
     uint16_t alarm = 0;
 };
 
+// Frozen last-accepted-sample evidence at the first fault. This remains
+// available after rate/freshness decay and until an explicit reviewed reset.
+struct FaultDiagnostics {
+    bool available = false;
+    uint32_t decisionAtMs = 0;
+    uint32_t sampleAtMs = 0;
+    uint32_t sampleSequence = 0;
+    uint32_t sampleGapMs = 0;
+    uint32_t sampleAgeMs = 0;
+    uint32_t continuity = 0;
+    int32_t positionCounts = 0;
+    int64_t encoderDeltaCounts = 0;
+    double instantaneousMmS = 0;
+    double homingWindowMmS = 0;
+    uint32_t homingWindowMs = 0;
+};
+
 class Guard {
   public:
     explicit Guard(const Config &config = Config{}) : config_(config) {}
@@ -102,6 +124,7 @@ class Guard {
     // or advance contact evidence. The service must call tick at least 30 Hz.
     void observe(const Sample &sample, uint32_t nowMs) {
         if (fault_ != Fault::None) return;
+        decisionAtMs_ = nowMs;
         if (!valid(sample)) {
             if (armed_) trip(Fault::InvalidTelemetry);
             else clearObservation();
@@ -129,17 +152,22 @@ class Guard {
             if (changed) clearBounds();
             unwrappedCounts_ = 0;
             speedMmS_ = 0;
+            lastEncoderDelta_ = 0;
+            lastSampleGapMs_ = 0;
         } else {
             const int64_t delta = motor_feedback_logic::encoderDelta(
                 sample.positionCounts, latest_.positionCounts);
             unwrappedCounts_ += delta;
             speedMmS_ = static_cast<double>(delta) * 1000.0 /
                         config_.countsPerMm / elapsed;
+            lastEncoderDelta_ = delta;
+            lastSampleGapMs_ = elapsed;
         }
 
         latest_ = sample;
         haveSample_ = true;
         appendTime(sample.atMs);
+        updateHomingVelocity();
         if (!armed_) return;
         if (!checkElectrical()) return;
 
@@ -149,7 +177,7 @@ class Guard {
             return;
         }
         if ((mode_ == Mode::Homing || mode_ == Mode::HomingReposition) &&
-            std::abs(speedMmS_) > config_.maximumHomingSpeedMmS) {
+            std::abs(homingSpeedMmS_) > config_.maximumHomingSpeedMmS) {
             trip(Fault::HomingSpeed);
             return;
         }
@@ -199,6 +227,7 @@ class Guard {
 
     Fault tick(uint32_t nowMs) {
         if (fault_ != Fault::None) return fault_;
+        decisionAtMs_ = nowMs;
         if (!armed_) {
             lastTickAt_ = nowMs;
             return fault_;
@@ -268,6 +297,7 @@ class Guard {
         clearObservation();
         clearBounds();
         mode_ = Mode::AwaitingHoming;
+        faultDiagnostics_ = {};
     }
 
     bool beginHomingPass(uint8_t pass, float declaredSpeedMmS,
@@ -349,6 +379,9 @@ class Guard {
     bool boundsValid() const { return boundsValid_; }
     bool contactActive() const { return contactActive_; }
     double speedMmS() const { return speedMmS_; }
+    double homingSpeedMmS() const { return homingSpeedMmS_; }
+    uint32_t homingSpeedWindowMs() const { return homingSpeedWindowMs_; }
+    FaultDiagnostics faultDiagnostics() const { return faultDiagnostics_; }
     int32_t lowerStopCounts() const {
         return stopUnwrapped_[0] < stopUnwrapped_[1] ? stopRaw_[0] : stopRaw_[1];
     }
@@ -428,8 +461,28 @@ class Guard {
             timeStart_ = (timeStart_ + 1) % rateCapacity;
             --timeCount_;
         }
-        times_[(timeStart_ + timeCount_) % rateCapacity] = atMs;
+        const size_t index = (timeStart_ + timeCount_) % rateCapacity;
+        times_[index] = atMs;
+        positions_[index] = unwrappedCounts_;
         ++timeCount_;
+    }
+
+    void updateHomingVelocity() {
+        homingSpeedMmS_ = 0;
+        homingSpeedWindowMs_ = 0;
+        // Three or more unique samples are required. Arming already requires
+        // 500ms of healthy observations, so a window exists before any motion.
+        for (size_t offset = 2; offset < timeCount_; ++offset) {
+            const size_t index =
+                (timeStart_ + timeCount_ - 1 - offset) % rateCapacity;
+            const uint32_t elapsed = latest_.atMs - times_[index];
+            if (elapsed >= config_.homingVelocityWindowMs) {
+                homingSpeedWindowMs_ = elapsed;
+                homingSpeedMmS_ = static_cast<double>(unwrappedCounts_ - positions_[index]) *
+                    1000.0 / config_.countsPerMm / elapsed;
+                return;
+            }
+        }
     }
 
     Rate rateAt(uint32_t nowMs) const {
@@ -454,6 +507,8 @@ class Guard {
         timeCount_ = 0;
         loadStarted_ = false;
         contactActive_ = false;
+        homingSpeedMmS_ = 0;
+        homingSpeedWindowMs_ = 0;
         // Resetting the unwrapped observation origin invalidates every bound
         // measured in that origin, even if a short outage did not advance the
         // UART service's (longer) continuity epoch.
@@ -471,7 +526,14 @@ class Guard {
     }
 
     void trip(Fault fault) {
-        if (fault_ == Fault::None) fault_ = fault;
+        if (fault_ == Fault::None) {
+            faultDiagnostics_ = {haveSample_, decisionAtMs_, latest_.atMs,
+                latest_.sequence, lastSampleGapMs_,
+                static_cast<uint32_t>(decisionAtMs_ - latest_.atMs),
+                latest_.continuity, latest_.positionCounts, lastEncoderDelta_,
+                speedMmS_, homingSpeedMmS_, homingSpeedWindowMs_};
+            fault_ = fault;
+        }
         armed_ = false;
         stopPathVerified_ = false;
     }
@@ -485,10 +547,17 @@ class Guard {
     Sample latest_;
     uint32_t lastTickAt_ = 0;
     uint32_t times_[rateCapacity] = {};
+    int64_t positions_[rateCapacity] = {};
     size_t timeStart_ = 0;
     size_t timeCount_ = 0;
     int64_t unwrappedCounts_ = 0;
     double speedMmS_ = 0;
+    double homingSpeedMmS_ = 0;
+    uint32_t homingSpeedWindowMs_ = 0;
+    uint32_t decisionAtMs_ = 0;
+    int64_t lastEncoderDelta_ = 0;
+    uint32_t lastSampleGapMs_ = 0;
+    FaultDiagnostics faultDiagnostics_;
     bool loadStarted_ = false;
     uint32_t loadStartedAt_ = 0;
     uint32_t stationaryWindowAt_ = 0;

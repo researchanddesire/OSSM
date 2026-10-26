@@ -217,14 +217,65 @@ void test_homing_uses_measured_speed_and_sequential_contact_stages() {
     Bench tooFast;
     tooFast.arm();
     TEST_ASSERT_TRUE(tooFast.guard.beginHomingPass(1, 25.0f, tooFast.now));
-    tooFast.position += 1000;  // 50 mm/s despite declared 25
-    tooFast.sample();
+    for (int i = 0; i < 3 && tooFast.guard.fault() == Fault::None; ++i) {
+        tooFast.position += 1000;  // sustained50mm/s despite declared25
+        tooFast.sample();
+    }
     assertFault(Fault::HomingSpeed, tooFast.guard);
 
     Bench badSequence;
     badSequence.arm();
     TEST_ASSERT_FALSE(badSequence.guard.beginHomingPass(2, 25.0f, badSequence.now));
     assertFault(Fault::HomingSequence, badSequence.guard);
+}
+
+void test_reply_completion_jitter_does_not_invent_homing_overspeed() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    bool sawInflatedInstantaneousSpeed = false;
+    for (int i = 0; i < 80; ++i) {
+        // The motor's acquisition cadence is20ms and actual travel0.5mm.
+        // Alternating reply lengths add/remove4ms of completion latency.
+        bench.position += 500;
+        bench.sample((i % 2) == 0 ? 24 : 16);
+        sawInflatedInstantaneousSpeed |= bench.guard.speedMmS() > 30.0;
+        TEST_ASSERT_EQUAL(static_cast<int>(Fault::None), static_cast<int>(bench.guard.fault()));
+        TEST_ASSERT_TRUE(bench.guard.homingSpeedWindowMs() >= 60);
+        TEST_ASSERT_TRUE(std::abs(bench.guard.homingSpeedMmS()) <= 30.0);
+    }
+    TEST_ASSERT_TRUE(sawInflatedInstantaneousSpeed);  //31.25mm/s artifact
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+}
+
+void test_true_windowed_overspeed_still_latches_and_preserves_evidence() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    const uint32_t started = bench.now;
+    for (int i = 0; i < 5 && bench.guard.fault() == Fault::None; ++i) {
+        bench.position += 700;  //35mm/s, still above unchanged30mm/s limit
+        bench.sample();
+    }
+    assertFault(Fault::HomingSpeed, bench.guard);
+    TEST_ASSERT_TRUE(bench.now - started <= 80);
+    const auto evidence = bench.guard.faultDiagnostics();
+    TEST_ASSERT_TRUE(evidence.available);
+    TEST_ASSERT_EQUAL_UINT32(bench.now, evidence.sampleAtMs);
+    TEST_ASSERT_EQUAL_UINT32(bench.sequence, evidence.sampleSequence);
+    TEST_ASSERT_EQUAL_UINT32(20, evidence.sampleGapMs);
+    TEST_ASSERT_EQUAL_INT64(700, evidence.encoderDeltaCounts);
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, 35.0, evidence.instantaneousMmS);
+    TEST_ASSERT_TRUE(evidence.homingWindowMmS > 30.0);
+    TEST_ASSERT_TRUE(evidence.homingWindowMs >= 60);
+    bench.guard.tick(bench.now + 500);
+    bench.guard.tripFault(Fault::Alarm);
+    TEST_ASSERT_EQUAL_UINT32(evidence.sampleSequence,
+                            bench.guard.faultDiagnostics().sampleSequence);
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, evidence.homingWindowMmS,
+                             bench.guard.faultDiagnostics().homingWindowMmS);
+    bench.guard.resetAfterReview();
+    TEST_ASSERT_FALSE(bench.guard.faultDiagnostics().available);
 }
 
 void test_exactly_two_deliberate_contacts_establish_physical_bounds() {
@@ -354,6 +405,8 @@ int main(int, char **) {
     RUN_TEST(test_invalid_data_and_external_stop_proof_faults_latch);
     RUN_TEST(test_motion_without_a_homing_phase_is_blocked);
     RUN_TEST(test_homing_uses_measured_speed_and_sequential_contact_stages);
+    RUN_TEST(test_reply_completion_jitter_does_not_invent_homing_overspeed);
+    RUN_TEST(test_true_windowed_overspeed_still_latches_and_preserves_evidence);
     RUN_TEST(test_exactly_two_deliberate_contacts_establish_physical_bounds);
     RUN_TEST(test_long_or_repeated_homing_contacts_fault);
     RUN_TEST(test_normal_stationary_load_is_not_a_third_allowed_contact);

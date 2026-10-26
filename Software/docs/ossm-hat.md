@@ -96,6 +96,14 @@ the telemetry/stop allowance. Unexpected stationary load trips within 50 ms.
 High-speed stopping dynamics require separate physical validation; this policy
 can conservatively reject fast travel before a nominal trajectory reaches an end.
 
+The homing speed limit uses an encoder window spanning at least 60 ms and three
+distinct samples. Individual UART completion intervals vary with reply length
+and scheduler timing; they must not turn a steady 25 mm/s traverse into a false
+overspeed. Instantaneous estimates remain conservative inputs to bounds and
+stopped/contact checks. `motor.guardFault` and USB fault logs freeze the last
+accepted sample, interval and both speed estimates at a live fault. A fault
+restored from NVS can lack that in-memory sample detail.
+
 Faults persist in NVS, including an interrupted armed run. A remembered HAT makes
 later boot failures fail closed rather than selecting ADC homing. Faults show on
 the display/LED, USB and BLE. A reviewed reset requires fresh stopped-motor proof

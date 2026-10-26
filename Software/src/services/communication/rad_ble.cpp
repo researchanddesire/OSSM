@@ -60,6 +60,7 @@ const radble::Resource RESOURCES[] = {
     {"ossm_hat", "motor.hat", "motor", "object", "", RS, ""},
     {"motor_guard", "motor.guard", "motor", "object", "", RS, ""},
     {"motor_guard_control", "motor.guardControl", "motor", "object", "", RS, ""},
+    {"motor_guard_fault", "motor.guardFault", "motor", "object", "", RS, ""},
     {"guard_reviewed_reset", "target.guardReset", "target", "event", "", RWS,
      "{\"requiresReviewed\":true}"},
     {"guard_external_control", "target.guardPrepare", "target", "event", "", RWS,
@@ -312,6 +313,22 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["contacts"] = safety.contacts;
             document["observedHz"] = safety.observedHz;
             document["sampleAgeMs"] = safety.sampleAgeMs;
+        } else if (path == "motor.guardFault") {
+            const auto detail = getMotorSafetyFaultInfo();
+            document["available"] = detail.available;
+            if (detail.available) {
+                document["decisionAtMs"] = detail.decisionAtMs;
+                document["sampleAtMs"] = detail.sampleAtMs;
+                document["sequence"] = detail.sequence;
+                document["gapMs"] = detail.gapMs;
+                document["ageMs"] = detail.ageMs;
+                document["continuity"] = detail.continuity;
+                document["encoderCounts"] = detail.encoderCounts;
+                document["deltaCounts"] = detail.deltaCounts;
+                document["instantMmS"] = detail.instantaneousMmS;
+                document["windowMmS"] = detail.windowMmS;
+                document["windowMs"] = detail.windowMs;
+            }
         } else if (path == "motor.guardControl") {
             const auto safety = getMotorSafetyStatus();
             document["reason"] = motorSafetyReason();
@@ -594,8 +611,9 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             ossmEmergencyStop();
             disarmMotorSafety();
             calibration.isHomed = false;
-            handled = state.startsWith("menu") ||
-                      stateMachine->process_event(EmergencyStop{});
+            stateMachine->process_event(EmergencyStop{});
+            // Apply the stop even if a latched error keeps its current UI.
+            handled = true;
         } else if (path == "motion.position") {
             if (!args["value"].is<int>() ||
                 (!args["durationMs"].isNull() &&
