@@ -6,6 +6,7 @@
 #include "serialIdentityProtocol.h"
 #include "services/ossmHat.h"
 #include "services/motorFeedback.h"
+#include "services/motorSafety.h"
 #include <ArduinoJson.h>
 #include <serialIdentityBuild.h>
 #if ARDUINO_USB_CDC_ON_BOOT && !ARDUINO_USB_MODE
@@ -47,6 +48,7 @@ void announceHat() {
     doc["passive"] = status.passive;
     doc["baudRate"] = status.baudRate;
     doc["ageMs"] = status.ageMs;
+    doc["sampleRateHz"] = status.sampleRateHz;
     doc["positionSource"] = motorPositionUsesRs485() ? "rs485" : "stepper";
     OssmHatTelemetry sample;
     if (readOssmHatTelemetry(sample)) {
@@ -55,7 +57,13 @@ void announceHat() {
         doc["voltageVolts"] = sample.voltageVolts;
         doc["alarm"] = sample.alarm;
     }
-    char frame[400] = "RAD_HAT ";
+    const auto safety = getMotorSafetyStatus();
+    doc["guardReady"] = safety.ready;
+    doc["guardArmed"] = safety.armed;
+    doc["guardLatched"] = safety.latched;
+    doc["guardFault"] = safety.fault;
+    doc["outputDisabled"] = safety.outputDisableVerified;
+    char frame[640] = "RAD_HAT ";
     const size_t size = serializeJson(doc, frame + 8, sizeof(frame) - 10);
     frame[size + 8] = '\n';
     Serial.write(reinterpret_cast<const uint8_t *>(frame), size + 9);

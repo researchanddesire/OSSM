@@ -1,4 +1,5 @@
 #include "led.h"
+#include "services/motorSafety.h"
 
 #include <esp_log.h>
 
@@ -409,6 +410,10 @@ void setHomingActive(bool active) {
 bool isHomingActive() { return homingActiveFlag; }
 
 void updateLEDForMachineStatus() {
+    if (getMotorSafetyStatus().latched) {
+        setLEDStatusError();
+        return;
+    }
     // Check if homing is active - this takes priority over BLE status
     if (isHomingActive()) {
         showHomingBreathing();

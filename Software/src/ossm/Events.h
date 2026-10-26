@@ -26,6 +26,9 @@ struct Done {};
 struct Error {};
 struct EmergencyStop {};
 struct Home {};
+struct MotorSafetyFault {};
+struct MotorSafetyReviewed {};
+struct InspectBoot {};
 
 struct BleClick {};
 struct ReturnToMenu {};

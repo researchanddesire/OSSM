@@ -236,6 +236,7 @@ bool StrokeEngine::setPattern(Pattern *NextPattern,
 int StrokeEngine::getPattern() { return 0; }
 
 bool StrokeEngine::startPattern() {
+    if (_outputGuard != nullptr && !_outputGuard()) return false;
     // Only valid if state is ready
     if (_state == READY || _state == SETUPDEPTH) {
         // Stop current move, should one be pending (moveToMax or moveToMin)
@@ -358,7 +359,10 @@ void StrokeEngine::enableAndHome(endstopProperties *endstop, float speed) {
     stopMotion();
 
     // Enable _servo
-    _servo->enableOutputs();
+    if (_outputGuard != nullptr && !_outputGuard()) return;
+    if (_outputEnableGuard != nullptr) {
+        if (!_outputEnableGuard()) return;
+    } else _servo->enableOutputs();
 
     // Create homing task
     xTaskCreatePinnedToCore(
@@ -381,7 +385,10 @@ void StrokeEngine::thisIsHome(float speed, bool resetOrigin) {
 
     if (_state == UNDEFINED) {
         // Enable _servo
-        _servo->enableOutputs();
+        if (_outputGuard != nullptr && !_outputGuard()) return;
+        if (_outputEnableGuard != nullptr) {
+            if (!_outputEnableGuard()) return;
+        } else _servo->enableOutputs();
 
         // Only (re-)establish the home origin on a genuine fresh physical home.
         // On a re-entry (resetOrigin == false) the carriage was NOT re-homed,
@@ -685,6 +692,13 @@ void StrokeEngine::_stroking() {
     motionParameter currentMotion;
 
     while (1) {  // infinite loop
+        if (_outputGuard != nullptr && !_outputGuard()) {
+            _servo->forceStop();
+            _servo->disableOutputs();
+            _state = READY;
+            vTaskDelay(pdMS_TO_TICKS(5));
+            continue;
+        }
 
         // Suspend task, if not in PATTERN state
         if (_state != PATTERN) {

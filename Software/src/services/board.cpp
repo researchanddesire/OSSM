@@ -1,6 +1,7 @@
 #include "services/serialIdentity.h"
 #include "board.h"
 #include "services/ossmHat.h"
+#include "services/motorSafety.h"
 
 bool USE_LATENCY_COMPENSATION = false;
 bool USE_SPEED_KNOB_AS_LIMIT = true;
@@ -21,7 +22,9 @@ void initBoard() {
     pinMode(Pins::GPIO::pin3, INPUT);
     pinMode(Pins::GPIO::pin4, INPUT);
 
+    digitalWrite(Pins::Driver::motorEnablePin, HIGH);
     pinMode(Pins::Driver::motorEnablePin, OUTPUT);
+    digitalWrite(Pins::Driver::motorEnablePin, HIGH);
     pinMode(Pins::Wifi::resetPin, INPUT_PULLDOWN);
     pinMode(Pins::Remote::speedPotPin, INPUT);
     adcAttachPin(Pins::Remote::speedPotPin);
@@ -30,6 +33,7 @@ void initBoard() {
     analogSetAttenuation(ADC_11db);  // allows us to read almost full 3.3V range
     initStepper();
     initOssmHat();
+    initMotorSafety();
     initEncoder();
     initLED();
 }

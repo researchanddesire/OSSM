@@ -15,17 +15,18 @@ env.Append(
 
 # Staging hardware observation uses the ordinary application and normal updates.
 profile = env.subst("$PIOENV")
-if profile == "staging" or profile.startswith("staging-"):
+if profile == "staging" or profile.startswith("staging-") or profile == "hat-validation-16mb":
     env.Append(LINKFLAGS=["-Wl,--wrap=log_printf"])
-    variant = profile.split("-", 1)[1] if "-" in profile else "16mb"
+    variant = "16mb" if profile == "hat-validation-16mb" else (profile.split("-", 1)[1] if "-" in profile else "16mb")
     env.Append(CPPDEFINES=[
         "RAD_HIL_ARDUINO_HTTP",
-        # The independent PC safety monitor remains the sole RTU master.
-        # HAT feedback is decoded from its requests/replies on the same bus.
-        "OSSM_HAT_LISTEN_ONLY",
         ("RAD_HIL_PRODUCT", env.StringifyMacro("ossm")),
         ("RAD_HIL_VARIANT", env.StringifyMacro(variant)),
     ])
+    if profile != "hat-validation-16mb":
+        # Existing shared-PC HIL runs retain a single master. The explicit
+        # onboard-guard profile owns the bus and starts without auto-homing.
+        env.Append(CPPDEFINES=["OSSM_HAT_LISTEN_ONLY"])
 
 # Development screen rows and SDK logs share the serial writer.
 if env.subst("$PIOENV").startswith("development") and "espidf" in env.get("PIOFRAMEWORK", []):

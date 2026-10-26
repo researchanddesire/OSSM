@@ -29,5 +29,6 @@ extern StepperFrame stepperFrame;
 void stepperTranslateFrame(StepperFrame to);
 
 void initStepper();
+bool enableMotorOutputs();
 
 #endif  // SOFTWARE_STEPPER_H

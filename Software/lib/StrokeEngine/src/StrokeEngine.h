@@ -104,8 +104,14 @@ static String verboseState[] = {
 /**************************************************************************/
 class StrokeEngine {
     FastAccelStepper *_servo;
+    bool (*_outputGuard)() = nullptr;
+    bool (*_outputEnableGuard)() = nullptr;
 
   public:
+    void setOutputGuard(bool (*guard)(), bool (*enable)() = nullptr) {
+        _outputGuard = guard;
+        _outputEnableGuard = enable;
+    }
     /**************************************************************************/
     /*!
       @brief  Initializes FastAccelStepper and configures all pins and outputs

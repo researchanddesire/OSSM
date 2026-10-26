@@ -1,6 +1,7 @@
 #include "stepper.h"
 
 #include "constants/Config.h"
+#include "services/motorSafety.h"
 
 FastAccelStepperEngine stepperEngine = FastAccelStepperEngine();
 FastAccelStepper *stepper = nullptr;
@@ -31,6 +32,11 @@ void initStepper() {
     // disable motor briefly in case we are against a hard stop.
     digitalWrite(Pins::Driver::motorEnablePin, HIGH);
     delay(600);
-    digitalWrite(Pins::Driver::motorEnablePin, LOW);
-    delay(100);
+    // The motor stays disabled until the appropriate motion mode has passed
+    // its safety gate. A reboot must not energize it during HAT discovery.
+    Stroker.setOutputGuard(motorSafetyCanEnableOutputs, enableMotorOutputs);
+}
+
+bool enableMotorOutputs() {
+    return enableMotorSafetyOutputs();
 }

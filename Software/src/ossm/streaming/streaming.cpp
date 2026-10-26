@@ -12,6 +12,7 @@
 #include "services/communication/nimble.h"
 #include "services/communication/queue.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
 
 namespace sml = boost::sml;
@@ -25,7 +26,11 @@ static void startStreamingTask(void *pvParameters) {
     // its own frame; this mode's targets are native-frame absolutes).
     stepperTranslateFrame(StepperFrame::Native);
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
-    stepper->enableOutputs();
+    if (!motorSafetyBeginNormalOperation() || !enableMotorOutputs()) {
+        stateMachine->process_event(MotorSafetyFault{});
+        vTaskDelete(nullptr);
+        return;
+    }
 
     auto isInCorrectState = []() {
         return stateMachine->is("streaming"_s) ||
@@ -51,6 +56,7 @@ static void startStreamingTask(void *pvParameters) {
     stepper->setAcceleration(maxAccel);
 
     while (isInCorrectState()) {
+        if (!motorSafetyCanEnableOutputs()) break;
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
         // Wait for new command from BLE
         if (targetQueue.empty()){

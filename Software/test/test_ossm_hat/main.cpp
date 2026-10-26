@@ -28,6 +28,8 @@ std::vector<uint8_t> request(uint16_t start = 0x0E, uint16_t count = 12,
 std::vector<uint8_t> reply(uint16_t start = 0x0E, uint16_t count = 12,
                           int32_t position = -87259, uint8_t id = 1) {
     std::array<uint16_t, 26> words{};
+    words[0] = 0;  // STEP/DIR control
+    words[1] = 7;  // shipped motor output-enable value
     words[0x0E] = 0x10;
     words[0x0F] = 3500;  // 1.75 A
     words[0x11] = 7848;  // 24 V
@@ -100,7 +102,8 @@ void test_encoder_high_and_low_words_include_signed_position() {
 void test_whole_register_snapshot_uses_requested_offset() {
     Decoder decoder;
     feed(decoder, request(0, 26));
-    TEST_ASSERT_EQUAL(Decoder::Telemetry, feed(decoder, reply(0, 26), 101));
+    TEST_ASSERT_EQUAL(Decoder::Telemetry | Decoder::Controls,
+                      feed(decoder, reply(0, 26), 101));
     TEST_ASSERT_EQUAL_INT32(-87259, decoder.sample().positionCounts);
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.75f, decoder.sample().currentAmps);
 }
@@ -238,6 +241,143 @@ void test_continuity_changes_after_gap_even_without_consumer_reads() {
     TEST_ASSERT_EQUAL_UINT32(3, decoder.sample().sequence);
 }
 
+void test_sample_rate_measures_window_instead_of_configured_poll_rate() {
+    ossm_hat::SampleRate rate;
+    for (uint32_t time = 0; time <= 1000; time += 20) rate.accepted(time);
+    float hz;
+    uint32_t window;
+    uint16_t count;
+    rate.read(1000, hz, window, count);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 50.0f, hz);
+    TEST_ASSERT_EQUAL_UINT32(1000, window);
+    TEST_ASSERT_EQUAL_UINT16(51, count);
+    rate.read(2001, hz, window, count);
+    TEST_ASSERT_EQUAL_FLOAT(0, hz);
+    TEST_ASSERT_EQUAL_UINT16(0, count);
+}
+
+void test_sample_rate_slow_stream_never_reports_thirty_hz() {
+    ossm_hat::SampleRate rate;
+    for (uint32_t time = 0; time <= 1000; time += 100) rate.accepted(time);
+    float hz;
+    uint32_t window;
+    uint16_t count;
+    rate.read(1000, hz, window, count);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 10.0f, hz);
+    TEST_ASSERT_EQUAL_UINT32(1000, window);
+}
+
+void test_sample_rate_requires_new_window_after_stale_gap() {
+    ossm_hat::SampleRate rate;
+    for (uint32_t time = 0; time <= 1000; time += 20) rate.accepted(time);
+    rate.accepted(1300);
+    float hz;
+    uint32_t window;
+    uint16_t count;
+    rate.read(1300, hz, window, count);
+    TEST_ASSERT_EQUAL_FLOAT(0, hz);
+    TEST_ASSERT_EQUAL_UINT32(0, window);
+    TEST_ASSERT_EQUAL_UINT16(1, count);
+}
+
+void test_sample_rate_handles_ring_and_millis_rollover() {
+    ossm_hat::SampleRate rate;
+    const uint32_t start = UINT32_MAX - 500;
+    for (uint32_t offset = 0; offset <= 2000; offset += 20)
+        rate.accepted(start + offset);
+    float hz;
+    uint32_t window;
+    uint16_t count;
+    rate.read(start + 2000, hz, window, count);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 50.0f, hz);
+    TEST_ASSERT_EQUAL_UINT32(1000, window);
+    TEST_ASSERT_EQUAL_UINT16(51, count);
+}
+
+void test_full_block_captures_control_mode_and_output_without_writes() {
+    Decoder decoder;
+    feed(decoder, request(0, 26), 100);
+    feed(decoder, reply(0, 26), 101);
+    const auto controls = decoder.controls();
+    TEST_ASSERT_TRUE(controls.valid);
+    TEST_ASSERT_EQUAL_UINT16(0, controls.modbusEnable);
+    TEST_ASSERT_EQUAL_UINT16(7, controls.outputEnable);
+    TEST_ASSERT_EQUAL_UINT32(101, controls.updatedAtMs);
+    TEST_ASSERT_EQUAL_UINT32(decoder.sample().continuity, controls.continuity);
+    TEST_ASSERT_TRUE(ossm_hat::controlsFresh(controls, decoder.sample(), 102));
+}
+
+void test_controls_require_fresh_telemetry_and_same_continuity() {
+    Decoder decoder;
+    feed(decoder, request(0, 26), 100);
+    feed(decoder, reply(0, 26), 101);
+    const auto controls = decoder.controls();
+    TEST_ASSERT_FALSE(ossm_hat::controlsFresh(controls, decoder.sample(), 400));
+    decoder.reset();
+    feed(decoder, request(), 500);
+    feed(decoder, reply(), 501);
+    TEST_ASSERT_TRUE(ossm_hat::fresh(decoder.sample(), 501));
+    TEST_ASSERT_FALSE(ossm_hat::controlsFresh(controls, decoder.sample(), 501));
+}
+
+void test_controls_expire_even_when_regular_telemetry_remains_fresh() {
+    Decoder decoder;
+    feed(decoder, request(0, 26), 100);
+    feed(decoder, reply(0, 26), 101);
+    const auto controls = decoder.controls();
+    for (uint32_t time = 200; time <= 2200; time += 100) {
+        feed(decoder, request(), time);
+        feed(decoder, reply(), time + 1);
+    }
+    TEST_ASSERT_TRUE(ossm_hat::fresh(decoder.sample(), 2201));
+    TEST_ASSERT_FALSE(ossm_hat::controlsFresh(controls, decoder.sample(), 2201));
+}
+
+void test_partial_or_corrupted_control_response_cannot_refresh_snapshot() {
+    Decoder decoder;
+    feed(decoder, request(0, 26), 100);
+    feed(decoder, reply(0, 26), 101);
+    const auto initial = decoder.controls();
+    feed(decoder, request(1, 1), 200);
+    feed(decoder, reply(1, 1), 201);
+    TEST_ASSERT_EQUAL_UINT32(initial.updatedAtMs, decoder.controls().updatedAtMs);
+    feed(decoder, request(0, 2), 300);
+    auto damaged = reply(0, 2);
+    damaged.back() ^= 1;
+    feed(decoder, damaged, 301);
+    TEST_ASSERT_EQUAL_UINT32(initial.updatedAtMs, decoder.controls().updatedAtMs);
+}
+
+void test_priority_readback_replaces_old_mode_snapshot_immediately() {
+    Decoder decoder;
+    feed(decoder, request(0, 26), 100);
+    feed(decoder, reply(0, 26), 101);
+    TEST_ASSERT_EQUAL_UINT16(0, decoder.controls().modbusEnable);
+    decoder.invalidateControls();
+    TEST_ASSERT_FALSE(ossm_hat::controlsFresh(decoder.controls(), decoder.sample(), 102));
+    decoder.acceptControlReadback(1, 0, 103);
+    TEST_ASSERT_EQUAL_UINT16(1, decoder.controls().modbusEnable);
+    TEST_ASSERT_EQUAL_UINT16(0, decoder.controls().outputEnable);
+    TEST_ASSERT_EQUAL_UINT32(103, decoder.controls().updatedAtMs);
+    TEST_ASSERT_TRUE(ossm_hat::controlsFresh(decoder.controls(), decoder.sample(), 104));
+    // Reviewed external control changes only mode; output0 remains valid.
+    decoder.acceptControlReadback(0, 0, 105);
+    TEST_ASSERT_EQUAL_UINT16(0, decoder.controls().modbusEnable);
+    TEST_ASSERT_EQUAL_UINT16(0, decoder.controls().outputEnable);
+}
+
+void test_priority_readback_cannot_reuse_a_previous_encoder_epoch() {
+    Decoder decoder;
+    feed(decoder, request(0, 26), 100);
+    feed(decoder, reply(0, 26), 101);
+    decoder.acceptControlReadback(0, 0, 102);
+    feed(decoder, request(), 500);
+    feed(decoder, reply(), 501);
+    TEST_ASSERT_FALSE(ossm_hat::controlsFresh(decoder.controls(), decoder.sample(), 501));
+    decoder.acceptControlReadback(0, 0, 502);
+    TEST_ASSERT_TRUE(ossm_hat::controlsFresh(decoder.controls(), decoder.sample(), 503));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_manual_read_vector_and_captured_glitch_reply);
@@ -258,5 +398,15 @@ int main(int, char **) {
     RUN_TEST(test_noise_header_and_truncated_reply_recover_on_next_transaction);
     RUN_TEST(test_fc10_acknowledgement_does_not_block_next_read);
     RUN_TEST(test_continuity_changes_after_gap_even_without_consumer_reads);
+    RUN_TEST(test_sample_rate_measures_window_instead_of_configured_poll_rate);
+    RUN_TEST(test_sample_rate_slow_stream_never_reports_thirty_hz);
+    RUN_TEST(test_sample_rate_requires_new_window_after_stale_gap);
+    RUN_TEST(test_sample_rate_handles_ring_and_millis_rollover);
+    RUN_TEST(test_full_block_captures_control_mode_and_output_without_writes);
+    RUN_TEST(test_controls_require_fresh_telemetry_and_same_continuity);
+    RUN_TEST(test_controls_expire_even_when_regular_telemetry_remains_fresh);
+    RUN_TEST(test_partial_or_corrupted_control_response_cannot_refresh_snapshot);
+    RUN_TEST(test_priority_readback_replaces_old_mode_snapshot_immediately);
+    RUN_TEST(test_priority_readback_cannot_reuse_a_previous_encoder_epoch);
     return UNITY_END();
 }

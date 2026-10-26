@@ -11,6 +11,7 @@
 #include "ossm/state/state.h"
 #include "services/communication/mqtt.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
 #include "structs/SettingPercents.h"
 #include "utils/StrokeEngineHelper.h"
@@ -22,6 +23,11 @@ using namespace sml;
 namespace stroke_engine {
 
 static void startStrokeEngineTask(void *pvParameters) {
+    if (!motorSafetyBeginNormalOperation()) {
+        stateMachine->process_event(MotorSafetyFault{});
+        vTaskDelete(nullptr);
+        return;
+    }
     float measuredStrokeMm = calibration.measuredStrokeSteps / (1_mm);
 
     machineGeometry strokingMachine = {
@@ -67,6 +73,7 @@ static void startStrokeEngineTask(void *pvParameters) {
     };
 
     while (isInCorrectState()) {
+        if (!motorSafetyCanEnableOutputs()) break;
         if (isChangeSignificant(lastSetting.speed, settings.speed) ||
             wasLastSpeedCommandFromBLE()) {
             // Speed is float, so give a little wiggle room here to assume 0

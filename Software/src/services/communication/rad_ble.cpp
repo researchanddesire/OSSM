@@ -21,6 +21,7 @@
 #include "services/stepper.h"
 #include "services/motorFeedback.h"
 #include "services/ossmHat.h"
+#include "services/motorSafety.h"
 
 #ifndef FIRMWARE_BUILD_SHA
 #define FIRMWARE_BUILD_SHA "unknown"
@@ -57,6 +58,12 @@ const radble::Resource RESOURCES[] = {
     {"motor_current_amps", "motor.currentAmps", "motor", "float", "A", RS, ""},
     {"motor_voltage_volts", "motor.voltageVolts", "motor", "float", "V", RS, ""},
     {"ossm_hat", "motor.hat", "motor", "object", "", RS, ""},
+    {"motor_guard", "motor.guard", "motor", "object", "", RS, ""},
+    {"motor_guard_control", "motor.guardControl", "motor", "object", "", RS, ""},
+    {"guard_reviewed_reset", "target.guardReset", "target", "event", "", RWS,
+     "{\"requiresReviewed\":true}"},
+    {"guard_external_control", "target.guardPrepare", "target", "event", "", RWS,
+     "{\"requiresReviewed\":true,\"enablesOutput\":false}"},
     {"emergency_stop", "button.emergencyStop", "button", "bool", "", RS,
      ""},
     {"limit", "button.limit", "button", "bool", "", RS, ""},
@@ -281,6 +288,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["passive"] = hat.passive;
             document["baudRate"] = hat.baudRate;
             document["ageMs"] = hat.ageMs;
+            document["sampleRateHz"] = hat.sampleRateHz;
             document["positionSource"] = motorPositionUsesRs485() ? "rs485" : "stepper";
             OssmHatTelemetry sample;
             if (readOssmHatTelemetry(sample)) {
@@ -288,6 +296,36 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
                 document["currentAmps"] = sample.currentAmps;
                 document["voltageVolts"] = sample.voltageVolts;
                 document["alarm"] = sample.alarm;
+            }
+        }
+        else if (path == "motor.guard") {
+            const auto safety = getMotorSafetyStatus();
+            document["required"] = safety.required;
+            document["ready"] = safety.ready;
+            document["armed"] = safety.armed;
+            document["latched"] = safety.latched;
+            document["fault"] = safety.fault;
+            document["outputDisabled"] = safety.outputDisableVerified;
+            document["stoppedVerified"] = safety.stoppedVerified;
+            document["boundsValid"] = safety.boundsValid;
+            document["activeMaster"] = safety.activeMaster;
+            document["contacts"] = safety.contacts;
+            document["observedHz"] = safety.observedHz;
+            document["sampleAgeMs"] = safety.sampleAgeMs;
+        } else if (path == "motor.guardControl") {
+            const auto safety = getMotorSafetyStatus();
+            document["reason"] = motorSafetyReason();
+            document["lowerStopCounts"] = safety.lowerStopCounts;
+            document["upperStopCounts"] = safety.upperStopCounts;
+            document["rs485StopVerified"] = getOssmHatEmergencyStopStatus().verified;
+            const auto external = getOssmHatExternalControlStatus();
+            document["prepareRequested"] = external.requested;
+            document["prepareComplete"] = external.complete;
+            document["prepareVerified"] = external.verified;
+            OssmHatControlSnapshot controls;
+            if (readOssmHatControlSnapshot(controls)) {
+                document["modbusEnable"] = controls.modbusEnable;
+                document["serialOutputSetting"] = controls.outputEnable;
             }
         }
         else if (path == "motion.homed")
@@ -537,7 +575,25 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
                                   nullptr, 1, nullptr) == pdPASS;
         } else if (path == "target.home") {
             handled = stateMachine->process_event(Home{});
+        } else if (path == "target.guardReset") {
+            if (!(args["reviewed"] | false))
+                return radble::Result::failure("review_required", "Review the latched fault before resetting");
+            if (!resetMotorSafetyAfterReview())
+                return radble::Result::failure("not_ready", "Fresh stopped motor feedback is required");
+            calibration.isHomed = false;
+            stateMachine->process_event(MotorSafetyReviewed{});
+            handled = true;
+        } else if (path == "target.guardPrepare") {
+            if (!(args["reviewed"] | false))
+                return radble::Result::failure("review_required", "Explicit stopped-motor review is required");
+            if (!prepareMotorSafetyExternalControlAfterReview())
+                return radble::Result::failure("not_ready", "Unarmed, stationary, healthy motor feedback is required");
+            return radble::Result::success(R"({"pending":true,"enablesOutput":false})");
         } else if (path == "target.emergencyStop") {
+            // Always apply the stop, including when already in a menu.
+            ossmEmergencyStop();
+            disarmMotorSafety();
+            calibration.isHomed = false;
             handled = state.startsWith("menu") ||
                       stateMachine->process_event(EmergencyStop{});
         } else if (path == "motion.position") {
@@ -719,6 +775,7 @@ String snapshot(radble::Surface surface, void*) {
 
 radble::Result prepareOta(bool starting, const char*, void*) {
     if (!starting) return radble::Result::success();
+    disarmMotorSafety();
     if (stepper != nullptr) ossmEmergencyStop();
     settings.speed = 0;
     if (stateMachine != nullptr) stateMachine->process_event(ReturnToMenu{});

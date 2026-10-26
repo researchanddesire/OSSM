@@ -22,12 +22,54 @@ inline bool fresh(const OssmHatTelemetry &sample, uint32_t now) {
            static_cast<uint32_t>(now - sample.updatedAtMs) <= ossmHatFreshnessMs;
 }
 
+inline bool controlsFresh(const OssmHatControlSnapshot &controls,
+                          const OssmHatTelemetry &sample, uint32_t now) {
+    return controls.valid && controls.continuity != 0 && fresh(sample, now) &&
+           controls.continuity == sample.continuity &&
+           static_cast<uint32_t>(now - controls.updatedAtMs) <= 2000;
+}
+
+class SampleRate {
+  public:
+    void accepted(uint32_t now) {
+        if (count_ && static_cast<uint32_t>(now - last_) > ossmHatFreshnessMs) {
+            count_ = 0;
+            next_ = 0;
+        }
+        times_[next_] = now;
+        next_ = (next_ + 1) % capacity;
+        if (count_ < capacity) ++count_;
+        last_ = now;
+    }
+
+    void read(uint32_t now, float &hz, uint32_t &windowMs, uint16_t &count) const {
+        count = 0;
+        uint32_t first = last_;
+        for (uint16_t i = 0; i < count_; ++i) {
+            const uint16_t index = (next_ + capacity - count_ + i) % capacity;
+            if (static_cast<uint32_t>(now - times_[index]) <= 1000) {
+                if (count == 0) first = times_[index];
+                ++count;
+            }
+        }
+        windowMs = count > 1 ? static_cast<uint32_t>(last_ - first) : 0;
+        hz = windowMs ? static_cast<float>(count - 1) * 1000.0f / windowMs : 0;
+    }
+
+  private:
+    static constexpr uint16_t capacity = 64;
+    uint32_t times_[capacity] = {};
+    uint16_t next_ = 0;
+    uint16_t count_ = 0;
+    uint32_t last_ = 0;
+};
+
 // A byte-stream parser rather than an RTU master: the independent PC guard
 // remains the sole transmitting master whenever present. Requests are matched
 // to replies so a random FC03 response cannot be assigned the wrong registers.
 class Decoder {
   public:
-    enum Event : uint8_t { None = 0, ExternalRequest = 1, Telemetry = 2 };
+    enum Event : uint8_t { None = 0, ExternalRequest = 1, Telemetry = 2, Controls = 4 };
 
     void reset() {
         used_ = 0;
@@ -40,6 +82,18 @@ class Decoder {
         start_ = start;
         count_ = count;
         requestedAt_ = now;
+    }
+
+    void invalidateControls() { controls_.valid = false; }
+
+    // A prioritized owner exchange uses the same read-back cache as regular
+    // polling. Never retain a pre-stop mode0 snapshot after a mode1 takeover.
+    void acceptControlReadback(uint16_t mode, uint16_t output, uint32_t now) {
+        controls_.valid = true;
+        controls_.modbusEnable = mode;
+        controls_.outputEnable = output;
+        controls_.updatedAtMs = now;
+        controls_.continuity = sample_.continuity;
     }
 
     uint8_t push(uint8_t byte, uint32_t now) {
@@ -86,6 +140,10 @@ class Decoder {
                                 start_ + count_ >= telemetryStart + telemetryCount) {
                                 decode(now);
                                 events |= Telemetry;
+                            }
+                            if (id == motorId && start_ == 0 && count_ >= 2) {
+                                acceptControlReadback(word(0), word(1), now);
+                                events |= Controls;
                             }
                             pending_ = false;
                         }
@@ -148,6 +206,7 @@ class Decoder {
     }
 
     const OssmHatTelemetry &sample() const { return sample_; }
+    const OssmHatControlSnapshot &controls() const { return controls_; }
     uint32_t validFrames() const { return validFrames_; }
     uint32_t crcErrors() const { return crcErrors_; }
 
@@ -192,6 +251,7 @@ class Decoder {
     uint16_t count_ = 0;
     uint32_t requestedAt_ = 0;
     OssmHatTelemetry sample_;
+    OssmHatControlSnapshot controls_;
     uint32_t validFrames_ = 0;
     uint32_t crcErrors_ = 0;
 };

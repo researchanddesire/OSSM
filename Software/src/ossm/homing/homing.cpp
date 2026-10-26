@@ -15,6 +15,7 @@
 #include "services/stepper.h"
 #include "services/motorFeedback.h"
 #include "services/ossmHat.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
 #include "utils/analog.h"
 
@@ -67,6 +68,10 @@ bool moveAndWait(int32_t target) {
             OssmHatTelemetry sample;
             if (!hatSampleReady(sample)) {
                 failHatHoming("OSSM HAT feedback lost. Check motor power and RS485.");
+                return false;
+            }
+            if (!motorSafetyCanEnableOutputs()) {
+                failHatHoming(motorSafetyReason());
                 return false;
             }
         }
@@ -130,6 +135,14 @@ static void startHomingTask(void *pvParameters) {
 #endif
 
     pauseMqttForHoming();
+    useHatForHoming = ossmHatDetected();
+    const bool backward = stateMachine->is("homing.backward"_s);
+    if (!motorSafetyBeginHomingPass(backward ? 2 : 1)) {
+        failHatHoming(motorSafetyReason());
+        resumeMqttAfterHoming();
+        vTaskDelete(nullptr);
+        return;
+    }
 
     if (useHatForHoming) {
         OssmHatTelemetry sample;
@@ -144,7 +157,12 @@ static void startHomingTask(void *pvParameters) {
     }
 
     // Stroke Engine and Simple Penetration treat this differently.
-    stepper->enableOutputs();
+    if (!enableMotorOutputs()) {
+        failHatHoming(motorSafetyReason());
+        resumeMqttAfterHoming();
+        vTaskDelete(nullptr);
+        return;
+    }
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
     int16_t sign = stateMachine->is("homing.backward"_s) ? 1 : -1;
 
@@ -213,7 +231,7 @@ static void startHomingTask(void *pvParameters) {
         ESP_LOGD("Homing", "Current over limit: %f", current);
         stepper->stopMove();
 
-        stepper->setSpeedInHz(250_mm);
+        stepper->setSpeedInHz(useHatForHoming ? 25_mm : 250_mm);
         // step away from the hard stop, with your hands in the air!
         int32_t currentPosition = stepper->getCurrentPosition();
         if (!moveAndWait(currentPosition - sign * Config::Driver::homingOffsetMn))
@@ -226,6 +244,10 @@ static void startHomingTask(void *pvParameters) {
                 Config::Driver::maxStrokeSteps);
 
         if (useHatForHoming) finishMotorFeedbackHomingPass();
+        if (!motorSafetyEndHomingPass()) {
+            failHatHoming(motorSafetyReason());
+            break;
+        }
 
         stepper->setCurrentPosition(0);
         stepper->forceStopAndNewPosition(0);
@@ -236,6 +258,10 @@ static void startHomingTask(void *pvParameters) {
         if (useHatForHoming && !rebaseMotorFeedbackAtHome() &&
             stateMachine->is("homing.backward"_s)) {
             failHatHoming("OSSM HAT position reference failed. Re-home before use.");
+            break;
+        }
+        if (backward && !motorSafetyBeginNormalOperation()) {
+            failHatHoming(motorSafetyReason());
             break;
         }
 

@@ -2,8 +2,11 @@
 
 The firmware discovers a live 57AIM30 feedback path at startup, then reads motor
 position, current, supply voltage and alarm through UART2. STEP/DIR remains the
-motion command interface. Detection and telemetry never write a motor register,
-change electronic gearing, enable output, save parameters or zero the encoder.
+motion command interface. Detection and telemetry are read-only. The onboard
+safety guard can latch Modbus control with output disabled on a fault and verify
+the registers. An explicit reviewed handback can return register 0 to STEP/DIR
+mode while GPIO ENA remains disabled. Neither path writes targets, gearing,
+EEPROM or the absolute encoder, or removes physical motor power.
 
 The pinout, AIM register scaling and leading-zero reply workaround come from
 [Alex Warner's HAT work](https://github.com/KinkyMakers/OSSM-Hardware/tree/faa79768fccbdbec5b236f6c96457b45fcaca74c/Hardware/Servo%20Tools/Gold%20Motor/RS485-Hat-Test).
@@ -55,10 +58,45 @@ a quiet bus before probing, and latch receive-only mode after observing another
 master. Listen-first discovery is not an arbitration guarantee: use the explicit
 listen-only build when sharing any bus with another master.
 
-The PC guard remains independent and mandatory for bench motion: fresh full
-telemetry at 30 Hz or more, a verified stop path and a valid fixture are required
-before flashing or enabling motion. The firmware HAT service does not replace
-that monitor or remove physical motor power.
+The ordinary staging/HIL profile retains the existing PC monitor contract. The
+explicit `hat-validation-16mb` profile uses the ESP32 guard as the primary safety
+monitor instead: pause the PC RTU master before using it. That image requires a
+working HAT and boots into a stopped inspection menu. It cannot fall back to ADC
+homing, and it does not auto-home after flashing. Existing installed PC-based HIL
+gates remain separate; a manual onboard-guard run must not be relabeled as a
+passing PC-guard run.
+
+## Independent onboard motor guard
+
+A high-priority FreeRTOS task runs every 5 ms, independently of the UART reader and
+motion tasks. It accepts only coherent physical encoder/current/voltage/alarm
+samples. Before arming, it requires at least 30 Hz observed over 500 ms, samples no
+older than 100 ms, healthy 20..36 V supply/alarm data, GPIO26 HIGH readback, and at
+least 100 ms of measured stationary position with current below 0.5 A. STEP/DIR mode
+must be read back from the motor. The serial output-enable register is not used
+as GPIO ENA's status; it can legitimately remain0 in external-control mode.
+
+Every firmware output-enable path, including StrokeEngine, goes through the
+guard. Fault/disarm and output enabling share a lock. A separate hardware timer
+forces ENA HIGH if the safety task misses its 34 ms deadline. The first stop does
+not wait for UART, UI or BLE: pulses stop and output is disabled immediately.
+The sole UART owner subsequently requests and verifies register 0 = 1/output bit 0 = 0
+when it owns the bus; it refuses to compete with another master.
+
+The initial conservative policy bounds current to 2.2 A (not a motor rating), loaded contact to 200 ms, and actual homing speed
+to 30 mm/s. Only two explicitly sequenced homing contacts are allowed. Homing and
+retreat use 25 mm/s. After the two contacts it learns physical encoder boundaries;
+normal operation enforces 6 mm margins plus conservative velocity projection over
+the telemetry/stop allowance. Unexpected stationary load trips within 50 ms.
+High-speed stopping dynamics require separate physical validation; this policy
+can conservatively reject fast travel before a nominal trajectory reaches an end.
+
+Faults persist in NVS, including an interrupted armed run. A remembered HAT makes
+later boot failures fail closed rather than selecting ADC homing. Faults show on
+the display/LED, USB and BLE. A reviewed reset requires fresh stopped-motor proof
+and never arms automatically. `target.guardPrepare` queues only the reviewed
+mode 0 handback while outputs stay disabled; it is distinct from clearing a fault
+or enabling motion. None of these operations claims physical power removal.
 
 ## Runtime helpers and units
 
@@ -85,11 +123,10 @@ alarm (AIM battery warning `0x10` is permitted). Lost feedback stops pulses and
 disables output, including during retreat and final reposition. The independent
 guard still enforces the two deliberate contacts and their current/duration limits.
 
-**The amp threshold and physical homing behavior require validation on the actual
-fixture before merge.** Native tests establish parsing and math, not safe physical
-contact. Outside homing, unavailable HAT readings are reported explicitly and
-position can fall back to its labeled command estimate; this change does not add
-an independent firmware motion interlock to every play mode.
+**The amp threshold, stop dynamics and physical homing behavior require validation
+on the actual fixture before merge.** Native tests establish parsing and math,
+not safe physical contact. A previously detected/required HAT losing feedback
+latches the motion interlock rather than resuming from a position estimate.
 
 ## Inspecting the running ESP32
 
@@ -97,7 +134,7 @@ The existing USB input reader accepts the read-only `hat` command on every track
 Its `RAD_HAT` JSON record reports detection, freshness, passive mode, baud, sample
 age, position source and fresh measurements. It does not reset or move the motor.
 
-RAD BLE exposes read-only `motor.hat`, `motor.currentAmps` (A) and
+RAD BLE exposes read-only `motor.guard`, `motor.guardControl`, `motor.hat`, `motor.currentAmps` (A) and
 `motor.voltageVolts` (V) resources. The Analog surface also includes explicitly
 named amp/volt fields, and Motion reports `positionSource`. Existing
 `analog.motorCurrent` and `analog.motorCurrentFiltered` retain their ADC units.
@@ -107,13 +144,13 @@ helper for its existing numeric position field.
 
 ## Verification
 
-Run native suites `test_ossm_hat`, `test_motor_feedback`, `test_homing_logic` and
+Run native suites `test_ossm_hat`, `test_motor_feedback`, `test_motor_guard`, `test_homing_logic` and
 `test_state_json`. They cover independent fixed protocol vectors, leading zeroes,
 CRC errors, incomplete and mismatched replies, other masters, noise recovery,
 freshness/continuity, encoder rollover, polarity, frame conversion and contact
 qualification. Build both staging and production hardware variants through the
 normal PR workflow. Physical evidence must identify the exact enrolled board,
 show the PC guard remaining healthy, and compare the ESP32's `hat`/BLE readings
-with independent PC position/current/voltage/alarm while recording the motor and
+with independently observed position/current/voltage/alarm while recording the motor and
 remote. Record absence/disconnect behavior separately; do not claim a passing
 motion demonstration if any safety preflight is unavailable.

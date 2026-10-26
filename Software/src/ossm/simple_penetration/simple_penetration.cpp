@@ -9,6 +9,7 @@
 #include "services/communication/nimble.h"
 #include "services/communication/queue.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
 
 namespace sml = boost::sml;
@@ -25,7 +26,11 @@ static void startSimplePenetrationTask(void *pvParameters) {
     // stroke runs physically reversed and/or displaced into a hard stop.
     stepperTranslateFrame(StepperFrame::Native);
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
-    stepper->enableOutputs();
+    if (!motorSafetyBeginNormalOperation() || !enableMotorOutputs()) {
+        stateMachine->process_event(MotorSafetyFault{});
+        vTaskDelete(nullptr);
+        return;
+    }
 
     int fullStrokeCount = 0;
     static int32_t targetPosition = 0;
@@ -41,6 +46,7 @@ static void startSimplePenetrationTask(void *pvParameters) {
     bool stopped = false;
 
     while (isInCorrectState()) {
+        if (!motorSafetyCanEnableOutputs()) break;
         auto speed = simple_pen_logic::calculateSpeed(
             settings.speed, Config::Driver::maxSpeedMmPerSecond, (1_mm));
         auto acceleration = simple_pen_logic::calculateAcceleration(
