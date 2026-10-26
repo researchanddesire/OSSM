@@ -32,6 +32,11 @@ struct MotorSafetyFaultInfo {
     float instantaneousMmS = 0;
     float windowMmS = 0;
     uint32_t windowMs = 0;
+    bool progressFault = false;
+    bool motionExpected = false;
+    int8_t direction = 0;
+    uint32_t progressMs = 0;
+    uint32_t graceMs = 0;
 };
 
 void initMotorSafety();
@@ -41,6 +46,7 @@ const char *motorSafetyReason();
 bool motorSafetyCanEnableOutputs();
 bool enableMotorSafetyOutputs();
 bool motorSafetyBeginHomingPass(uint8_t pass);
+bool motorSafetyBeginHomingMotion();
 bool motorSafetyEndHomingPass();
 bool motorSafetyBeginNormalOperation();
 // OTA/maintenance only: stop and disarm, never enable or clear a fault.

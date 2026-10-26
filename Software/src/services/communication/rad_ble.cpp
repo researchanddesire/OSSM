@@ -325,9 +325,16 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
                 document["continuity"] = detail.continuity;
                 document["encoderCounts"] = detail.encoderCounts;
                 document["deltaCounts"] = detail.deltaCounts;
-                document["instantMmS"] = detail.instantaneousMmS;
-                document["windowMmS"] = detail.windowMmS;
-                document["windowMs"] = detail.windowMs;
+                if (detail.progressFault) {
+                    document["motionExpected"] = detail.motionExpected;
+                    document["dir"] = detail.direction;
+                    document["progressMs"] = detail.progressMs;
+                    document["graceMs"] = detail.graceMs;
+                } else {
+                    document["instantMmS"] = detail.instantaneousMmS;
+                    document["windowMmS"] = detail.windowMmS;
+                    document["windowMs"] = detail.windowMs;
+                }
             }
         } else if (path == "motor.guardControl") {
             const auto safety = getMotorSafetyStatus();

@@ -74,13 +74,17 @@ struct Bench {
     void home() {
         arm();
         TEST_ASSERT_TRUE(guard.beginHomingPass(1, 25.0f, now));
+        TEST_ASSERT_TRUE(guard.beginHomingMotion(now));
         travel(-50000);
         contact();
+        TEST_ASSERT_TRUE(guard.beginHomingMotion(now));
         releaseAndRetreat(-40000);
         TEST_ASSERT_TRUE(guard.endHomingPass(now));
         TEST_ASSERT_TRUE(guard.beginHomingPass(2, 25.0f, now));
+        TEST_ASSERT_TRUE(guard.beginHomingMotion(now));
         travel(50000);
         contact();
+        TEST_ASSERT_TRUE(guard.beginHomingMotion(now));
         releaseAndRetreat(40000);
         TEST_ASSERT_TRUE(guard.endHomingPass(now));
         TEST_ASSERT_TRUE(guard.boundsValid());
@@ -393,6 +397,122 @@ void test_unarmed_feedback_gap_discards_old_physical_bounds() {
     assertFault(Fault::UncalibratedMotion, bench.guard);
 }
 
+void test_low_current_homing_start_stall_is_bounded_to100ms() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    // A stationary reference capture is not a motion command.
+    for (int i = 0; i < 12; ++i) bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    const uint32_t started = bench.now;
+    for (int i = 0; i < 6 && bench.guard.fault() == Fault::None; ++i)
+        bench.sample();
+    assertFault(Fault::HomingProgress, bench.guard);
+    TEST_ASSERT_EQUAL_UINT32(100, bench.now - started);
+    TEST_ASSERT_EQUAL_UINT8(0, bench.guard.contactCount());
+    const auto evidence = bench.guard.faultDiagnostics();
+    TEST_ASSERT_TRUE(evidence.homingMotionExpected);
+    TEST_ASSERT_EQUAL_UINT32(100, evidence.homingProgressAgeMs);
+}
+
+void test_low_current_stall_after_real_motion_uses_last_new_extent() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.travel(10000);
+    const uint32_t lastAdvance = bench.now - 20;
+    for (int i = 0; i < 6 && bench.guard.fault() == Fault::None; ++i)
+        bench.sample();
+    assertFault(Fault::HomingProgress, bench.guard);
+    TEST_ASSERT_EQUAL_UINT32(100, bench.now - lastAdvance);
+    TEST_ASSERT_EQUAL_INT8(1, bench.guard.faultDiagnostics().homingProgressDirection);
+}
+
+void test_encoder_oscillation_cannot_refresh_directional_progress() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    const uint32_t started = bench.now;
+    for (int i = 0; i < 8 && bench.guard.fault() == Fault::None; ++i) {
+        bench.position = i % 2 ? -300 : 300;
+        bench.sample();
+    }
+    assertFault(Fault::HomingProgress, bench.guard);
+    // The first0.3mm advance counts once; revisiting it cannot extend time.
+    TEST_ASSERT_EQUAL_UINT32(120, bench.now - started);
+    TEST_ASSERT_EQUAL_UINT32(100, bench.guard.faultDiagnostics().homingProgressAgeMs);
+}
+
+void test_repeated_motion_marker_cannot_extend_an_unqualified_stall() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.sample();
+    TEST_ASSERT_FALSE(bench.guard.beginHomingMotion(bench.now));
+    assertFault(Fault::HomingSequence, bench.guard);
+}
+
+void test_qualified_retreat_has_bounded_grace_for_virtual_overtravel() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.travel(-5000);
+    bench.contact();
+    for (int i = 0; i < 3; ++i) bench.sample();
+    // The load can fall before the next encoder frame shows physical retreat.
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.current = 0.05f;
+    bench.sample();
+    bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    bench.position += 500;
+    bench.sample();
+    bench.travel(5000);
+    TEST_ASSERT_TRUE(bench.guard.endHomingPass(bench.now));
+    TEST_ASSERT_FALSE(bench.guard.homingMotionExpected());
+    for (int i = 0; i < 15; ++i) bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+}
+
+void test_stalled_retreat_cannot_restart_absolute200ms_progress_bound() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.travel(-5000);
+    const uint32_t lastAdvance = bench.now - 20;
+    bench.contact();
+    for (int i = 0; i < 4; ++i) bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.current = 0.05f;
+    for (int i = 0; i < 6 && bench.guard.fault() == Fault::None; ++i)
+        bench.sample();
+    assertFault(Fault::HomingProgress, bench.guard);
+    TEST_ASSERT_EQUAL_UINT32(200, bench.now - lastAdvance);
+    const auto evidence = bench.guard.faultDiagnostics();
+    TEST_ASSERT_EQUAL_UINT32(200, evidence.homingProgressAgeMs);
+    TEST_ASSERT_TRUE(evidence.homingLowCurrentGraceAgeMs < 100);
+}
+
+void test_load_drop_without_retreat_marker_does_not_reset_progress_clock() {
+    Bench bench;
+    bench.arm();
+    TEST_ASSERT_TRUE(bench.guard.beginHomingPass(1, 25.0f, bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginHomingMotion(bench.now));
+    bench.travel(-5000);
+    bench.contact();
+    for (int i = 0; i < 4; ++i) bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.motionAllowed());
+    bench.current = 0.05f;
+    bench.sample();
+    assertFault(Fault::HomingProgress, bench.guard);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_discovery_blocks_arm_without_latching);
@@ -414,5 +534,12 @@ int main(int, char **) {
     RUN_TEST(test_measured_bounds_include_margin_and_reaction_projection);
     RUN_TEST(test_epoch_and_guard_time_rollover_are_safe);
     RUN_TEST(test_unarmed_feedback_gap_discards_old_physical_bounds);
+    RUN_TEST(test_low_current_homing_start_stall_is_bounded_to100ms);
+    RUN_TEST(test_low_current_stall_after_real_motion_uses_last_new_extent);
+    RUN_TEST(test_encoder_oscillation_cannot_refresh_directional_progress);
+    RUN_TEST(test_repeated_motion_marker_cannot_extend_an_unqualified_stall);
+    RUN_TEST(test_qualified_retreat_has_bounded_grace_for_virtual_overtravel);
+    RUN_TEST(test_stalled_retreat_cannot_restart_absolute200ms_progress_bound);
+    RUN_TEST(test_load_drop_without_retreat_marker_does_not_reset_progress_clock);
     return UNITY_END();
 }

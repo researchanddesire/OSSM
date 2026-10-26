@@ -104,6 +104,13 @@ stopped/contact checks. `motor.guardFault` and USB fault logs freeze the last
 accepted sample, interval and both speed estimates at a live fault. A fault
 restored from NVS can lack that in-memory sample detail.
 
+Each commanded homing approach and retreat also starts an encoder-progress
+watchdog. Under-threshold current cannot hide a stalled axis: absent directional
+progress of 0.25 mm trips within 100 ms. Only one contact-qualified retreat marker
+can grant a new 100 ms grace period, with an absolute 200 ms no-progress cap.
+Loaded contact retains its separate 200 ms limit. Oscillation cannot renew the
+progress clock; stopped-reference capture starts before this motion clock.
+
 Faults persist in NVS, including an interrupted armed run. A remembered HAT makes
 later boot failures fail closed rather than selecting ADC homing. Faults show on
 the display/LED, USB and BLE. A reviewed reset requires fresh stopped-motor proof

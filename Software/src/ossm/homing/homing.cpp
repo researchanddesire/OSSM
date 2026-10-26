@@ -170,6 +170,12 @@ static void startHomingTask(void *pvParameters) {
         round(sign * Config::Driver::maxStrokeSteps);
 
     ESP_LOGD("Homing", "Target position in steps: %d", targetPositionInSteps);
+    if (!motorSafetyBeginHomingMotion()) {
+        failHatHoming(motorSafetyReason());
+        resumeMqttAfterHoming();
+        vTaskDelete(nullptr);
+        return;
+    }
     stepper->moveTo(targetPositionInSteps, false);
     motor_feedback_logic::HatContactDetector hatContact;
 
@@ -234,6 +240,10 @@ static void startHomingTask(void *pvParameters) {
         stepper->setSpeedInHz(useHatForHoming ? 25_mm : 250_mm);
         // step away from the hard stop, with your hands in the air!
         int32_t currentPosition = stepper->getCurrentPosition();
+        if (!motorSafetyBeginHomingMotion()) {
+            failHatHoming(motorSafetyReason());
+            break;
+        }
         if (!moveAndWait(currentPosition - sign * Config::Driver::homingOffsetMn))
             break;
 

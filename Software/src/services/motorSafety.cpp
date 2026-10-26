@@ -353,7 +353,10 @@ MotorSafetyFaultInfo getMotorSafetyFaultInfo() {
         detail.sampleSequence, detail.sampleGapMs, detail.sampleAgeMs,
         detail.continuity, detail.positionCounts, detail.encoderDeltaCounts,
         static_cast<float>(detail.instantaneousMmS),
-        static_cast<float>(detail.homingWindowMmS), detail.homingWindowMs};
+        static_cast<float>(detail.homingWindowMmS), detail.homingWindowMs,
+        guard.fault() == motor_guard::Fault::HomingProgress,
+        detail.homingMotionExpected, detail.homingProgressDirection,
+        detail.homingProgressAgeMs, detail.homingLowCurrentGraceAgeMs};
     portEXIT_CRITICAL(&guardMux);
     return result;
 }
@@ -482,6 +485,15 @@ bool motorSafetyEndHomingPass() {
     if (!stopped) return false;
     portENTER_CRITICAL(&guardMux);
     const bool result = guard.endHomingPass(millis());
+    publishCoreLocked(millis());
+    portEXIT_CRITICAL(&guardMux);
+    return result;
+}
+
+bool motorSafetyBeginHomingMotion() {
+    if (!required()) return motorSafetyCanEnableOutputs();
+    portENTER_CRITICAL(&guardMux);
+    const bool result = guard.beginHomingMotion(millis());
     publishCoreLocked(millis());
     portEXIT_CRITICAL(&guardMux);
     return result;

@@ -30,6 +30,7 @@ enum class Fault : uint8_t {
     UncalibratedMotion,
     TravelBounds,
     StopPathUnverified,
+    HomingProgress,
 };
 
 inline const char *reason(Fault fault) {
@@ -51,6 +52,7 @@ inline const char *reason(Fault fault) {
         case Fault::UncalibratedMotion: return "Motion requested without measured physical bounds";
         case Fault::TravelBounds: return "Physical encoder approaches a measured travel boundary";
         case Fault::StopPathUnverified: return "Motor output-disable stop path is not verified";
+        case Fault::HomingProgress: return "Physical encoder failed to advance during commanded homing";
     }
     return "Unknown motor safety fault";
 }
@@ -73,6 +75,8 @@ struct Config {
     // Use a physical encoder window for the homing speed limit instead of
     // dividing one position delta by that jittering completion interval.
     uint32_t homingVelocityWindowMs = 60;
+    uint32_t homingProgressMs = 100;
+    float homingProgressMm = 0.25f;
     float stationarySpeedMmS = 2.0f;
     uint32_t unexpectedLoadMs = 50;
     uint32_t maximumContactMs = 200;
@@ -109,6 +113,10 @@ struct FaultDiagnostics {
     double instantaneousMmS = 0;
     double homingWindowMmS = 0;
     uint32_t homingWindowMs = 0;
+    bool homingMotionExpected = false;
+    int8_t homingProgressDirection = 0;
+    uint32_t homingProgressAgeMs = 0;
+    uint32_t homingLowCurrentGraceAgeMs = 0;
 };
 
 class Guard {
@@ -168,6 +176,7 @@ class Guard {
         haveSample_ = true;
         appendTime(sample.atMs);
         updateHomingVelocity();
+        updateHomingProgress();
         if (!armed_) return;
         if (!checkElectrical()) return;
 
@@ -222,6 +231,7 @@ class Guard {
             }
         }
         checkLoad(nowMs);
+        if (fault_ == Fault::None) checkHomingProgress(nowMs);
         if (fault_ == Fault::None && mode_ == Mode::Normal) checkBounds();
     }
 
@@ -251,6 +261,7 @@ class Guard {
         }
         if (!checkElectrical()) return fault_;
         checkLoad(nowMs);
+        if (fault_ == Fault::None) checkHomingProgress(nowMs);
         if (fault_ == Fault::None && mode_ == Mode::Normal) checkBounds();
         return fault_;
     }
@@ -279,7 +290,11 @@ class Guard {
         return fault_ == Fault::None;
     }
 
-    void disarm() { armed_ = false; }
+    void disarm() {
+        armed_ = false;
+        progressActive_ = false;
+        motionMarkers_ = 0;
+    }
 
     // Hardware watchdogs and the UART ownership/control-register preflight
     // can report faults observed outside this pure telemetry core. The owning
@@ -322,7 +337,36 @@ class Guard {
         passContactSeen_ = false;
         contactActive_ = false;
         loadStarted_ = false;
+        progressActive_ = false;
+        motionMarkers_ = 0;
         mode_ = Mode::Homing;
+        return true;
+    }
+
+    // Declare a real command immediately before approach and then retreat.
+    // Stationary reference capture is deliberately not timed as motion. Only
+    // one approach and one contact-qualified retreat marker are accepted per
+    // pass, so repeated software commands cannot refresh a blind stall.
+    bool beginHomingMotion(uint32_t nowMs) {
+        if (!armed_ || fault_ != Fault::None) return false;
+        if (tick(nowMs) != Fault::None) return false;
+        if (mode_ != Mode::Homing || motionMarkers_ >= 2 ||
+            (motionMarkers_ == 1 && !passContactSeen_)) {
+            trip(Fault::HomingSequence);
+            return false;
+        }
+        const bool approach = motionMarkers_ == 0;
+        ++motionMarkers_;
+        progressActive_ = true;
+        progressDirection_ = 0;
+        progressOrigin_ = unwrappedCounts_;
+        progressCheckpoint_ = unwrappedCounts_;
+        progressMarkerAt_ = nowMs;
+        if (approach) physicalProgressAt_ = nowMs;
+        // A single qualified reversal may need to unwind virtual overtravel.
+        // Restart only its low-current grace; never the absolute200ms bound
+        // measured from the last physical encoder advance.
+        lowCurrentGraceAt_ = nowMs;
         return true;
     }
 
@@ -341,6 +385,7 @@ class Guard {
         }
         completedPasses_ = activePass_;
         activePass_ = 0;
+        progressActive_ = false;
         mode_ = Mode::HomingReposition;
         if (completedPasses_ == 2) {
             lowerStop_ = stopUnwrapped_[0] < stopUnwrapped_[1]
@@ -381,6 +426,7 @@ class Guard {
     double speedMmS() const { return speedMmS_; }
     double homingSpeedMmS() const { return homingSpeedMmS_; }
     uint32_t homingSpeedWindowMs() const { return homingSpeedWindowMs_; }
+    bool homingMotionExpected() const { return progressActive_; }
     FaultDiagnostics faultDiagnostics() const { return faultDiagnostics_; }
     int32_t lowerStopCounts() const {
         return stopUnwrapped_[0] < stopUnwrapped_[1] ? stopRaw_[0] : stopRaw_[1];
@@ -439,6 +485,38 @@ class Guard {
                         config_.unexpectedLoadMs)) {
             trip(Fault::UnexpectedLoad);
         }
+    }
+
+    void updateHomingProgress() {
+        if (!progressActive_ ||
+            static_cast<uint32_t>(latest_.atMs - progressMarkerAt_) >= 0x80000000U)
+            return;
+        const double minimum = config_.homingProgressMm * config_.countsPerMm;
+        if (progressDirection_ == 0) {
+            const int64_t delta = unwrappedCounts_ - progressOrigin_;
+            if (std::abs(static_cast<double>(delta)) < minimum) return;
+            progressDirection_ = delta > 0 ? 1 : -1;
+        } else if (static_cast<double>(unwrappedCounts_ - progressCheckpoint_) *
+                       progressDirection_ < minimum) {
+            return;
+        }
+        // Keep the directional high-water checkpoint. Oscillation back to an
+        // already visited extent cannot refresh either deadline.
+        progressCheckpoint_ = unwrappedCounts_;
+        physicalProgressAt_ = latest_.atMs;
+        lowCurrentGraceAt_ = latest_.atMs;
+    }
+
+    void checkHomingProgress(uint32_t nowMs) {
+        if (!progressActive_) return;
+        const bool absoluteExpired =
+            static_cast<uint32_t>(nowMs - physicalProgressAt_) >=
+                config_.maximumContactMs;
+        const bool lowCurrentExpired =
+            latest_.currentAmps <= config_.loadedCurrent &&
+            static_cast<uint32_t>(nowMs - lowCurrentGraceAt_) >=
+                config_.homingProgressMs;
+        if (absoluteExpired || lowCurrentExpired) trip(Fault::HomingProgress);
     }
 
     void checkBounds() {
@@ -506,6 +584,8 @@ class Guard {
         timeStart_ = 0;
         timeCount_ = 0;
         loadStarted_ = false;
+        progressActive_ = false;
+        motionMarkers_ = 0;
         contactActive_ = false;
         homingSpeedMmS_ = 0;
         homingSpeedWindowMs_ = 0;
@@ -531,7 +611,10 @@ class Guard {
                 latest_.sequence, lastSampleGapMs_,
                 static_cast<uint32_t>(decisionAtMs_ - latest_.atMs),
                 latest_.continuity, latest_.positionCounts, lastEncoderDelta_,
-                speedMmS_, homingSpeedMmS_, homingSpeedWindowMs_};
+                speedMmS_, homingSpeedMmS_, homingSpeedWindowMs_,
+                progressActive_, progressDirection_,
+                progressActive_ ? static_cast<uint32_t>(decisionAtMs_ - physicalProgressAt_) : 0,
+                progressActive_ ? static_cast<uint32_t>(decisionAtMs_ - lowCurrentGraceAt_) : 0};
             fault_ = fault;
         }
         armed_ = false;
@@ -558,6 +641,14 @@ class Guard {
     int64_t lastEncoderDelta_ = 0;
     uint32_t lastSampleGapMs_ = 0;
     FaultDiagnostics faultDiagnostics_;
+    bool progressActive_ = false;
+    uint8_t motionMarkers_ = 0;
+    int8_t progressDirection_ = 0;
+    int64_t progressOrigin_ = 0;
+    int64_t progressCheckpoint_ = 0;
+    uint32_t progressMarkerAt_ = 0;
+    uint32_t physicalProgressAt_ = 0;
+    uint32_t lowCurrentGraceAt_ = 0;
     bool loadStarted_ = false;
     uint32_t loadStartedAt_ = 0;
     uint32_t stationaryWindowAt_ = 0;

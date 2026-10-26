@@ -118,7 +118,7 @@ def manual_section(evidence, media, run_url):
     controller = evidence['controller']
     lines = ['', '### Supplemental manual ESP32 guard validation', '',
              f"PR head `{evidence['headSha']}`; runtime identity and expected build match this head.",
-             'The ESP32 onboard guard protected this manual run; the PC RS-485 monitor was paused.',
+             'This manual run used the ESP32 guard profile; the PC safety monitor and RTU master were paused.',
              'This supplemental evidence does not satisfy or change the required Test Rig checks.', '',
              '- Controller completed: '+str(controller['completed']).lower(),
              f"- Original recording SHA-256: `{evidence['videoSha256']}`",
