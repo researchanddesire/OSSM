@@ -20,6 +20,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from hil_supplemental import current_pr_head, load_supplemental, manual_section
+
 BUCKET = 'hil-evidence'
 SIGNED_SECONDS = 365 * 24 * 3600
 PREVIEW_SECONDS = 30
@@ -166,8 +168,15 @@ def main():
     icon = ICONS.get(headline, '⚠️')
 
     notes, media = [], {}
+    supplemental, supplemental_media = None, None
+    if (args.evidence / 'supplemental' / 'manifest.json').exists():
+        try:
+            head = current_pr_head(repository, args.pr)
+            supplemental = load_supplemental(args.evidence, repository, args.pr, head)
+        except (OSError, ValueError) as error:
+            notes.append(f'Supplemental manual evidence omitted: {error}')
     storage = None
-    if manifest.get('views') or manifest.get('context'):
+    if manifest.get('views') or manifest.get('context') or supplemental:
         try:
             if not os.environ.get('SUPABASE_ACCESS_TOKEN'):
                 raise RuntimeError('SUPABASE_ACCESS_TOKEN is not available to this repository')
@@ -203,6 +212,22 @@ def main():
                                     storage.publish(f"{prefix}/{source.name}", source, 'image/jpeg')))
                 except Exception as error:  # noqa: BLE001
                     notes.append(f"Could not publish {source.name}: {error}")
+        if supplemental and storage:
+            try:
+                source = supplemental['video']
+                gif, mp4 = temp / 'manual-esp32-guard.gif', temp / 'manual-esp32-guard.mp4'
+                speed = preview(source, gif)
+                web_video(source, mp4)
+                # Recheck after transcoding, before publishing media for this head.
+                if current_pr_head(repository, args.pr) != supplemental['headSha']:
+                    raise ValueError('supplemental PR head changed before upload')
+                manual_prefix = f"{prefix}/supplemental/{supplemental['headSha']}"
+                supplemental_media = dict(
+                    gif=storage.publish(f'{manual_prefix}/manual.gif', gif, 'image/gif'),
+                    mp4=storage.publish(f'{manual_prefix}/manual.mp4', mp4, 'video/mp4'),
+                    speed=speed, length=duration(source))
+            except Exception as error:  # noqa: BLE001
+                notes.append(f'Could not publish supplemental manual video: {error}')
 
     lines = [f'<!-- rad-hil-evidence run={run_id} attempt={attempt} -->',
              f'## {icon} Hardware validation {headline}' + (f' — {PRODUCTS.get(product, product)}' if product else ''),
@@ -229,6 +254,7 @@ def main():
         lines += [f"| {e.get('t', 0):.0f} s | {e.get('variant', '')} | {e.get('event', '')} |" for e in events]
         lines += ['', '</details>']
     lines += guard_section(guard, context)
+    lines += manual_section(supplemental, supplemental_media, run_url)
     if not manifest:
         notes.append('The rig did not record video for this run.')
     elif manifest.get('error'):
