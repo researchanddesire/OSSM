@@ -1,8 +1,15 @@
-# PCB design
+# OSSM PCB sources
 
-New OSSM PCB projects belong here. No PCB design has been added to this rebuild
-yet.
+## Controller V2.3
 
-Keep editable schematics and board files with their project-local libraries and
-models. Record the design application and revision. Add fabrication exports
-only for the corresponding reviewed board revision.
+- [DipTrace PCB](controller/OSSM_rev2_3.dip)
+- [DipTrace schematic](controller/OSSM_rev2_3.dch)
+- [Schematic PDF](controller/schematic.pdf)
+
+## Wired remote
+
+- [Eagle PCB](remote/remote.brd)
+- [Eagle schematic](remote/remote.sch)
+
+These are the controller and wired remote designs for the [product BOM](../bom.csv),
+restored from the [original hardware sources](https://github.com/researchanddesire/OSSM/tree/41d683fe104f4aef8f478f2ff61269a61e06a183/Hardware/PCB%20Files).

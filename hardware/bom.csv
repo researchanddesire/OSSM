@@ -1,5 +1,5 @@
 #,Part Name,Category,Description,Qty,UOM,Manufacturer,MFG PN,Vendor,Vendor PN,Source,Notes
-1,Wired OSSM Remote,ASM,Wired remote control assembly,1,each,R+D,–,R+D,–,https://www.researchanddesire.com/products/ossm-reference-board,Electronics.
+1,Wired OSSM Remote,ASM,Wired remote control assembly,1,each,R+D,–,R+D,–,cad/remote/README.md,Electronics.
 2,8mm bore 20T pulley,BTP,"GT2 timing pulley, 20 teeth, 8 mm bore, 10 mm belt width",1,each,Generic Factory,–,AliExpress,20T W10 B8,https://www.aliexpress.com/item/32781681772.html,Actuator.
 3,GT2 Belt,BTP,"GT2 timing belt, 10 mm width",0.5,m,Generic Factory,–,AliExpress,10M-10MM-2GT,https://www.aliexpress.com/item/32952396111.html,Actuator.
 4,Remote Ethernet Cable,CBL,Ethernet cable connecting the wired remote to the controller,1,each,Generic Factory,–,R+D,–,–,Electronics. Included with wired remote.
@@ -27,31 +27,35 @@
 26,OSSM Pivot Plate 2,FDM,FDM-printed OSSM Pivot Plate 2,1,each,R+D,–,R+D,–,cad/stand/pivot-plate-2.step,Extrusion stand.
 27,OSSM Handle Spacer,FDM,FDM-printed OSSM Handle Spacer,8,each,R+D,–,R+D,–,cad/stand/handle-spacer.step,Extrusion stand.
 28,OSSM Foot,FDM,FDM-printed OSSM Foot,4,each,R+D,–,R+D,–,cad/stand/foot.step,Extrusion stand.
-29,OSSM T Nut Support,FDM,FDM-printed OSSM T Nut Support,2,each,R+D,–,R+D,–,–,Extrusion stand.
-30,End caps,FDM,FDM-printed extrusion end cap,6,each,R+D,–,R+D,–,cad/stand/end-cap.step,Extrusion stand. Bag 3.
-31,M3x8mm,FST,ISO 4762 — M3x8 hexagon socket head cap screw,18,each,Generic Factory,–,Bolt Depot,13635,https://boltdepot.com/Product-Details?product=13635,Actuator. Includes 2 spares. Black oxide. Screw property class 12.9.
-32,M3x20mm,FST,ISO 4762 — M3x20 hexagon socket head cap screw,3,each,Generic Factory,–,Bolt Depot,13639,https://boltdepot.com/Product-Details?product=13639,Actuator. Includes 1 spare. Black oxide. Screw property class 12.9.
-33,M3 Nuts,FST,ISO 4032 — M3 hexagon regular nut (style 1),10,each,Generic Factory,–,Bolt Depot,4773,https://boltdepot.com/Product-Details?product=4773,Actuator. Black oxide.
-34,M4x25mm,FST,ISO 4762 — M4x25 hexagon socket head cap screw,2,each,Generic Factory,–,Bolt Depot,6511,https://boltdepot.com/Product-Details?product=6511,Actuator. Black oxide. Screw property class 12.9.
-35,M4 Nuts,FST,ISO 4032 — M4 hexagon regular nut (style 1),3,each,Generic Factory,–,Bolt Depot,4774,https://boltdepot.com/Product-Details?product=4774,Actuator. Black oxide.
-36,M5x20mm Caphead screws,FST,ISO 4762 — M5x20 hexagon socket head cap screw,6,each,Generic Factory,–,Bolt Depot,6523,https://boltdepot.com/Product-Details?product=6523,Actuator. Black oxide. Screw property class 12.9.
-37,M5x35mm,FST,ISO 4762 — M5x35 hexagon socket head cap screw,4,each,Generic Factory,–,Bolt Depot,6526,https://boltdepot.com/Product-Details?product=6526,Actuator. Black oxide. Screw property class 12.9.
-38,M5 Nuts,FST,ISO 4032 — M5 hexagon regular nut (style 1),8,each,Generic Factory,–,Bolt Depot,4775,https://boltdepot.com/Product-Details?product=4775,Actuator. Includes 2 spares. Black oxide.
-39,M6x16mm,FST,ISO 4762 — M6x16 hexagon socket head cap screw,2,each,Generic Factory,–,Bolt Depot,6539,https://boltdepot.com/Product-Details?product=6539,Actuator. Black oxide. Screw property class 12.9.
-40,M6 T nut,FST,ISO 299 — M6 T-nut for 3030 extrusion,2,each,Generic Factory,–,AliExpress,30S-M6,https://www.aliexpress.com/item/1005001714123635.html,Actuator. Black oxide. Property class 12.9.
-41,M6x12 Screw,FST,ISO 4762 — M6x12 hexagon socket head cap screw,14,each,Generic Factory,–,Bolt Depot,6537,https://boltdepot.com/Product-Details?product=6537,Extrusion stand. Bag 1. Black oxide. Screw property class 12.9.
-42,M6x25 Screw,FST,ISO 4762 — M6x25 hexagon socket head cap screw,6,each,Generic Factory,–,Bolt Depot,6541,https://boltdepot.com/Product-Details?product=6541,Extrusion stand. Bag 1. Black oxide. Screw property class 12.9.
-43,M6 Washer,FST,"ISO 7089 — M6 plain washer, normal series, product grade A",16,each,Generic Factory,–,Bolt Depot,4516,https://boltdepot.com/Product-Details?product=4516,Extrusion stand. Bag 1. Black oxide.
-44,M6 T-Nuts,FST,ISO 299 — M6 T-nut for 3030 extrusion,24,each,Generic Factory,–,AliExpress,30S-M6,https://www.aliexpress.com/item/1005001714123635.html,Extrusion stand. Bag 1. Black oxide. Property class 12.9.
-45,M6x25mm Handle,FST,M6x25mm Handle,2,each,Generic Factory,–,AliExpress,M6x50x25,https://www.aliexpress.com/item/1005005417338944.html,Extrusion stand. Bag 2.
-46,Rubber Washer,FST,Rubber washer,2,each,Generic Factory,–,McMaster,90131A603,https://www.mcmaster.com/catalog/130/3689/90131A603,Extrusion stand. Bag 3.
-47,M4x8mm Buttonhead Screws,FST,M4x8 buttonhead screws for the wired remote,2,each,Generic Factory,–,R+D,–,–,Electronics. Included with wired remote.
-48,5x11x4mm Bearings,LNM,5 x 11 x 4 mm sealed bearing,6,each,Generic Factory,MR115-2RS,AliExpress,MR115-2RS,https://www.aliexpress.com/item/1005004734688651.html,Actuator.
-49,350mm Linear Rail,LNM,350 mm MGN12 linear rail with one carriage,1,each,Generic Factory,–,Robotdigg,GS_MGN12-1H-350CH,https://www.robotdigg.com/product/1820/,Actuator.
-50,Gold Motor,MTR,"NEMA 23 integrated servo motor, gold finish",1,each,Generic Factory,57AIM30,Robotdigg,57AIM30,https://www.robotdigg.com/product/1690/BLDC-Servo-Motor-with-CANBus-or-RS485-driver-NEMA23,Actuator.
-51,OSSM Controller PCBA,PCA,"Assembled ESP32 controller board, revision 2.3, 24 V input",1,each,R+D,–,R+D,–,https://www.researchanddesire.com/products/ossm-reference-board,Electronics.
-52,"3x3"" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",PKG,"3x3"" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",5,each,Generic Factory,–,Uline,S-1692,https://www.uline.ca/Product/Detail/S-1692/Reclosable-Poly-Bags/3-x-3-2-Mil-Reclosable-Bags,Extrusion stand.
-53,"6x8"" bag (3x3"" bags + End caps + Base brackets)",PKG,"6x8"" bag (3x3"" bags + End caps + Base brackets)",1,each,Generic Factory,–,Uline,S-5065,https://www.uline.ca/Product/Detail/S-5065/Resealable-Bags/6-x-8-15-Mil-Resealable-Bags,Extrusion stand.
-54,"6x12"" bags (All printed parts)",PKG,"6x12"" bags (All printed parts)",2,each,Generic Factory,–,Uline,S-20313,https://www.uline.ca/Product/Detail/S-20313/Resealable-Bags/6-x-12-15-Mil-Resealable-Bags,Extrusion stand.
-55,"20x6x6"" Cardboard box",PKG,"20x6x6"" Cardboard box",1,each,Generic Factory,–,Uline,S-4639,https://www.uline.ca/Product/Detail/S-4639/Corrugated-Boxes-200-Test/20-x-6-x-6-Long-Corrugated-Boxes,Extrusion stand.
-56,24V Power Supply,PSU,"24 V DC power supply, 5 A continuous output",1,each,Generic Factory,–,R+D,–,https://www.researchanddesire.com/products/ossm-24v-power-supply,Electronics.
+29,End caps,FDM,FDM-printed extrusion end cap,6,each,R+D,–,R+D,–,cad/stand/end-cap.step,Extrusion stand. Bag 3.
+30,OSSM - 24mm Rail Adapter,FDM,Rail-to-24 mm thread end effector,1,each,R+D,–,R+D,–,cad/actuator/24mm-rail-adapter.step,Actuator. Included in the printed parts kit.
+31,OSSM - Double Double,FDM,24 mm threaded Double Double toy mount,1,each,R+D,–,R+D,–,–,Actuator. Included in the printed parts kit.
+32,OSSM - Flange Base,FDM,24 mm threaded flange base,1,each,R+D,–,R+D,–,cad/end-effectors/flange-base.step,Actuator. Included in the printed parts kit.
+33,OSSM - Flange Ring 50mm,FDM,2 in (50 mm) flange ring,1,each,R+D,–,R+D,–,cad/end-effectors/flange-ring-50mm.step,Actuator. Included in the printed parts kit.
+34,OSSM - Flange Ring 63mm,FDM,2.5 in (63 mm) flange ring,1,each,R+D,–,R+D,–,cad/end-effectors/flange-ring-63mm.step,Actuator. Included in the printed parts kit.
+35,M3x8mm,FST,ISO 4762 — M3x8 hexagon socket head cap screw,18,each,Generic Factory,–,Bolt Depot,13635,https://boltdepot.com/Product-Details?product=13635,Actuator. Includes 2 spares. Black oxide. Screw property class 12.9.
+36,M3x20mm,FST,ISO 4762 — M3x20 hexagon socket head cap screw,3,each,Generic Factory,–,Bolt Depot,13639,https://boltdepot.com/Product-Details?product=13639,Actuator. Includes 1 spare. Black oxide. Screw property class 12.9.
+37,M3 Nuts,FST,ISO 4032 — M3 hexagon regular nut (style 1),10,each,Generic Factory,–,Bolt Depot,4773,https://boltdepot.com/Product-Details?product=4773,Actuator. Black oxide.
+38,M4x25mm,FST,ISO 4762 — M4x25 hexagon socket head cap screw,2,each,Generic Factory,–,Bolt Depot,6511,https://boltdepot.com/Product-Details?product=6511,Actuator. Black oxide. Screw property class 12.9.
+39,M4 Nuts,FST,ISO 4032 — M4 hexagon regular nut (style 1),3,each,Generic Factory,–,Bolt Depot,4774,https://boltdepot.com/Product-Details?product=4774,Actuator. Black oxide.
+40,M5x20mm Caphead screws,FST,ISO 4762 — M5x20 hexagon socket head cap screw,6,each,Generic Factory,–,Bolt Depot,6523,https://boltdepot.com/Product-Details?product=6523,Actuator. Black oxide. Screw property class 12.9.
+41,M5x35mm,FST,ISO 4762 — M5x35 hexagon socket head cap screw,4,each,Generic Factory,–,Bolt Depot,6526,https://boltdepot.com/Product-Details?product=6526,Actuator. Black oxide. Screw property class 12.9.
+42,M5 Nuts,FST,ISO 4032 — M5 hexagon regular nut (style 1),8,each,Generic Factory,–,Bolt Depot,4775,https://boltdepot.com/Product-Details?product=4775,Actuator. Includes 2 spares. Black oxide.
+43,M6x16mm,FST,ISO 4762 — M6x16 hexagon socket head cap screw,2,each,Generic Factory,–,Bolt Depot,6539,https://boltdepot.com/Product-Details?product=6539,Actuator. Black oxide. Screw property class 12.9.
+44,M6 T nut,FST,ISO 299 — M6 T-nut for 3030 extrusion,2,each,Generic Factory,–,AliExpress,30S-M6,https://www.aliexpress.com/item/1005001714123635.html,Actuator. Black oxide. Property class 12.9.
+45,M6x12 Screw,FST,ISO 4762 — M6x12 hexagon socket head cap screw,14,each,Generic Factory,–,Bolt Depot,6537,https://boltdepot.com/Product-Details?product=6537,Extrusion stand. Bag 1. Black oxide. Screw property class 12.9.
+46,M6x25 Screw,FST,ISO 4762 — M6x25 hexagon socket head cap screw,6,each,Generic Factory,–,Bolt Depot,6541,https://boltdepot.com/Product-Details?product=6541,Extrusion stand. Bag 1. Black oxide. Screw property class 12.9.
+47,M6 Washer,FST,"ISO 7089 — M6 plain washer, normal series, product grade A",16,each,Generic Factory,–,Bolt Depot,4516,https://boltdepot.com/Product-Details?product=4516,Extrusion stand. Bag 1. Black oxide.
+48,M6 T-Nuts,FST,ISO 299 — M6 T-nut for 3030 extrusion,24,each,Generic Factory,–,AliExpress,30S-M6,https://www.aliexpress.com/item/1005001714123635.html,Extrusion stand. Bag 1. Black oxide. Property class 12.9.
+49,M6x25mm Handle,FST,M6x25mm Handle,2,each,Generic Factory,–,AliExpress,M6x50x25,https://www.aliexpress.com/item/1005005417338944.html,Extrusion stand. Bag 2.
+50,Rubber Washer,FST,Rubber washer,2,each,Generic Factory,–,McMaster,90131A603,https://www.mcmaster.com/catalog/130/3689/90131A603,Extrusion stand. Bag 3.
+51,M4x8mm Buttonhead Screws,FST,M4x8 buttonhead screws for the wired remote,2,each,Generic Factory,–,R+D,–,–,Electronics. Included with wired remote.
+52,5x11x4mm Bearings,LNM,5 x 11 x 4 mm sealed bearing,6,each,Generic Factory,MR115-2RS,AliExpress,MR115-2RS,https://www.aliexpress.com/item/1005004734688651.html,Actuator.
+53,350mm Linear Rail,LNM,350 mm MGN12 linear rail with one carriage,1,each,Generic Factory,–,Robotdigg,GS_MGN12-1H-350CH,https://www.robotdigg.com/product/1820/,Actuator.
+54,Gold Motor,MTR,"NEMA 23 integrated servo motor, gold finish",1,each,Generic Factory,57AIM30,Robotdigg,57AIM30,https://www.robotdigg.com/product/1690/BLDC-Servo-Motor-with-CANBus-or-RS485-driver-NEMA23,Actuator.
+55,OSSM Controller PCBA,PCA,"Assembled ESP32 controller board, revision 2.3, 24 V input",1,each,R+D,–,R+D,–,pcb/controller/OSSM_rev2_3.dip,Electronics.
+56,"3x3"" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",PKG,"3x3"" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",5,each,Generic Factory,–,Uline,S-1692,https://www.uline.ca/Product/Detail/S-1692/Reclosable-Poly-Bags/3-x-3-2-Mil-Reclosable-Bags,Extrusion stand.
+57,"6x8"" bag (3x3"" bags + End caps + Base brackets)",PKG,"6x8"" bag (3x3"" bags + End caps + Base brackets)",1,each,Generic Factory,–,Uline,S-5065,https://www.uline.ca/Product/Detail/S-5065/Resealable-Bags/6-x-8-15-Mil-Resealable-Bags,Extrusion stand.
+58,"6x12"" bags (All printed parts)",PKG,"6x12"" bags (All printed parts)",2,each,Generic Factory,–,Uline,S-20313,https://www.uline.ca/Product/Detail/S-20313/Resealable-Bags/6-x-12-15-Mil-Resealable-Bags,Extrusion stand.
+59,"20x6x6"" Cardboard box",PKG,"20x6x6"" Cardboard box",1,each,Generic Factory,–,Uline,S-4639,https://www.uline.ca/Product/Detail/S-4639/Corrugated-Boxes-200-Test/20-x-6-x-6-Long-Corrugated-Boxes,Extrusion stand.
+60,24V Power Supply,PSU,"24 V DC power supply, 5 A continuous output",1,each,Generic Factory,–,R+D,–,https://www.researchanddesire.com/products/ossm-24v-power-supply,Electronics.
