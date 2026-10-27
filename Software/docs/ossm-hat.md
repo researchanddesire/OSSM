@@ -88,9 +88,10 @@ ownership; the HAT cannot send targets while the PC is acting as an RTU master.
 Logical coordinates remain pulse-equivalent steps. The serial adapter anchors
 them to fresh absolute encoder counts, converts direction/frame changes locally,
 and never re-zeros the motor. A bounded local acceleration planner submits at
-most one waypoint per20ms, requires the exact previous target ACK before advancing,
-and stops advancing beyond a1mm following envelope. Arrival also requires fresh,
-quiet measured encoder samples; an ACK alone is never physical arrival.
+most one waypoint per20ms, requires the preceding request's correlated ACK before
+advancing, and stops advancing beyond a1mm following envelope. The immediate
+FC7B position word need not equal the requested target. Arrival requires fresh,
+quiet FC03 encoder samples; an ACK alone is never physical arrival.
 
 The vendor absolute command is FC0x7B (MSB-first request, low-word-first reply).
 FC0x10 at register0x0C is incremental and is not used for moves. RAM speed/ramp

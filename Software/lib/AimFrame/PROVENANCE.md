@@ -11,3 +11,12 @@ and FC7B absolute-position builders. Its single UART owner, external-master
 policy and guarded/coalescing position transport are in `src/services/ossmHat.cpp`,
 `ossmHatProtocol.hpp` and `ossmHatPositionProtocol.hpp` under the firmware source root.
 FC10 at0x0C remains an incremental protocol example and is not used for moves.
+
+The vendor FC7B reply's low-word-first position word is not a target echo:
+an immediate current-position response can differ while a move is in progress.
+The production owner correlates CRC, unit, function and frame length within
+its bounded response window, retaining the raw word separately from the
+intended request ID/target. The same rule recognizes a preempted owner's late
+reply so it cannot falsely block priority output disable. FC06 still requires
+an exact register/value echo. Completion and telemetry freshness come only
+from the independent coherent FC03 encoder/current/voltage/alarm samples.

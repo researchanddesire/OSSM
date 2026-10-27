@@ -110,12 +110,14 @@ struct OssmHatPositionStatus {
     uint32_t queuedRequestId = 0;
     uint32_t acknowledgedRequestId = 0;
     int32_t targetCounts = 0;
+    // Intended target of the correlated request, not the FC7B response word.
     int32_t acknowledgedTargetCounts = 0;
     uint16_t maximumSpeedRpm = 0;
     uint16_t accelerationRpmPerSec = 0;
     uint32_t acknowledgedAtMs = 0;
-    // Raw vendor FC7B reply word, retained for characterization even on a
-    // target mismatch. This is never labeled measured/physical position.
+    // Raw low-word-first FC7B response value; the immediate current-position
+    // word need not equal the accepted target. Diagnostic only: it never
+    // refreshes coherent FC03 telemetry or proves physical arrival.
     bool vendorReplyAvailable = false;
     int32_t vendorReplyValue = 0;
     uint32_t vendorReplyAtMs = 0;

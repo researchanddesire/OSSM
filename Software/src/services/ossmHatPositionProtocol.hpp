@@ -73,18 +73,53 @@ struct PositionAction {
     }
 };
 
+// Called only for a committed owner's bounded response window. FC7B returns
+// a low-word-first position word, which can differ from the requested target
+// while the drive moves. Correlate framing, never target equality or arrival.
+// FC06 remains an exact register/value echo. Outside an owned window the
+// passive decoder must continue treating these same-shaped frames as requests.
+inline bool supportedPositionReply(const PositionAction &action) {
+    const bool fixedReply = (action.function == AimFrame::fcWriteSingle ||
+        action.function == AimFrame::fcMoveAbsolute) && action.replyLength == 8;
+    return fixedReply || (action.readsControls() && action.replyLength == 13);
+}
+
+inline bool ownedPositionReply(const PositionAction &action, const uint8_t *bytes,
+                                size_t length) {
+    if (!supportedPositionReply(action)) return false;
+    const auto parsed = AimFrame::parseReply(bytes, length, positionMotorId,
+                                             action.function, action.replyLength);
+    if (parsed.status != AimFrame::Status::Ok ||
+        length - parsed.offset != action.replyLength) return false;
+    if (action.function == AimFrame::fcWriteSingle)
+        return std::memcmp(bytes + parsed.offset, action.frame, 6) == 0;
+    return action.function == AimFrame::fcMoveAbsolute || action.readsControls();
+}
+
 // Retain the identity of an already-committed reply across cancellation. A
 // late own FC7B acknowledgement must not be mistaken for a second bus master
 // and prevent the priority output-disable transaction that follows it.
 class LatePositionReply {
 public:
-    void expect(const PositionAction &action, uint32_t now) {
+    bool expect(const PositionAction &action, size_t acceptedBytes, uint32_t now) {
+        clear();
+        // A zero/short UART write cannot establish reply ownership. Only
+        // complete eight-byte requests are emitted by this position owner.
+        if (action.frameLength != 8 || acceptedBytes != action.frameLength ||
+            !supportedPositionReply(action)) return false;
         action_ = action;
         started_ = now;
         used_ = 0;
         active_ = true;
+        return true;
     }
     void clear() { active_ = false; }
+    bool incomplete(uint32_t now) const {
+        if (!active_ || used_ == 0 || used_ == sizeof(bytes_) ||
+            static_cast<uint32_t>(now - started_) > 100) return false;
+        return AimFrame::parseReply(bytes_, used_, positionMotorId,
+            action_.function, action_.replyLength).status == AimFrame::Status::Incomplete;
+    }
     bool push(uint8_t byte, uint32_t now) {
         if (!active_) return false;
         if (static_cast<uint32_t>(now - started_) > 100 || used_ == sizeof(bytes_)) {
@@ -92,17 +127,9 @@ public:
             return false;
         }
         bytes_[used_++] = byte;
-        const auto parsed = AimFrame::parseReply(bytes_, used_, positionMotorId,
-                                                 action_.function, action_.replyLength);
-        if (parsed.status != AimFrame::Status::Ok) return false;
-        const uint8_t *frame = bytes_ + parsed.offset;
-        const bool own = action_.function == AimFrame::fcWriteSingle ?
-            std::memcmp(frame, action_.frame, 6) == 0 :
-            action_.function == AimFrame::fcMoveAbsolute ?
-            AimFrame::moveReplyValue(frame) == action_.targetCounts :
-            action_.readsControls();
+        if (!ownedPositionReply(action_, bytes_, used_)) return false;
         active_ = false;
-        return own;
+        return true;
     }
 private:
     PositionAction action_;
@@ -111,6 +138,15 @@ private:
     size_t used_ = 0;
     bool active_ = false;
 };
+
+inline bool stopReplyCanContinue(AimFrame::Status status, size_t received,
+                                  const LatePositionReply &late, uint32_t now) {
+    // A leading zero plus seven FC7B bytes is already a BadReply for the
+    // current FC06 stop, but is not yet the complete retained position frame.
+    // Keep the bounded wait until its final CRC arrives, then reset the stop
+    // response buffer before receiving the stop's own exact echo.
+    return status == AimFrame::Status::Incomplete || received < 8 || late.incomplete(now);
+}
 
 // The owner and public mailbox calls serialize this model with stateMux.
 // take() commits one transaction. A cancellation after that point cannot
@@ -284,7 +320,8 @@ public:
 
     void recordVendorReply(const PositionAction &action, const uint8_t *reply,
                            size_t length, uint32_t now) {
-        if (!current(action) || action.function != AimFrame::fcMoveAbsolute) return;
+        if (!current(action) || action.function != AimFrame::fcMoveAbsolute ||
+            !ownedPositionReply(action, reply, length)) return;
         const auto parsed = AimFrame::parseReply(reply, length, positionMotorId,
                                                  action.function, action.replyLength);
         if (parsed.status != AimFrame::Status::Ok) return;
@@ -296,24 +333,14 @@ public:
     bool complete(const PositionAction &action, const uint8_t *reply,
                   size_t length, uint32_t now) {
         if (!current(action)) return false;
+        if (!ownedPositionReply(action, reply, length)) {
+            cancel(OssmHatPositionFault::Protocol);
+            return false;
+        }
         const auto parsed = AimFrame::parseReply(reply, length, positionMotorId,
                                                  action.function, action.replyLength);
-        if (parsed.status != AimFrame::Status::Ok) {
-            cancel(OssmHatPositionFault::Protocol);
-            return false;
-        }
         recordVendorReply(action, reply, length, now);
         const uint8_t *frame = reply + parsed.offset;
-        if (action.function == AimFrame::fcWriteSingle &&
-            std::memcmp(frame, action.frame, 6) != 0) {
-            cancel(OssmHatPositionFault::Protocol);
-            return false;
-        }
-        if (action.function == AimFrame::fcMoveAbsolute &&
-            AimFrame::moveReplyValue(frame) != action.targetCounts) {
-            cancel(OssmHatPositionFault::Protocol);
-            return false;
-        }
         if (action.readsControls()) {
             const uint16_t mode = AimFrame::be16(frame + 3);
             const uint16_t output = AimFrame::be16(frame + 5);

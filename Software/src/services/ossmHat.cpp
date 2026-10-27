@@ -106,8 +106,10 @@ bool positionExchange(const ossm_hat::PositionAction &action,
         if (!positionActionPermitted(action)) return false;
         while (Serial2.available()) {
             const int byte = Serial2.read();
+            const bool lateOwn = byte >= 0 && latePositionReply.push(
+                static_cast<uint8_t>(byte), millis());
             if (byte >= 0 && (observer.push(static_cast<uint8_t>(byte), millis()) &
-                             ossm_hat::Decoder::ExternalRequest)) {
+                             ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
                 externalMaster = true;
                 return false;
             }
@@ -123,8 +125,13 @@ bool positionExchange(const ossm_hat::PositionAction &action,
     if (obsolete) return false;
     if (action.readsControls()) observer.expectRead(ossm_hat::motorId, 0, 4, millis());
     transmitted = true;
-    latePositionReply.expect(action, millis());
-    ownerWrite(action.frame, action.frameLength);
+    const size_t accepted = ownerWrite(action.frame, action.frameLength);
+    if (!latePositionReply.expect(action, accepted, millis())) {
+        // Any attempted short write faults this intent and queues priority
+        // disable. It must never claim a response window or replay motion.
+        Serial2.flush();
+        return false;
+    }
     Serial2.flush();
     received = 0;
     const uint32_t started = millis();
@@ -147,11 +154,7 @@ bool positionExchange(const ossm_hat::PositionAction &action,
             // FC06 echoes and FC7B responses otherwise look like external
             // requests to the passive parser. Only this expected CRC-valid
             // response is consumed as the current owner's acknowledgement.
-            const bool ownReply = parsed.status == AimFrame::Status::Ok &&
-                ((action.function == AimFrame::fcWriteSingle &&
-                  std::memcmp(response + parsed.offset, action.frame, 6) == 0) ||
-                 (action.function == AimFrame::fcMoveAbsolute &&
-                  AimFrame::moveReplyValue(response + parsed.offset) == action.targetCounts));
+            const bool ownReply = ossm_hat::ownedPositionReply(action, response, received);
             if ((events & ossm_hat::Decoder::ExternalRequest) && !ownReply) {
                 externalMaster = true;
                 return false;
@@ -239,7 +242,8 @@ bool stopExchange(const uint8_t *request, size_t length, uint8_t function,
             }
             return true;
         }
-        if ((parsed.status != AimFrame::Status::Incomplete && received >= 8) ||
+        if (!ossm_hat::stopReplyCanContinue(parsed.status, received,
+                                           latePositionReply, millis()) ||
             received == sizeof(response))
             return false;
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -409,8 +413,9 @@ void reader(void *) {
             if (byte < 0) break;
             now = millis();
             lastByteAt = now;
+            const bool lateOwn = latePositionReply.push(static_cast<uint8_t>(byte), now);
             const uint8_t events = decoder.push(static_cast<uint8_t>(byte), now);
-            if (events & ossm_hat::Decoder::ExternalRequest) {
+            if ((events & ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
                 if (!status.passive) {
                     ESP_LOGI(tag, "External RS485 master detected; receive only until reboot");
                 }

@@ -329,20 +329,75 @@ bool liveArmed() {
 
 // All first-arm transitions hold persistenceMutex too, so a writer cannot
 // start after observing disarmed and then overlap a newly armed session.
+bool freshStopForPersistence(const OssmHatTelemetry *quietProof = nullptr) {
+    // Read-only electrical/freshness gate. The caller separately establishes
+    // physical quiet; software disarm alone says nothing about serial output.
+    const auto hat = getOssmHatStatus();
+    OssmHatTelemetry physical;
+    OssmHatControlSnapshot controls;
+    if (!readOssmHatTelemetry(physical) ||
+        !readOssmHatControlSnapshot(controls)) return false;
+    const uint32_t now = millis();
+    if (!hat.detected || !hat.startupReady || hat.passive || hat.baudRate != 115200 ||
+        !(hat.sampleRateHz >= 30) ||
+        static_cast<uint32_t>(now - physical.updatedAtMs) > 100 ||
+        static_cast<uint32_t>(now - controls.updatedAtMs) > 100 ||
+        controls.continuity != physical.continuity || physical.continuity == 0 ||
+        controls.modbusEnable != 1 || (controls.outputEnable & 1U) != 0 ||
+        !(physical.currentAmps >= 0 && physical.currentAmps < 0.5f) ||
+        !(physical.voltageVolts >= 20 && physical.voltageVolts <= 36) ||
+        (physical.alarm != 0 && physical.alarm != 0x10) ||
+        digitalRead(Pins::Driver::motorEnablePin) != HIGH) return false;
+    return quietProof == nullptr ||
+        (quietProof->continuity == physical.continuity &&
+         static_cast<uint32_t>(now - quietProof->updatedAtMs) <= 100 &&
+         std::abs(static_cast<int64_t>(physical.positionCounts) -
+                  quietProof->positionCounts) <= serial_interlock_probe::Gate::quietRangeCounts);
+}
+
 void persistFaultIfNeeded() {
-    if (!lockPersistence()) return;
+    if (savedFault.load()) return;
     portENTER_CRITICAL(&guardMux);
+    SafetyControlOwner owner{safetyControlRevision};
+    owner.requireHealthy = false;
     const auto fault = guard.fault();
-    const bool canWrite = !guard.armed() && !serialProbeClaimed.load() &&
-        fault != motor_guard::Fault::None;
+    const bool needed = !guard.armed() && !serialProbeClaimed.load() &&
+        !deadlineArmed && fault != motor_guard::Fault::None;
     portEXIT_CRITICAL(&guardMux);
-    if (canWrite && !savedFault.load()) {
+    if (!needed || !freshStopForPersistence()) return;
+    if (!lockPersistence()) return;
+    // Keep activation/reset excluded, but never hold guardMux or the command
+    // mutex during a physical quiet wait or NVS I/O. A changed intent cancels
+    // the read-only proof and leaves the pre-arm crash marker untouched.
+    OssmHatTelemetry quietProof;
+    const bool stopped = stoppedForReview(owner, &quietProof) &&
+        freshStopForPersistence(&quietProof);
+    portENTER_CRITICAL(&guardMux);
+    const bool canWrite = stopped && controlOwnerLocked(owner) &&
+        guard.fault() == fault && !guard.armed() &&
+        !serialProbeClaimed.load() && !deadlineArmed && !savedFault.load();
+    portEXIT_CRITICAL(&guardMux);
+    if (canWrite) {
         Preferences prefs;
         if (prefs.begin("motorGuard", false)) {
             const bool stored = prefs.putUChar("fault", static_cast<uint8_t>(fault)) != 0;
-            if (stored) {
-                prefs.putBool("armed", false);
-                savedFault.store(true);
+            // A Stop can invalidate ownership while flash is busy. It must
+            // not let this older writer clear a newer intent's crash marker.
+            const bool stillStopped = stored && freshStopForPersistence(&quietProof);
+            portENTER_CRITICAL(&guardMux);
+            const bool stillOwned = stillStopped && controlOwnerLocked(owner) &&
+                guard.fault() == fault && !guard.armed() &&
+                !serialProbeClaimed.load() && !deadlineArmed;
+            portEXIT_CRITICAL(&guardMux);
+            if (stillOwned) {
+                const bool markerCleared = prefs.putBool("armed", false) != 0 &&
+                    !prefs.getBool("armed", true);
+                portENTER_CRITICAL(&guardMux);
+                const bool persistedCurrent = markerCleared && controlOwnerLocked(owner) &&
+                    guard.fault() == fault && !guard.armed() &&
+                    !serialProbeClaimed.load() && !deadlineArmed;
+                portEXIT_CRITICAL(&guardMux);
+                if (persistedCurrent) savedFault.store(true);
             }
             prefs.end();
         }
@@ -555,20 +610,10 @@ void report(void *) {
     uint8_t reported = UINT8_MAX;
     for (;;) {
         const auto state = getMotorSafetyStatus();
-        if (ossmHatDetected() && !rememberedHat.load() && lockPersistence()) {
-            if (!liveArmed()) {
-                Preferences prefs;
-                if (prefs.begin("motorGuard", false)) {
-                    rememberedHat.store(prefs.putBool("requireHat", true) != 0);
-                    prefs.end();
-                }
-            }
-            xSemaphoreGive(persistenceMutex);
-        }
         if (state.latched) {
             enforceCurrentFaultStop();
-            persistFaultIfNeeded();
-            // A reviewed reset may have completed while waiting for storage.
+            // Publish the visible warning before any potentially long stop
+            // observation or storage wait. An ACK is not verified output-off.
             const auto currentState = getMotorSafetyStatus();
             if (currentState.latched && reported != currentState.fault) {
                 reported = currentState.fault;
@@ -578,7 +623,7 @@ void report(void *) {
                 errorState.message = motorSafetyReason();
                 setHomingActive(false, false);
                 setLEDStatusError();
-                Serial.printf("RAD_GUARD fault=%u reason=%s; output disabled, power remains connected\n",
+                Serial.printf("RAD_GUARD fault=%u reason=%s; stop requested, motor power remains connected\n",
                               currentState.fault, motorSafetyReason());
                 const auto detail = getMotorSafetyFaultInfo();
                 if (detail.available)
@@ -590,7 +635,34 @@ void report(void *) {
                     stateMachine->process_event(MotorSafetyFault{currentState.controlRevision});
                 else reported = UINT8_MAX;
             }
-        } else reported = UINT8_MAX;
+            persistFaultIfNeeded();
+        } else {
+            reported = UINT8_MAX;
+            // Remembering a newly detected HAT is also an NVS write. Apply
+            // the same read-only stop/quiet gate before touching storage.
+            if (ossmHatDetected() && !rememberedHat.load() && freshStopForPersistence()) {
+                portENTER_CRITICAL(&guardMux);
+                const SafetyControlOwner owner{safetyControlRevision};
+                portEXIT_CRITICAL(&guardMux);
+                if (lockPersistence()) {
+                    OssmHatTelemetry quietProof;
+                    const bool stopped = stoppedForReview(owner, &quietProof) &&
+                        freshStopForPersistence(&quietProof);
+                    portENTER_CRITICAL(&guardMux);
+                    const bool canWrite = stopped && controlOwnerLocked(owner) &&
+                        !guard.armed() && !serialProbeClaimed.load() && !deadlineArmed;
+                    portEXIT_CRITICAL(&guardMux);
+                    if (canWrite) {
+                        Preferences prefs;
+                        if (prefs.begin("motorGuard", false)) {
+                            rememberedHat.store(prefs.putBool("requireHat", true) != 0);
+                            prefs.end();
+                        }
+                    }
+                    xSemaphoreGive(persistenceMutex);
+                }
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
