@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "ossmHatEmergency.h"
 
 // A single CRC-checked AIM read of 0x0E..0x17 (or a larger encompassing
 // block). Encoder counts are 32768/revolution; STEP/DIR gear is unrelated.

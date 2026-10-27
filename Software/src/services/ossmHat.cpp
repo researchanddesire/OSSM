@@ -5,11 +5,15 @@
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <esp_log.h>
+#include <hal/uart_ll.h>
+#include <soc/uart_struct.h>
 
 #include "constants/Pins.h"
 #include "ossmHatProtocol.hpp"
 #include "ossmHatPositionProtocol.hpp"
 #include "ossmHatTxAudit.hpp"
+#include "ossmHatEmergencyInternal.h"
+#include "ossmHatEmergencyLogic.hpp"
 
 namespace {
 
@@ -34,8 +38,12 @@ ossm_hat::PositionQueue positionQueue;
 OssmHatPositionValidator positionValidator = nullptr;
 ossm_hat::LatePositionReply latePositionReply;
 ossm_hat::TxAudit txAudit;
+OssmHatEmergencyCause requestedProcedure = OssmHatEmergencyCause::None;
+bool procedureBusy = false;
+bool restoreRequested = false;
 
 size_t ownerWrite(const uint8_t *frame, size_t length) {
+    if (!ossm_hat_emergency::ordinaryTxAllowed()) return 0;
     const size_t accepted = Serial2.write(frame, length);
     const uint32_t at = millis();
     portENTER_CRITICAL(&stateMux);
@@ -55,7 +63,7 @@ bool positionConditions(uint64_t session, bool motion, bool requireEnabled,
     const auto status = publishedStatus;
     const auto validator = positionValidator;
     const bool permitted = initialized && !pendingStop && !publishedStop.requested &&
-        !stopInFlight;
+        !stopInFlight && !procedureBusy && ossm_hat_emergency::ordinaryTxAllowed();
     portEXIT_CRITICAL(&stateMux);
     const uint32_t now = millis();
     if (!permitted || validator == nullptr || status.passive ||
@@ -123,6 +131,8 @@ bool positionExchange(const ossm_hat::PositionAction &action,
     const bool obsolete = !positionQueue.current(action) || positionQueue.superseded(action);
     portEXIT_CRITICAL(&stateMux);
     if (obsolete) return false;
+    if (action.kind == ossm_hat::PositionActionKind::Enable &&
+        !ossmHatEmergencyMarkOutputPossible()) return false;
     if (action.readsControls()) observer.expectRead(ossm_hat::motorId, 0, 4, millis());
     transmitted = true;
     const size_t accepted = ownerWrite(action.frame, action.frameLength);
@@ -284,6 +294,9 @@ OssmHatStopStatus stopAndVerify(OssmHatStopStatus result, bool &externalMaster) 
 }
 
 bool startUart(uint32_t baud) {
+    // Atomic admission, not a check followed by an unprotected remap. Enable
+    // admission and reconfiguration cannot both acquire this route state.
+    if (!ossm_hat_emergency::beginConfiguration()) return false;
     Serial2.end();
     pinMode(Pins::Hat::direction, OUTPUT);
     digitalWrite(Pins::Hat::direction, LOW);
@@ -293,20 +306,26 @@ bool startUart(uint32_t baud) {
     // otherwise a whole slow reply could arrive after the resync timeout.
     Serial2.setRxFIFOFull(1);
     Serial2.setRxTimeout(2);
+    // Establish inactive RTS before attaching the physical DE pad.
+    const bool mode = Serial2.setMode(UART_MODE_RS485_HALF_DUPLEX);
     const bool pins = Serial2.setPins(Pins::Hat::rx, Pins::Hat::tx, -1,
                                       Pins::Hat::direction);
-    const bool mode = Serial2.setMode(UART_MODE_RS485_HALF_DUPLEX);
     gpio_pullup_en(static_cast<gpio_num_t>(Pins::Hat::rx));
     if (!pins || !mode) {
         Serial2.end();
         digitalWrite(Pins::Hat::direction, LOW);
         ESP_LOGE(tag, "UART2 RS485 setup failed");
+        ossm_hat_emergency::endConfiguration();
         return false;
     }
+    ossm_hat_emergency::endConfiguration();
     return true;
 }
 
 void reader(void *) {
+    // Install both raw IRQs on this pinned core, with UART1 clean before the
+    // ordinary UART2 driver is initialized. No UART1 default pins are attached.
+    ossm_hat_emergency::installHardware();
     ossm_hat::Decoder decoder;
     ossm_hat::SampleRate sampleRate;
     OssmHatStatus status;
@@ -355,7 +374,163 @@ void reader(void *) {
              Pins::Hat::tx, Pins::Hat::rx, Pins::Hat::direction,
              status.passive ? " (receive only)" : "");
 
+    OssmHatEmergencyCause procedure = OssmHatEmergencyCause::None;
+    bool sawIsolation = false;
+    bool restoredTransport = false;
+    bool backupAwaiting = false;
+    uint32_t procedureAt = 0, backupRequestAt = 0, backupPollAt = 0;
+    uint8_t echoWindow[8] = {};
+    size_t echoUsed = 0;
+
+    auto publishDecoder = [&]() {
+        const uint32_t at = millis();
+        status.fresh = ossm_hat::fresh(decoder.sample(), at);
+        status.ageMs = decoder.sample().sequence ? at-decoder.sample().updatedAtMs:UINT32_MAX;
+        status.validFrames=decoder.validFrames(); status.crcErrors=decoder.crcErrors();
+        sampleRate.read(at,status.sampleRateHz,status.sampleWindowMs,status.sampleCount);
+        status.startupReady=status.fresh && status.sampleRateHz>=30 && status.sampleWindowMs>=500;
+        portENTER_CRITICAL(&stateMux);
+        publishedSample=decoder.sample(); publishedControls=decoder.controls(); publishedStatus=status;
+        portEXIT_CRITICAL(&stateMux);
+        ossm_hat_emergency::ownerLease(lockedBaud && !status.passive && status.baudRate==115200);
+        ossm_hat_emergency::observe(decoder.sample(),decoder.controls());
+    };
+
+    auto emergencyService = [&]() -> bool {
+        auto emergency=getOssmHatEmergencyStatus();
+        portENTER_CRITICAL(&stateMux);
+        const auto requested=requestedProcedure;
+        const bool restore=restoreRequested;
+        const bool noCommand=!positionQueue.status().pending && !stopInFlight && !pendingStop;
+        portEXIT_CRITICAL(&stateMux);
+
+        if (procedure==OssmHatEmergencyCause::None && requested!=OssmHatEmergencyCause::None &&
+            !awaiting && noCommand && !emergency.isolated) {
+            procedure=requested; procedureAt=millis();
+            // This acknowledged checkpoint is after all ordinary exchanges
+            // returned, outside every driver/state lock. No normal command
+            // may be admitted while procedureBusy is set.
+            ossm_hat_emergency::ownerParked(true);
+            if (!ossm_hat_emergency::beginTest(procedure)) ossm_hat_emergency::failed();
+            else if (procedure==OssmHatEmergencyCause::CacheOffPreflight)
+                ossm_hat_emergency::cacheOffWindow();
+            emergency=getOssmHatEmergencyStatus();
+        }
+
+        if (emergency.isolated) {
+            if (!sawIsolation) {
+                sawIsolation=true; restoredTransport=false;
+                decoder.reset(); awaiting=false; backupAwaiting=false; echoUsed=0;
+                ossm_hat_emergency::ownerParked(true);
+                latePositionReply.clear();
+                if (!ossm_hat_emergency::expected(emergency.cause)) {
+                    portENTER_CRITICAL(&stateMux);
+                    positionQueue.cancel(OssmHatPositionFault::Cancelled);
+                    pendingStop=false;
+                    portEXIT_CRITICAL(&stateMux);
+                }
+            }
+            uint8_t bytes[128];
+            const size_t count=ossm_hat_emergency::receive(bytes,sizeof(bytes));
+            for (size_t i=0;i<count;++i) {
+                if (!emergency.echoVerified) {
+                    if (echoUsed==sizeof(echoWindow)) {
+                        std::memmove(echoWindow,echoWindow+1,sizeof(echoWindow)-1);
+                        --echoUsed;
+                    }
+                    echoWindow[echoUsed++]=bytes[i];
+                    static const uint8_t expectedEcho[8]={1,6,0,1,0,0,0xD8,0x0A};
+                    if (emergency.txDone && echoUsed==sizeof(expectedEcho) &&
+                        std::memcmp(echoWindow,expectedEcho,sizeof(expectedEcho))==0) {
+                        ossm_hat_emergency::acknowledgeEcho(millis());
+                        emergency=getOssmHatEmergencyStatus();
+                        decoder.reset();
+                    }
+                } else {
+                    const uint8_t events=decoder.push(bytes[i],millis());
+                    if (events&ossm_hat::Decoder::ExternalRequest) {
+                        status.passive=true; ossm_hat_emergency::failed();
+                    }
+                    if (events&ossm_hat::Decoder::Telemetry) {
+                        sampleRate.accepted(millis()); backupAwaiting=false;
+                        lastFrameAt=millis();
+                    }
+                }
+            }
+            emergency=getOssmHatEmergencyStatus();
+            if (emergency.rxOverflows || ossm_hat_emergency::protocolFailed()) {
+                ossm_hat_emergency::failed();
+            } else if (emergency.echoVerified) {
+                if (backupAwaiting && millis()-backupRequestAt>=100) {
+                    backupAwaiting=false; decoder.reset(); ossm_hat_emergency::failed();
+                }
+                if (!backupAwaiting && millis()-backupPollAt>=20 &&
+                    ossm_hat_emergency::readFullRegisters()) {
+                    decoder.reset(); decoder.expectRead(1,0,26,millis());
+                    backupAwaiting=true; backupRequestAt=backupPollAt=millis();
+                }
+            }
+            publishDecoder();
+            emergency=getOssmHatEmergencyStatus();
+            if (emergency.offVerified) {
+                portENTER_CRITICAL(&stateMux);
+                pendingStop=false; stopInFlight=false;
+                publishedStop.requested=publishedStop.complete=publishedStop.verified=true;
+                publishedStop.modbusEnable=1; publishedStop.driveOutputEnable=0;
+                publishedStop.completedAtMs=emergency.offAtMs;
+                portEXIT_CRITICAL(&stateMux);
+            }
+            const bool preflight=procedure==OssmHatEmergencyCause::OffOnlyPreflight ||
+                procedure==OssmHatEmergencyCause::CacheOffPreflight;
+            if ((restore || preflight) && !backupAwaiting && emergency.quietVerified &&
+                !emergency.failed && !status.passive) {
+                if (!ossm_hat_emergency::beginRestore()) {
+                    ossm_hat_emergency::failed(); return true;
+                }
+                // Every old session, queued target and retained reply loses
+                // authority before deleting any driver state. GPIO DE is
+                // already held constant LOW through detach/reset/reattach.
+                portENTER_CRITICAL(&stateMux);
+                positionQueue.cancel(OssmHatPositionFault::Cancelled);
+                latePositionReply.clear(); pendingStop=false; stopInFlight=false;
+                publishedControls.valid=false; publishedSample.sequence=0;
+                portEXIT_CRITICAL(&stateMux);
+                const uint32_t drainAt=millis();
+                while (!uart_ll_is_tx_idle(&UART2) && millis()-drainAt<20)
+                    vTaskDelay(pdMS_TO_TICKS(1));
+                if (!uart_ll_is_tx_idle(&UART2)) {
+                    ossm_hat_emergency::failed(); return true;
+                }
+                Serial2.end(); // parked owner, no outstanding HAL users
+                if (!ossm_hat_emergency::resetUnderConstantFence() ||
+                    !startUart(115200) || !ossm_hat_emergency::finishRestore()) {
+                    ossm_hat_emergency::failed(); return true;
+                }
+                decoder.restartContinuity(); sampleRate=ossm_hat::SampleRate{};
+                controlsPolled=false; awaiting=false; lastByteAt=lastPollAt=millis();
+                status.baudRate=115200; uartReady=lockedBaud=true;
+                restoredTransport=true;
+            }
+            return true;
+        }
+        if (restoredTransport && emergency.restored) {
+            portENTER_CRITICAL(&stateMux);
+            requestedProcedure=OssmHatEmergencyCause::None;
+            procedureBusy=false; restoreRequested=false;
+            publishedStop={};
+            portEXIT_CRITICAL(&stateMux);
+            procedure=OssmHatEmergencyCause::None; sawIsolation=false; restoredTransport=false;
+        }
+        if (emergency.failed) return true;
+        if (procedure!=OssmHatEmergencyCause::None && !restoredTransport) {
+            if (millis()-procedureAt>2000) ossm_hat_emergency::failed();
+            return true;
+        }
+        return false;
+    };
+
     for (;;) {
+        if (emergencyService()) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
         uint32_t now = millis();
         portENTER_CRITICAL(&stateMux);
         const OssmHatStopStatus stopRequest = publishedStop;
@@ -465,7 +640,8 @@ void reader(void *) {
             decoder.reset();
         }
 
-        if (lockedBaud && static_cast<uint32_t>(now - lastFrameAt) >=
+        if (lockedBaud && ossm_hat_emergency::configurationAllowed() &&
+            static_cast<uint32_t>(now - lastFrameAt) >=
                               reconnectAfterMs) {
             // Keep a detected HAT latched across disconnects. Consumers see
             // stale telemetry, while the background reader searches again.
@@ -473,7 +649,7 @@ void reader(void *) {
             listeningSweep = true;
             baudIndex = baudCount - 1;
             advanceBaud();
-        } else if (!lockedBaud) {
+        } else if (!lockedBaud && ossm_hat_emergency::configurationAllowed()) {
             const uint32_t slotAge = now - slotAt;
             if ((listeningSweep || status.passive) && slotAge >= listenSlotMs) {
                 advanceBaud();
@@ -489,7 +665,7 @@ void reader(void *) {
         // Full physical telemetry has priority over every ordinary position
         // transaction. Setup/enable are split into individual operations so
         // they cannot monopolize the bus or invent a configured sample rate.
-        if (uartReady && lockedBaud && !status.passive && !awaiting &&
+        if (uartReady && lockedBaud && !status.passive && !awaiting && !procedureBusy &&
             static_cast<uint32_t>(now - lastPollAt) < pollIntervalMs) {
             ossm_hat::PositionAction action;
             portENTER_CRITICAL(&stateMux);
@@ -541,8 +717,8 @@ void reader(void *) {
             // Once a serial position session has been requested, retain full
             // controls in every existing telemetry transaction, even after
             // cancellation/fault while final disabled quiet is being proven.
-            const bool includeControls = ossm_hat::fullControlPoll(
-                positionRequested, controlsPolled, now, lastControlPollAt);
+            const bool includeControls = getOssmHatEmergencyStatus().available ||
+                ossm_hat::fullControlPoll(positionRequested, controlsPolled, now, lastControlPollAt);
             const uint16_t firstRegister = includeControls ? 0 : ossm_hat::telemetryStart;
             const uint16_t registerCount = includeControls ? 26 : ossm_hat::telemetryCount;
             const size_t length = AimFrame::buildRead(
@@ -561,21 +737,7 @@ void reader(void *) {
             Serial2.flush();
         }
 
-        status.fresh = ossm_hat::fresh(decoder.sample(), millis());
-        status.ageMs = decoder.sample().sequence
-                           ? static_cast<uint32_t>(millis() - decoder.sample().updatedAtMs)
-                           : UINT32_MAX;
-        status.validFrames = decoder.validFrames();
-        status.crcErrors = decoder.crcErrors();
-        sampleRate.read(millis(), status.sampleRateHz, status.sampleWindowMs,
-                        status.sampleCount);
-        status.startupReady = status.fresh && status.sampleRateHz >= 30.0f &&
-                              status.sampleWindowMs >= 500;
-        portENTER_CRITICAL(&stateMux);
-        publishedSample = decoder.sample();
-        publishedControls = decoder.controls();
-        publishedStatus = status;
-        portEXIT_CRITICAL(&stateMux);
+        publishDecoder();
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
@@ -644,6 +806,7 @@ bool readOssmHatControlSnapshot(OssmHatControlSnapshot &out) {
 }
 
 void requestOssmHatEmergencyStop() {
+    ossmHatEmergencyStopRequested();
     OssmHatStopStatus requested;
     requested.requested = true;
     requested.requestedAtMs = millis();
@@ -743,4 +906,57 @@ OssmHatTxAudit getOssmHatTxAudit() {
     const auto audit = txAudit.snapshot();
     portEXIT_CRITICAL(&stateMux);
     return audit;
+}
+
+namespace {
+bool queueEmergencyProcedure(OssmHatEmergencyCause cause) {
+    const auto raw=getOssmHatEmergencyStatus();
+    if (!raw.available || !raw.irqInstalled || raw.isolated || raw.failed || raw.restoring ||
+        ossm_hat_emergency::restoreVetoed())
+        return false;
+    const bool qualification=cause==OssmHatEmergencyCause::Qualification;
+    if (qualification ? (!raw.offOnlyPassed || !raw.cacheOffPassed ||
+                         raw.qualificationPassed || !raw.outputMayBeOn)
+                      : (raw.outputMayBeOn || !raw.quietVerified)) return false;
+    if (cause==OssmHatEmergencyCause::OffOnlyPreflight && raw.offOnlyPassed) return false;
+    if (cause==OssmHatEmergencyCause::CacheOffPreflight &&
+        (!raw.offOnlyPassed || raw.cacheOffPassed)) return false;
+    const uint32_t now=millis();
+    portENTER_CRITICAL(&stateMux);
+    const bool accepted=initialized && !procedureBusy && !pendingStop && !stopInFlight &&
+        !positionQueue.status().pending && !publishedStatus.passive &&
+        publishedStatus.startupReady && publishedStatus.baudRate==115200 &&
+        publishedSample.sequence && now-publishedSample.updatedAtMs<=40 &&
+        publishedControls.valid && publishedControls.continuity==publishedSample.continuity &&
+        publishedControls.updatedAtMs==publishedSample.updatedAtMs &&
+        publishedControls.modbusEnable==1 &&
+        (((publishedControls.outputEnable&1)!=0)==qualification) &&
+        (publishedSample.alarm==0 || publishedSample.alarm==0x10) && publishedSample.currentAmps>=0 &&
+        publishedSample.currentAmps<0.5f;
+    if (accepted) { requestedProcedure=cause; procedureBusy=true; restoreRequested=false; }
+    portEXIT_CRITICAL(&stateMux);
+    return accepted;
+}
+}
+
+bool requestOssmHatEmergencyPreflight(bool cacheOff) {
+    if (digitalRead(Pins::Driver::motorEnablePin)!=HIGH) return false;
+    return queueEmergencyProcedure(cacheOff ? OssmHatEmergencyCause::CacheOffPreflight:
+                                            OssmHatEmergencyCause::OffOnlyPreflight);
+}
+
+bool requestOssmHatTimerQualification() {
+    return queueEmergencyProcedure(OssmHatEmergencyCause::Qualification);
+}
+
+bool requestOssmHatQualificationRestore() {
+    const auto raw=getOssmHatEmergencyStatus();
+    if (raw.cause!=OssmHatEmergencyCause::Qualification || !raw.isolated ||
+        !raw.ownerParked || !raw.echoVerified || !raw.offVerified ||
+        !raw.quietVerified || raw.failed || raw.outputMayBeOn) return false;
+    portENTER_CRITICAL(&stateMux);
+    const bool accepted=procedureBusy && requestedProcedure==OssmHatEmergencyCause::Qualification;
+    if (accepted) restoreRequested=true;
+    portEXIT_CRITICAL(&stateMux);
+    return accepted;
 }

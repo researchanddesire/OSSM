@@ -4,6 +4,7 @@
 #include <type_traits>
 #include "homing_session.h"
 #include "serial_interlock_probe.h"
+#include "serial_timer_probe.h"
 
 using MotorHomingTicket = homing_session::Ticket;
 
@@ -90,6 +91,8 @@ bool motorSafetySerialCanMove(uint64_t session);
 struct MotorSerialSafetyStatus {
     bool selected = false;
     bool hardwareStopVerified = false;
+    bool gpioStopVerified = false;
+    bool uartTimerStopVerified = false;
     bool prepared = false;
     bool enabled = false;
     bool preparing = false;
@@ -101,6 +104,12 @@ MotorSerialSafetyStatus getMotorSerialSafetyStatus();
 // free corridor. This never authorizes arbitrary motion or clears a fault.
 bool requestMotorSerialInterlockProbe(bool reviewedPositiveCorridor);
 serial_interlock_probe::Status getMotorSerialInterlockProbeStatus();
+// Explicit off-only prerequisites; cacheOff=true exercises the real IRAM
+// takeover with flash caches disabled. Neither preflight enables output.
+bool requestMotorSerialTimerPreflight(bool reviewed, bool cacheOff);
+// Separate one-shot finite qualification. GPIO proof is never relabelled.
+bool requestMotorSerialTimerProbe(bool reviewedPositiveCorridor);
+serial_timer_probe::Status getMotorSerialTimerProbeStatus();
 // OTA/maintenance only: stop and disarm, never enable or clear a fault.
 void disarmMotorSafety();
 // Explicit operator review only. Does not restore motor registers or arm.

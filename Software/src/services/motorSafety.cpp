@@ -4,7 +4,6 @@
 #include <Preferences.h>
 #include <atomic>
 #include <driver/gpio.h>
-#include <esp_timer.h>
 #include <soc/gpio_struct.h>
 
 #include "constants/Config.h"
@@ -17,6 +16,7 @@
 #include "services/led.h"
 #include "services/motorFeedback.h"
 #include "services/ossmHat.h"
+#include "services/ossmHatEmergency.h"
 #include "services/stepper.h"
 
 namespace {
@@ -35,8 +35,8 @@ std::atomic_bool savedFault{false};
 std::atomic_bool localExclusive{false};
 volatile bool deadlineArmed = false;
 volatile bool deadlineTripped = false;
-volatile uint32_t guardHeartbeatUs = 0;
-hw_timer_t *deadlineTimer = nullptr;
+// High-level permission only. The independent UART module owns TG1/T1 and
+// its separate output-may-be-on obligation survives software disarm.
 TaskHandle_t guardTaskHandle = nullptr;
 SemaphoreHandle_t persistenceMutex = nullptr;
 SemaphoreHandle_t homingCommandMutex = nullptr;
@@ -48,7 +48,16 @@ constexpr uint16_t serialAccelerationRpmPerSec = 1500;
 uint64_t serialCounter = 0;
 uint64_t safetyControlRevision = 0;  // protected by guardMux
 uint64_t serialSession = 0;  // protected by guardMux, distinct from home ticket
-std::atomic_bool serialHardwareStopVerified{false};
+std::atomic_bool serialGpioStopVerified{false};
+std::atomic_bool serialTimerStopVerified{false};
+uint32_t serialTimerProofEpoch = 0;
+enum class TimerOperation : uint8_t { None, OffPreflight, CachePreflight, Finite };
+std::atomic<TimerOperation> serialTimerOperation{TimerOperation::None};
+serial_timer_probe::Gate serialTimerProbe;
+uint32_t serialTimerInitialEpoch = 0, serialTimerInitialRawOffWrites = 0;
+OssmHatTxAudit serialTimerCheckpointAudit;
+bool serialTimerCheckpointRequested = false;
+bool serialTimerRestorePending = false;
 uint32_t serialProofContinuity = 0;  // per-boot proof, never stored in NVS
 uint64_t serialProbeCutWrites = 0;
 bool serialProbeAuditStarted = false;
@@ -61,6 +70,10 @@ uint32_t serialProbeContinuity = 0;
 bool serialProbeReadbackDelivered = false;
 TaskHandle_t serialProbeTask = nullptr;
 std::atomic_bool serialProbeCancelled{false};
+
+bool independentSerialStopVerified() {
+    return serialGpioStopVerified.load() || serialTimerStopVerified.load();
+}
 
 void invalidateSerialLocked() {
     serialSession = 0;
@@ -77,21 +90,16 @@ void revokeHomingLocked() {
     if (homingSession.active() || serialSession != 0) ++safetyControlRevision;
     if (homingSession.active()) homingSession.cancel();
     invalidateSerialLocked();
-    serialHardwareStopVerified = false;
+    serialGpioStopVerified = false;
+    if (guard.fault() != motor_guard::Fault::None || deadlineTripped) {
+        serialTimerStopVerified = false;
+        if (serialProbeClaimed.load() && serialTimerOperation.load() != TimerOperation::None)
+            ossmHatEmergencyCancelProcedure();
+        ossmHatEmergencyFault();
+    }
     GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
 }
 
-// Hardware timer is independent of the UART reader and safety task. Even a
-// stalled task cannot leave ENA asserted. GPIO register access is IRAM-safe.
-void IRAM_ATTR deadlineInterrupt() {
-    // Keep the ISR to native32-bit arithmetic.64-bit division may call a
-    // flash-resident compiler helper while an NVS write has disabled cache.
-    const uint32_t now = static_cast<uint32_t>(esp_timer_get_time());
-    if (deadlineArmed && static_cast<uint32_t>(now - guardHeartbeatUs) > 34000) {
-        GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
-        deadlineTripped = true;
-    }
-}
 
 bool required() {
 #ifdef OSSM_HAT_REQUIRE_SAFETY
@@ -102,6 +110,7 @@ bool required() {
 }
 
 void disableNow() {
+    if (ossmHatDetected()) ossmHatEmergencyStopRequested();
     // Disabling output is not physical removal of motor power.
     digitalWrite(Pins::Driver::motorEnablePin, HIGH);
     if (stepper != nullptr) {
@@ -122,6 +131,7 @@ bool enforceCurrentFaultStop() {
     if (fault) GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
     portEXIT_CRITICAL(&guardMux);
     if (fault) {
+        if (required()) ossmHatEmergencyFault();
         disableNow();
         requestOssmHatEmergencyStop();
     }
@@ -136,13 +146,18 @@ bool controlsReady() {
     if (!readOssmHatControlSnapshot(control)) return false;
     if (!ossmHatDetected()) return control.modbusEnable == 0;
     const auto position = getOssmHatPositionStatus();
-    // A disabled, prepared hold is safe while an armed home waits for enable.
-    // The UART owner separately authorizes and verifies the final enable.
-    return control.modbusEnable == 1 && position.prepared && !position.faulted &&
-           serialHardwareStopVerified.load() &&
+    portENTER_CRITICAL(&guardMux);
+    const bool idle = !guard.armed() && !serialProbeClaimed.load();
+    portEXIT_CRITICAL(&guardMux);
+    // A successful restore intentionally cancels its old position session.
+    // Fresh disabled idle can be ready for a NEW reviewed home; this does not
+    // authorize enable/target writes or reuse the cancelled session.
+    const bool quietIdle = idle && (control.outputEnable & 1U) == 0 && !position.enabled &&
+        (!position.faulted || position.fault == OssmHatPositionFault::Cancelled);
+    return control.modbusEnable == 1 && independentSerialStopVerified() &&
+        (quietIdle || (position.prepared && !position.faulted &&
            (((control.outputEnable & 1U) == 0 && !position.enabled) ||
-            ((control.outputEnable & 1U) != 0 && position.enabled) ||
-            serialEnabling.load());
+            ((control.outputEnable & 1U) != 0 && position.enabled) || serialEnabling.load())));
 }
 
 bool serialOutputOff() {
@@ -166,25 +181,38 @@ bool serialTransportAuthorized(uint64_t session, bool motion) {
         guard.fault() == motor_guard::Fault::None && !deadlineTripped;
     if (motion) {
         const auto probe = serialProbe.status();
-        const bool probeCommand = serialProbeClaimed.load() &&
-            !serialProbeCancelled.load() &&
-            session == serialProbeSession && probe.active && physicalFresh &&
-            physical.continuity == serialProbeContinuity &&
+        const auto timer = serialTimerProbe.status();
+        const auto timerOperation = serialTimerOperation.load();
+        const bool gpioPhase = timerOperation == TimerOperation::None && probe.active &&
             (probe.phase == serial_interlock_probe::Phase::Prepared ||
              probe.phase == serial_interlock_probe::Phase::Moving);
+        const bool timerPhase = timerOperation == TimerOperation::Finite && timer.active &&
+            (timer.phase == serial_timer_probe::Phase::Prepared ||
+             timer.phase == serial_timer_probe::Phase::Moving);
+        const bool probeCommand = serialProbeClaimed.load() &&
+            !serialProbeCancelled.load() && session == serialProbeSession &&
+            (gpioPhase || timerPhase) && physicalFresh &&
+            physical.continuity == serialProbeContinuity;
         const bool enabling = (probeCommand &&
-            probe.phase == serial_interlock_probe::Phase::Prepared) ||
+            ((gpioPhase && probe.phase == serial_interlock_probe::Phase::Prepared) ||
+             (timerPhase && timer.phase == serial_timer_probe::Phase::Prepared))) ||
             (!serialProbeClaimed.load() && serialEnabling.load());
         const bool outputAuthorized = enabling ||
             ((control.outputEnable & 1U) != 0 && position.enabled &&
              !position.faulted && position.session == session);
         allowed = allowed && deadlineArmed &&
-            ((guard.armed() && serialHardwareStopVerified.load() && physicalFresh &&
+            ((guard.armed() && independentSerialStopVerified() && physicalFresh &&
               physical.continuity == serialProofContinuity &&
               !serialProbeClaimed.load()) || probeCommand) &&
             outputAuthorized && digitalRead(Pins::Driver::motorEnablePin) == LOW;
     } else {
+        const bool ownProbeSetup = serialProbeClaimed.load() &&
+            !serialProbeCancelled.load() && serialPreparing.load() &&
+            session == serialProbeSession &&
+            (serialTimerOperation.load() == TimerOperation::None ||
+             serialTimerOperation.load() == TimerOperation::Finite);
         allowed = allowed && !guard.armed() &&
+            (!serialProbeClaimed.load() || ownProbeSetup) &&
             digitalRead(Pins::Driver::motorEnablePin) == HIGH &&
             (control.outputEnable & 1U) == 0;
     }
@@ -333,6 +361,7 @@ bool freshStopForPersistence(const OssmHatTelemetry *quietProof = nullptr) {
     // Read-only electrical/freshness gate. The caller separately establishes
     // physical quiet; software disarm alone says nothing about serial output.
     const auto hat = getOssmHatStatus();
+    if (getOssmHatEmergencyStatus().outputMayBeOn) return false;
     OssmHatTelemetry physical;
     OssmHatControlSnapshot controls;
     if (!readOssmHatTelemetry(physical) ||
@@ -460,33 +489,57 @@ void monitor(void *) {
     uint32_t stationarySequence = 0;
     TickType_t wake = xTaskGetTickCount();
     for (;;) {
-        guardHeartbeatUs = static_cast<uint32_t>(esp_timer_get_time());
+        ossmHatEmergencyGuardHeartbeat();
         const bool needed = required();
         const auto hat = getOssmHatStatus();
         OssmHatTelemetry sample;
         const bool haveSample = readOssmHatTelemetry(sample);
         const bool control = controlsReady();
         OssmHatControlSnapshot serialControl;
-        const bool serialMode = readOssmHatControlSnapshot(serialControl) &&
-            serialControl.modbusEnable == 1;
+        const bool haveSerialControl = readOssmHatControlSnapshot(serialControl);
+        const bool serialMode = haveSerialControl && serialControl.modbusEnable == 1;
         const auto txAudit = getOssmHatTxAudit();
         const auto stopSnapshot = getOssmHatEmergencyStopStatus();
-        const uint32_t now = millis();
+        const uint32_t emergencyBeforeMs = millis();
+        const auto emergency = getOssmHatEmergencyStatus();
+        const uint32_t emergencyEpochAfter = getOssmHatEmergencyStatus().epoch;
+        const uint32_t emergencyAfterMs = millis();
+        const uint32_t now = emergencyAfterMs;
+        const uint32_t rawIrqAgeUs = emergency.nowUs - emergency.tripAtUs;
+        const bool emergencyClockBound = emergencyAfterMs - emergencyBeforeMs <= 2 &&
+            emergencyEpochAfter == emergency.epoch && rawIrqAgeUs <= 100000;
+        // Raw TG1/T1 and millis have different epochs. Translate the age only;
+        // floor the earliest event bound conservatively by at most1ms plus
+        // the measured<=2ms status-read bracket. Never subtract raw epochs.
+        const uint32_t irqAtMs = emergencyBeforeMs - (rawIrqAgeUs + 999U) / 1000U;
         const bool fresh = haveSample &&
             static_cast<uint32_t>(now - sample.updatedAtMs) <= 100;
-        const bool freshSerialMode = serialMode &&
+        const bool freshSerialControl = haveSerialControl &&
             static_cast<uint32_t>(now - serialControl.updatedAtMs) <= 100;
+        const bool freshSerialMode = serialMode && freshSerialControl;
         const bool exclusive = !hat.passive;
         bool armed;
         bool fault;
         bool probeDisableDue = false;
+        bool timerTripDue = false, timerRestoreDue = false, timerEmergencyDue = false;
         portENTER_CRITICAL(&guardMux);
-        if (serialHardwareStopVerified.load() &&
+        const bool timerAuthorityLost = serialTimerStopVerified.load() &&
+            (!emergency.available || !emergency.irqInstalled || emergency.isolated ||
+             emergency.failed || !emergency.qualificationPassed ||
+             emergency.epoch != serialTimerProofEpoch || emergency.restoredEpoch != emergency.epoch);
+        if (independentSerialStopVerified() &&
             (!hat.detected || !fresh || hat.passive || hat.baudRate != 115200 ||
-             !serialMode || sample.continuity != serialProofContinuity)) {
-            serialHardwareStopVerified = false;
+             !freshSerialMode || sample.continuity != serialProofContinuity || timerAuthorityLost)) {
+            serialGpioStopVerified = false;
+            serialTimerStopVerified = false;
             if (guard.armed()) guard.tripFault(motor_guard::Fault::StopPathUnverified);
         }
+        const bool unexpectedEmergency = emergency.isolated &&
+            emergency.cause != OssmHatEmergencyCause::Qualification &&
+            emergency.cause != OssmHatEmergencyCause::OffOnlyPreflight &&
+            emergency.cause != OssmHatEmergencyCause::CacheOffPreflight;
+        if (unexpectedEmergency) deadlineTripped = true;
+        if (emergency.failed) guard.tripFault(motor_guard::Fault::StopPathUnverified);
         if (fresh) {
             guard.observe({sample.sequence, sample.updatedAtMs, sample.continuity,
                            sample.positionCounts, sample.currentAmps,
@@ -494,7 +547,20 @@ void monitor(void *) {
         }
         if (deadlineTripped)
             guard.tripFault(motor_guard::Fault::ObserverDelayed);
-        if (serialProbeClaimed.load()) {
+        const auto timerOperation = serialTimerOperation.load();
+        if (serialProbeClaimed.load() &&
+            (timerOperation == TimerOperation::OffPreflight || timerOperation == TimerOperation::CachePreflight)) {
+            // These procedures never authorize enable. Planned driver teardown
+            // may have no sample, but any fresh unhealthy/enabled frame fails.
+            if (serialProbeCancelled.load() || emergency.failed ||
+                (fresh && (!(sample.currentAmps >= 0 && sample.currentAmps <= .25f) ||
+                           !(sample.voltageVolts >= 20 && sample.voltageVolts <= 36) ||
+                           sample.alarm != 0)) ||
+                (freshSerialControl && (serialControl.modbusEnable != 1 ||
+                                       (serialControl.outputEnable & 1U) != 0)))
+                guard.tripFault(motor_guard::Fault::StopPathUnverified);
+        }
+        if (serialProbeClaimed.load() && serialTimerOperation.load() == TimerOperation::None) {
             const auto before = serialProbe.status();
             if (before.active &&
                 (hat.passive || !hat.startupReady || hat.baudRate != 115200 ||
@@ -528,6 +594,108 @@ void monitor(void *) {
                 } else probeDisableDue = true;
             }
         }
+        if (serialProbeClaimed.load() && serialTimerOperation.load() == TimerOperation::Finite) {
+            auto timer = serialTimerProbe.status();
+            const bool restoring = timer.phase == serial_timer_probe::Phase::Restoring;
+            if (timer.active && fresh) {
+                // Even the deliberately off/quiet teardown does not excuse a
+                // received electrical/envelope fault. First new-epoch frames
+                // may still be rebuilding rate; no such frame advances proof.
+                if (!(sample.currentAmps >= 0 && sample.currentAmps <= .25f))
+                    serialTimerProbe.abort(serial_timer_probe::Failure::Current);
+                else if (!(sample.voltageVolts >= 20 && sample.voltageVolts <= 36))
+                    serialTimerProbe.abort(serial_timer_probe::Failure::Voltage);
+                else if (sample.alarm != 0)
+                    serialTimerProbe.abort(serial_timer_probe::Failure::Alarm);
+                else if (std::abs(static_cast<int64_t>(sample.positionCounts)-timer.originCounts) >
+                         serial_timer_probe::Gate::envelopeCounts)
+                    serialTimerProbe.abort(serial_timer_probe::Failure::Envelope);
+                else if (restoring && std::abs(guard.speedMmS()) > 30)
+                    serialTimerProbe.abort(serial_timer_probe::Failure::Speed);
+            }
+            if (timer.active && (serialProbeCancelled.load() ||
+                guard.fault() != motor_guard::Fault::None || emergency.failed ||
+                (restoring && (emergency.outputMayBeOn ||
+                    (freshSerialControl && (serialControl.modbusEnable != 1 ||
+                                           (serialControl.outputEnable & 1U) != 0)))) ||
+                (!restoring && (hat.passive || !hat.startupReady || hat.baudRate != 115200 ||
+                                !fresh || !freshSerialMode))))
+                serialTimerProbe.abort(serialProbeCancelled.load() ? serial_timer_probe::Failure::Cancelled
+                                                                 : serial_timer_probe::Failure::SafetyFault);
+            if (serialTimerCheckpointRequested) {
+                const bool measuring = timer.phase == serial_timer_probe::Phase::AwaitingIrq ||
+                    timer.phase == serial_timer_probe::Phase::AwaitingOff ||
+                    timer.phase == serial_timer_probe::Phase::PassiveSettling;
+                const bool changed = txAudit.absoluteTargets != serialTimerCheckpointAudit.absoluteTargets ||
+                    txAudit.outputEnables != serialTimerCheckpointAudit.outputEnables ||
+                    txAudit.setupWrites != serialTimerCheckpointAudit.setupWrites ||
+                    txAudit.modeWrites != serialTimerCheckpointAudit.modeWrites ||
+                    (measuring && txAudit.controlWrites != serialTimerCheckpointAudit.controlWrites);
+                if (changed) serialTimerProbe.abort(serial_timer_probe::Failure::UnexpectedWrite);
+            }
+            const bool actualIrq = emergency.cause == OssmHatEmergencyCause::Qualification &&
+                emergency.epoch != serialTimerInitialEpoch && emergency.isolated &&
+                emergency.ownerParked && emergency.transmitted && emergency.txDone &&
+                static_cast<uint32_t>(emergency.rawOffWrites - serialTimerInitialRawOffWrites) == 1;
+            if (timer.phase == serial_timer_probe::Phase::AwaitingIrq && actualIrq && emergencyClockBound)
+                serialTimerProbe.markIrqStop(irqAtMs, now, true);
+            timer = serialTimerProbe.status();
+            const bool coherent = fresh && freshSerialMode &&
+                serialControl.updatedAtMs == sample.updatedAtMs &&
+                serialControl.continuity == sample.continuity &&
+                (serialControl.outputEnable & 1U) == 0;
+            if (timer.phase == serial_timer_probe::Phase::AwaitingOff && actualIrq &&
+                emergency.echoVerified && emergency.offVerified && coherent &&
+                emergency.telemetrySequence == sample.sequence &&
+                emergency.telemetryContinuity == sample.continuity &&
+                static_cast<uint32_t>(sample.updatedAtMs - emergency.offAtMs) < 0x80000000U) {
+                serialTimerProbe.markOff({sample.sequence,sample.updatedAtMs,sample.continuity,
+                    sample.positionCounts,sample.currentAmps,sample.voltageVolts,hat.sampleRateHz,sample.alarm},
+                    serialControl.modbusEnable,serialControl.outputEnable,now,true);
+            }
+            timer = serialTimerProbe.status();
+            if (timer.phase == serial_timer_probe::Phase::Restoring && emergency.restored &&
+                emergency.qualificationPassed && !emergency.isolated && !emergency.restoring &&
+                emergency.epoch != serialTimerInitialEpoch && emergency.restoredEpoch == emergency.epoch &&
+                coherent && emergency.telemetrySequence == sample.sequence &&
+                emergency.telemetryContinuity == sample.continuity) {
+                serialTimerProbe.markRestored({sample.sequence,sample.updatedAtMs,sample.continuity,
+                    sample.positionCounts,sample.currentAmps,sample.voltageVolts,hat.sampleRateHz,sample.alarm},
+                    serialControl.modbusEnable,serialControl.outputEnable,now,true);
+            }
+            timer = serialTimerProbe.status();
+            if (timer.serialDisabled && timer.active &&
+                timer.phase != serial_timer_probe::Phase::Restoring &&
+                ((freshSerialControl && (serialControl.modbusEnable != 1 ||
+                                        (serialControl.outputEnable & 1U) != 0)) ||
+                 digitalRead(Pins::Driver::motorEnablePin) != HIGH))
+                serialTimerProbe.abort(serial_timer_probe::Failure::OffUnverified);
+            const auto observePhase = serialTimerProbe.status().phase;
+            const bool offPublicationPending = observePhase == serial_timer_probe::Phase::AwaitingOff && coherent;
+            if (fresh && observePhase != serial_timer_probe::Phase::Restoring && !offPublicationPending &&
+                (!serialTimerProbe.status().serialDisabled || coherent))
+                serialTimerProbe.observe({sample.sequence,sample.updatedAtMs,sample.continuity,
+                    sample.positionCounts,sample.currentAmps,sample.voltageVolts,hat.sampleRateHz,sample.alarm},now);
+            serialTimerProbe.tick(now);
+            for (;;) {
+                const auto action = serialTimerProbe.takeAction(now);
+                if (action == serial_timer_probe::Action::None) break;
+                if (action == serial_timer_probe::Action::RequestTimerStop) {
+                    serialTimerCheckpointAudit = txAudit;
+                    serialTimerCheckpointRequested = true;
+                    timerTripDue = true;
+                } else if (action == serial_timer_probe::Action::RestoreTransport) {
+                    serialTimerRestorePending = true;
+                } else timerEmergencyDue = true;
+            }
+            if (serialTimerRestorePending && serialTimerProbe.status().offQuiet &&
+                emergency.quietVerified && !emergency.outputMayBeOn && coherent && actualIrq) {
+                timerRestoreDue = serialTimerProbe.markRestoreStarted(now);
+                serialTimerRestorePending = false;
+            }
+            if (serialTimerProbe.status().failure != serial_timer_probe::Failure::None)
+                guard.tripFault(motor_guard::Fault::StopPathUnverified);
+        }
         if (guard.armed() && (!control || !exclusive))
             guard.tripFault(motor_guard::Fault::StopPathUnverified);
         guard.tick(now);
@@ -553,7 +721,7 @@ void monitor(void *) {
         bool stopped = false;
         const bool gpioDisabled = digitalRead(Pins::Driver::motorEnablePin) == HIGH;
         const bool disabled = gpioDisabled &&
-            (!hat.detected || serialOutputOff() || serialHardwareStopVerified.load());
+            (!hat.detected || serialOutputOff() || serialGpioStopVerified.load());
         if (needed && !armed && !fault && disabled && fresh &&
             exclusive && sample.currentAmps < 0.5f &&
             sample.voltageVolts >= 20.0f && sample.voltageVolts <= 36.0f &&
@@ -582,13 +750,31 @@ void monitor(void *) {
         published.stoppedVerified = stopped;
         published.activeMaster = !hat.passive;
         published.sampleAgeMs = hat.ageMs;
-        published.armed = guard.armed() || serialProbe.status().active;
+        published.armed = guard.armed() || serialProbe.status().active || serialTimerProbe.status().active;
         deadlineArmed = needed && published.armed && !published.latched;
         portEXIT_CRITICAL(&guardMux);
 
+        if (timerTripDue && !requestOssmHatTimerQualification()) {
+            portENTER_CRITICAL(&guardMux);
+            serialTimerProbe.abort(serial_timer_probe::Failure::IrqUnverified);
+            portEXIT_CRITICAL(&guardMux);
+            timerEmergencyDue = true;
+        }
+        if (timerRestoreDue && !requestOssmHatQualificationRestore()) {
+            portENTER_CRITICAL(&guardMux);
+            serialTimerProbe.abort(serial_timer_probe::Failure::RestoreUnverified);
+            portEXIT_CRITICAL(&guardMux);
+            timerEmergencyDue = true;
+        }
+        if (timerEmergencyDue) {
+            ossmHatEmergencyCancelProcedure();
+            ossmHatEmergencyFault();
+            GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+            requestOssmHatEmergencyStop();
+        }
         if (probeDisableDue) cancelOssmHatPositionControl();
         const auto probeSnapshot = getMotorSerialInterlockProbeStatus();
-        if (serialProbeClaimed.load() &&
+        if (serialProbeClaimed.load() && serialTimerOperation.load() == TimerOperation::None &&
             (probeSnapshot.phase == serial_interlock_probe::Phase::AwaitingSerialDisable ||
              probeSnapshot.phase == serial_interlock_probe::Phase::ProvingFinalQuiet)) {
             const auto stop = getOssmHatEmergencyStopStatus();
@@ -690,19 +876,13 @@ void initMotorSafety() {
     }
     if (priorFault) guard.tripFault(static_cast<motor_guard::Fault>(priorFault));
     disableNow();
-    guardHeartbeatUs = static_cast<uint32_t>(esp_timer_get_time());
-    deadlineTimer = timerBegin(3, 80, true);
-    if (deadlineTimer != nullptr) {
-        timerAttachInterrupt(deadlineTimer, &deadlineInterrupt, true);
-        timerAlarmWrite(deadlineTimer, 5000, true);
-        timerAlarmEnable(deadlineTimer);
-    }
+    ossmHatEmergencyGuardHeartbeat();
     const auto created = xTaskCreatePinnedToCore(
         monitor, "motorSafety", 4096, nullptr, configMAX_PRIORITIES - 1,
         &guardTaskHandle, 0);
     const auto reportCreated = xTaskCreatePinnedToCore(
         report, "motorSafetyReport", 4096, nullptr, 2, nullptr, 0);
-    if (created != pdPASS || reportCreated != pdPASS || deadlineTimer == nullptr ||
+    if (created != pdPASS || reportCreated != pdPASS ||
         persistenceMutex == nullptr || homingCommandMutex == nullptr) {
         portENTER_CRITICAL(&guardMux);
         guard.tripFault(motor_guard::Fault::ObserverDelayed);
@@ -754,8 +934,8 @@ const char *motorSafetyReason() {
     const auto status = getMotorSafetyStatus();
     if (status.latched) return motor_guard::reason(static_cast<motor_guard::Fault>(status.fault));
     if (!status.required) return "Legacy board without a detected HAT";
-    if (ossmHatDetected() && !serialHardwareStopVerified.load())
-        return "Serial motion needs a reviewed ENA stop test after each boot";
+    if (ossmHatDetected() && !independentSerialStopVerified())
+        return "Serial motion needs reviewed UART-timer preflights and a finite stop qualification after each boot";
     if (!status.activeMaster && localExclusive) return "Another RS485 master owns the bus";
     if (!status.ready && !status.armed) return "Waiting for fresh 30 Hz motor feedback and verified stopped output";
     return "ESP32 motor safety guard is monitoring";
@@ -779,7 +959,7 @@ bool motorSafetyCanEnableOutputs() {
 uint64_t motorSafetySerialSession() {
     const auto position = getOssmHatPositionStatus();
     portENTER_CRITICAL(&guardMux);
-    const uint64_t session = !serialProbeClaimed.load() && serialHardwareStopVerified.load() &&
+    const uint64_t session = !serialProbeClaimed.load() && independentSerialStopVerified() &&
         guard.armed() && guard.fault() == motor_guard::Fault::None &&
         !deadlineTripped && deadlineArmed && position.enabled &&
         position.session == serialSession ? serialSession : 0;
@@ -795,9 +975,34 @@ bool motorSafetySerialCanMove(uint64_t session) {
 
 MotorSerialSafetyStatus getMotorSerialSafetyStatus() {
     const auto position = getOssmHatPositionStatus();
-    return {ossmHatDetected(), serialHardwareStopVerified.load(),
-            position.prepared, position.enabled, serialPreparing.load(),
-            serialMaximumRpm, serialAccelerationRpmPerSec};
+    MotorSerialSafetyStatus result;
+    result.selected = ossmHatDetected();
+    portENTER_CRITICAL(&guardMux);
+    const bool gpioProof = serialGpioStopVerified.load();
+    const bool timerProof = serialTimerStopVerified.load();
+    const uint32_t continuity = serialProofContinuity;
+    const uint32_t timerEpoch = serialTimerProofEpoch;
+    portEXIT_CRITICAL(&guardMux);
+    const auto hat = getOssmHatStatus();
+    const auto emergency = getOssmHatEmergencyStatus();
+    OssmHatTelemetry sample;
+    OssmHatControlSnapshot control;
+    const bool current = readOssmHatTelemetry(sample) && readOssmHatControlSnapshot(control) &&
+        sample.continuity == continuity && control.continuity == continuity && continuity != 0 &&
+        millis()-sample.updatedAtMs <= 100 && millis()-control.updatedAtMs <= 100 &&
+        hat.detected && hat.startupReady && !hat.passive && hat.baudRate == 115200 &&
+        hat.sampleRateHz >= 30 && control.modbusEnable == 1 && emergency.irqInstalled;
+    result.gpioStopVerified = gpioProof && current;
+    result.uartTimerStopVerified = timerProof && current && emergency.available &&
+        !emergency.isolated && !emergency.failed && emergency.qualificationPassed &&
+        emergency.epoch == timerEpoch && emergency.restoredEpoch == timerEpoch;
+    result.hardwareStopVerified = result.gpioStopVerified || result.uartTimerStopVerified;
+    result.prepared = position.prepared;
+    result.enabled = position.enabled;
+    result.preparing = serialPreparing.load();
+    result.maximumSpeedRpm = serialMaximumRpm;
+    result.accelerationRpmPerSec = serialAccelerationRpmPerSec;
+    return result;
 }
 
 static bool enableOutputsForTicket(const MotorHomingTicket *ticket) {
@@ -828,7 +1033,7 @@ static bool enableSerialAfterGpio(const MotorHomingTicket *ticket) {
     const SafetyControlOwner owner{safetyControlRevision, serialSession,
         ticket ? *ticket : MotorHomingTicket{}, ticket != nullptr};
     const bool allowed = owner.session != 0 && controlOwnerLocked(owner) &&
-        serialHardwareStopVerified.load() && guard.armed();
+        independentSerialStopVerified() && guard.armed();
     portEXIT_CRITICAL(&guardMux);
     if (!allowed) return false;
     const auto prior = getOssmHatPositionStatus();
@@ -837,7 +1042,7 @@ static bool enableSerialAfterGpio(const MotorHomingTicket *ticket) {
     if (!takeControlCommands(owner)) return false;
     portENTER_CRITICAL(&guardMux);
     const bool current = controlOwnerLocked(owner) && guard.armed() &&
-        serialHardwareStopVerified.load();
+        independentSerialStopVerified();
     if (current) serialEnabling = true;
     portEXIT_CRITICAL(&guardMux);
     const bool queued = current && requestOssmHatEnablePositionControl(owner.session);
@@ -919,6 +1124,8 @@ MotorHomingTicket beginMotorHomingSession() {
     if (serialProbeClaimed.load()) {
         serialProbeCancelled = true;
         serialProbe.abort(serial_interlock_probe::Failure::Cancelled, millis());
+        serialTimerProbe.abort(serial_timer_probe::Failure::Cancelled);
+        if (serialTimerOperation.load() != TimerOperation::None) ossmHatEmergencyCancelProcedure();
         GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
         portEXIT_CRITICAL(&guardMux);
         return {};
@@ -936,12 +1143,15 @@ MotorHomingTicket beginMotorHomingSession() {
 }
 
 static void cancelAndFlushHoming(bool disarm) {
+    if (ossmHatDetected()) ossmHatEmergencyStopRequested();
     portENTER_CRITICAL(&guardMux);
     ++safetyControlRevision;
     published.controlRevision = safetyControlRevision;
     if (serialProbeClaimed.load()) {
         serialProbeCancelled = true;
         serialProbe.abort(serial_interlock_probe::Failure::Cancelled, millis());
+        serialTimerProbe.abort(serial_timer_probe::Failure::Cancelled);
+        if (serialTimerOperation.load() != TimerOperation::None) ossmHatEmergencyCancelProcedure();
     }
     const bool abandonedHome = homingSession.active();
     homingSession.beginCancel();
@@ -1007,7 +1217,7 @@ bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket) {
     if (pass == 1) {
         if (!runMotorHomingCommand(ticket, [] { disableNow(); return true; })) return false;
         if (ossmHatDetected() &&
-            (!serialHardwareStopVerified.load() || !prepareSerialDisabled(&ticket)))
+            (!independentSerialStopVerified() || !prepareSerialDisabled(&ticket)))
             return false;
     }
     // A requested new home may follow an operator-aborted first pass. A real
@@ -1056,8 +1266,6 @@ bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket) {
     portENTER_CRITICAL(&guardMux);
     const bool result = ticketCurrentLocked(ticket) &&
         guard.arm(now) && guard.beginHomingPass(pass, 25.0f, now);
-    if (result && !alreadyArmed)
-        guardHeartbeatUs = static_cast<uint32_t>(esp_timer_get_time());
     deadlineArmed = result && guard.armed() && !deadlineTripped;
     publishCoreLocked(now);
     published.ready = guard.ready(now);
@@ -1139,7 +1347,7 @@ bool motorSafetyBeginNormalOperation(uint64_t expectedRevision) {
                      !serialProbeClaimed.load();
     const bool calibrated = calibration.isHomed && guard.boundsValid() && referenced;
     if (own && !calibrated) calibration.isHomed = false;
-    const bool allowed = own && calibrated && serialHardwareStopVerified.load();
+    const bool allowed = own && calibrated && independentSerialStopVerified();
     const bool armed = guard.armed();
     bool result = false;
     if (allowed && armed) {
@@ -1156,7 +1364,7 @@ bool motorSafetyBeginNormalOperation(uint64_t expectedRevision) {
         if (owned && !guard.boundsValid()) calibration.isHomed = false;
         const bool current = owned &&
             calibration.isHomed && guard.boundsValid() &&
-            serialHardwareStopVerified.load();
+            independentSerialStopVerified();
         portEXIT_CRITICAL(&guardMux);
         return current;
     };
@@ -1190,7 +1398,7 @@ bool motorSafetyBeginNormalOperation(uint64_t expectedRevision) {
     portENTER_CRITICAL(&guardMux);
     const bool current = controlOwnerLocked(owner) &&
         !homingSession.active() && !serialProbeClaimed.load() &&
-        calibration.isHomed && guard.boundsValid() && serialHardwareStopVerified.load();
+        calibration.isHomed && guard.boundsValid() && independentSerialStopVerified();
     const bool alreadyArmed = guard.armed();
     if (current && alreadyArmed) {
         result = guard.beginNormalOperation(millis());
@@ -1218,9 +1426,8 @@ bool motorSafetyBeginNormalOperation(uint64_t expectedRevision) {
     if (controlOwnerLocked(owner) && !stillReferenced) calibration.isHomed = false;
     result = controlOwnerLocked(owner) && !homingSession.active() &&
         !serialProbeClaimed.load() && calibration.isHomed &&
-        guard.boundsValid() && stillReferenced && serialHardwareStopVerified.load() &&
+        guard.boundsValid() && stillReferenced && independentSerialStopVerified() &&
         guard.arm(now) && guard.beginNormalOperation(now);
-    if (result) guardHeartbeatUs = static_cast<uint32_t>(esp_timer_get_time());
     deadlineArmed = result && guard.armed() && !deadlineTripped;
     publishCoreLocked(now);
     published.ready = guard.ready(now);
@@ -1251,10 +1458,20 @@ void disarmMotorSafety() {
     // The probe worker retains its own crash sentinel through UART off and
     // physical quiet. An emergency Stop must not clear it during cleanup.
     if (serialProbeClaimed.load()) return;
-    if (required() && !stoppedForReview(owner)) return;
+    const bool needed = required();
+    // Output-off stops the50ms pending-off deadline; its separate physical
+    // quiet obligation may legitimately take500ms to complete. Wait outside
+    // both command/guard locks, and abandon this owner on any newer intent.
+    const uint32_t quietBegan = millis();
+    while (needed && getOssmHatEmergencyStatus().outputMayBeOn &&
+           controlOwnerCurrent(owner) && millis()-quietBegan < 1200)
+        vTaskDelay(pdMS_TO_TICKS(5));
+    OssmHatTelemetry quietProof;
+    if (needed && (!stoppedForReview(owner,&quietProof) || !freshStopForPersistence(&quietProof))) return;
     if (!lockPersistence()) return;
+    const bool stillStopped = !needed || freshStopForPersistence(&quietProof);
     portENTER_CRITICAL(&guardMux);
-    const bool mayClearMarker = controlOwnerLocked(owner) &&
+    const bool mayClearMarker = stillStopped && controlOwnerLocked(owner) &&
         !serialProbeClaimed.load() && !guard.armed() &&
         guard.fault() == motor_guard::Fault::None && !deadlineTripped;
     portEXIT_CRITICAL(&guardMux);
@@ -1269,6 +1486,8 @@ void disarmMotorSafety() {
 }
 
 bool resetMotorSafetyAfterReview() {
+    const auto emergency = getOssmHatEmergencyStatus();
+    if (emergency.isolated || emergency.failed || emergency.outputMayBeOn) return false;
     cancelMotorHomingSession();
     portENTER_CRITICAL(&guardMux);
     SafetyControlOwner owner{safetyControlRevision};
@@ -1387,7 +1606,6 @@ void serialInterlockProbeWorker(void *) {
             // Establish GPIO LOW only while serial output is readback-disabled.
             // This makes a subsequent HIGH assertion a real tested transition.
             GPIO.out_w1tc = 1UL << Pins::Driver::motorEnablePin;
-            guardHeartbeatUs = static_cast<uint32_t>(esp_timer_get_time());
             deadlineArmed = true;
         }
         const uint64_t session = serialProbeSession;
@@ -1481,7 +1699,7 @@ void serialInterlockProbeWorker(void *) {
     invalidateSerialLocked();
     deadlineArmed = false;
     guard.disarm();
-    serialHardwareStopVerified = false;
+    serialGpioStopVerified = false;
     serialProofContinuity = 0;
     if (!cleanupVerified || (!success && !cleanCancellation))
         guard.tripFault(motor_guard::Fault::StopPathUnverified);
@@ -1532,7 +1750,7 @@ void serialInterlockProbeWorker(void *) {
     const bool proof = success && finalFresh && !cancelled() &&
         serialProbe.status().passed && guard.fault() == motor_guard::Fault::None &&
         !deadlineTripped;
-    serialHardwareStopVerified = proof;
+    serialGpioStopVerified = proof;
     serialProofContinuity = proof ? finalSample.continuity : 0;
     if ((!proof && !cleanCancellation) || !cleanupVerified ||
         (markerStored && mayClearMarker && !markerCleared))
@@ -1565,7 +1783,7 @@ bool requestMotorSerialInterlockProbe(bool reviewedPositiveCorridor) {
         published.controlRevision = safetyControlRevision;
         serialProbeCancelled = false;
         serialProbeReadbackDelivered = false;
-        serialHardwareStopVerified = false;
+        serialGpioStopVerified = false;
     }
     portEXIT_CRITICAL(&guardMux);
     if (!allowed) return false;
@@ -1574,4 +1792,280 @@ bool requestMotorSerialInterlockProbe(bool reviewedPositiveCorridor) {
         &serialProbeTask, 1) == pdPASS;
     if (!created) { serialProbeClaimed = false; return false; }
     return true;
+}
+
+
+serial_timer_probe::Status getMotorSerialTimerProbeStatus() {
+    portENTER_CRITICAL(&guardMux);
+    const auto result = serialTimerProbe.status();
+    portEXIT_CRITICAL(&guardMux);
+    return result;
+}
+
+namespace {
+bool timerOffSnapshot(OssmHatTelemetry &sample) {
+    const auto hat = getOssmHatStatus();
+    OssmHatControlSnapshot control;
+    if (!readOssmHatTelemetry(sample) || !readOssmHatControlSnapshot(control)) return false;
+    const uint32_t now = millis();
+    return hat.detected && hat.startupReady && !hat.passive && hat.baudRate == 115200 &&
+        hat.sampleRateHz >= 45 && hat.sampleRateHz <= 65 &&
+        now - sample.updatedAtMs <= 100 && sample.continuity != 0 &&
+        control.updatedAtMs == sample.updatedAtMs && control.continuity == sample.continuity &&
+        control.modbusEnable == 1 && (control.outputEnable & 1U) == 0 &&
+        sample.currentAmps >= 0 && sample.currentAmps <= .25f &&
+        sample.voltageVolts >= 20 && sample.voltageVolts <= 36 &&
+        sample.alarm == 0 &&
+        digitalRead(Pins::Driver::motorEnablePin) == HIGH;
+}
+
+void serialTimerWorker(void *) {
+    const auto operation = serialTimerOperation.load();
+    const bool finite = operation == TimerOperation::Finite;
+    portENTER_CRITICAL(&guardMux);
+    const SafetyControlOwner owner{safetyControlRevision};
+    portEXIT_CRITICAL(&guardMux);
+    auto current = [&] { return !serialProbeCancelled.load() && controlOwnerCurrent(owner); };
+    bool markerStored = false, success = false;
+    do {
+        OssmHatTelemetry before;
+        if (!current() || !timerOffSnapshot(before) || !stoppedForReview(owner) ||
+            !lockPersistence()) break;
+        const bool stillSafe = current() && timerOffSnapshot(before) &&
+            !getOssmHatEmergencyStatus().outputMayBeOn;
+        if (stillSafe) {
+            Preferences prefs;
+            if (prefs.begin("motorGuard",false)) {
+                markerStored = prefs.putBool("requireHat",true) != 0 &&
+                               prefs.putBool("armed",true) != 0;
+                prefs.end();
+                if (markerStored) rememberedHat = true;
+            }
+        }
+        xSemaphoreGive(persistenceMutex);
+        if (!markerStored || !current()) break;
+        const auto initialEmergency = getOssmHatEmergencyStatus();
+        if (!finite) {
+            const bool cache = operation == TimerOperation::CachePreflight;
+            const auto expected = cache ? OssmHatEmergencyCause::CacheOffPreflight
+                                        : OssmHatEmergencyCause::OffOnlyPreflight;
+            if (!requestOssmHatEmergencyPreflight(cache)) break;
+            const uint32_t began = millis();
+            while (current() && millis()-began < 6000) {
+                const auto emergency = getOssmHatEmergencyStatus();
+                if (emergency.failed) break;
+                OssmHatTelemetry after;
+                const bool receipt = emergency.epoch != initialEmergency.epoch &&
+                    emergency.cause == expected && emergency.restored &&
+                    emergency.restoredEpoch == emergency.epoch && !emergency.restoring &&
+                    !emergency.isolated && !emergency.outputMayBeOn && emergency.quietVerified &&
+                    (cache ? (emergency.cacheOffPassed && emergency.cacheOffAtTrip && emergency.cacheOffAtTx)
+                           : emergency.offOnlyPassed);
+                if (receipt && timerOffSnapshot(after)) { success = true; break; }
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
+            break;
+        }
+        if (!initialEmergency.offOnlyPassed || !initialEmergency.cacheOffPassed ||
+            !prepareSerialDisabled(nullptr,1,15,true,&owner.revision) || !current()) break;
+        OssmHatTelemetry initial;
+        const auto hat = getOssmHatStatus();
+        if (!timerOffSnapshot(initial)) break;
+        portENTER_CRITICAL(&guardMux);
+        bool started = controlOwnerLocked(owner) && !serialProbeCancelled.load() &&
+            serialTimerProbe.start(initial.positionCounts,initial.updatedAtMs,true);
+        if (started) {
+            serialTimerProbe.observe({initial.sequence,initial.updatedAtMs,initial.continuity,
+                initial.positionCounts,initial.currentAmps,initial.voltageVolts,hat.sampleRateHz,initial.alarm},millis());
+            started = serialTimerProbe.status().phase == serial_timer_probe::Phase::Prepared;
+        }
+        if (started) {
+            serialProbeContinuity = initial.continuity;
+            serialTimerInitialEpoch = initialEmergency.epoch;
+            serialTimerInitialRawOffWrites = initialEmergency.rawOffWrites;
+            deadlineArmed = true;
+        }
+        const auto session = serialProbeSession;
+        const auto target = serialTimerProbe.status().targetCounts;
+        portEXIT_CRITICAL(&guardMux);
+        // The independent obligation precedes every physical enable. Neither
+        // GPIO nor the firmware's armed boolean is an actuator-lifetime proxy.
+        if (!started || !current() || !ossmHatEmergencyMarkOutputPossible()) break;
+        portENTER_CRITICAL(&guardMux);
+        const bool enableAllowed = controlOwnerLocked(owner) && !serialProbeCancelled.load() &&
+            serialTimerProbe.status().phase == serial_timer_probe::Phase::Prepared;
+        if (enableAllowed) GPIO.out_w1tc = 1UL << Pins::Driver::motorEnablePin;
+        portEXIT_CRITICAL(&guardMux);
+        if (!enableAllowed || !requestOssmHatEnablePositionControl(session)) break;
+        bool enabled = false;
+        const uint32_t enableBegan = millis();
+        while (current() && millis()-enableBegan < 500) {
+            const auto position = getOssmHatPositionStatus();
+            if (position.faulted || position.session != session) break;
+            if (position.enabled) { enabled = true; break; }
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
+        if (!enabled || !current()) break;
+        portENTER_CRITICAL(&guardMux);
+        const bool targetAllowed = controlOwnerLocked(owner) && !serialProbeCancelled.load() &&
+            serialTimerProbe.markEnabled(millis()) && serialTimerProbe.markTargetWritten(target,millis());
+        portEXIT_CRITICAL(&guardMux);
+        if (!targetAllowed || !queueOssmHatPositionTarget(session,1,target,1,15,100)) break;
+        const uint32_t began = millis();
+        while (current() && millis()-began < 3500) {
+            const auto gate = getMotorSerialTimerProbeStatus();
+            if (gate.finished) { success = gate.passed; break; }
+            const auto position = getOssmHatPositionStatus();
+            // Parking deliberately revokes the old normal owner. Its Cancelled
+            // status cannot abort the independent IRQ/off/quiet observation.
+            if (position.faulted && (gate.phase == serial_timer_probe::Phase::Prepared ||
+                                     gate.phase == serial_timer_probe::Phase::Moving)) break;
+            vTaskDelay(pdMS_TO_TICKS(2));
+        }
+    } while (false);
+
+    if (!success || !current()) {
+        success = false;
+        portENTER_CRITICAL(&guardMux);
+        if (finite) {
+            if (serialTimerProbe.status().phase == serial_timer_probe::Phase::Idle)
+                serialTimerProbe.start(0,millis(),false);
+            serialTimerProbe.abort(serialProbeCancelled.load() ? serial_timer_probe::Failure::Cancelled
+                                                            : serial_timer_probe::Failure::SafetyFault);
+        }
+        guard.tripFault(motor_guard::Fault::StopPathUnverified);
+        invalidateSerialLocked();
+        deadlineArmed = false;
+        GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+        publishCoreLocked(millis());
+        portEXIT_CRITICAL(&guardMux);
+        ossmHatEmergencyCancelProcedure();
+        ossmHatEmergencyFault();
+        requestOssmHatEmergencyStop();
+    }
+    GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+    bool cleanupVerified = false;
+    OssmHatTelemetry quietSample;
+    const uint32_t cleanupBegan = millis();
+    while (millis()-cleanupBegan < 4500) {
+        const auto emergency = getOssmHatEmergencyStatus();
+        if (!emergency.outputMayBeOn && (!emergency.isolated ||
+            (emergency.offVerified && emergency.quietVerified)) &&
+            timerOffSnapshot(quietSample) && stoppedForReview()) {
+            cleanupVerified = timerOffSnapshot(quietSample);
+            if (cleanupVerified) break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    portENTER_CRITICAL(&guardMux);
+    invalidateSerialLocked();
+    guard.disarm();
+    deadlineArmed = false;
+    serialGpioStopVerified = false;
+    serialTimerStopVerified = false;
+    serialProofContinuity = 0;
+    const bool healthy = controlOwnerLocked(owner) && !serialProbeCancelled.load() &&
+        guard.fault() == motor_guard::Fault::None && !deadlineTripped;
+    portEXIT_CRITICAL(&guardMux);
+    success = success && healthy && cleanupVerified;
+
+    bool markerCleared = false;
+    if (success && markerStored && lockPersistence()) {
+        OssmHatTelemetry finalQuiet;
+        const bool quiet = current() && !getOssmHatEmergencyStatus().outputMayBeOn &&
+            stoppedForReview(owner,&finalQuiet) && freshStopForPersistence(&finalQuiet);
+        if (quiet) {
+            Preferences prefs;
+            if (prefs.begin("motorGuard",false)) {
+                markerCleared = prefs.putBool("armed",false) != 0 && !prefs.getBool("armed",true);
+                prefs.end();
+            }
+        }
+        xSemaphoreGive(persistenceMutex);
+    }
+    OssmHatTelemetry finalSample;
+    const auto finalEmergency = getOssmHatEmergencyStatus();
+    const bool finalFresh = success && markerCleared && timerOffSnapshot(finalSample) &&
+        !finalEmergency.outputMayBeOn && !finalEmergency.failed && !finalEmergency.isolated &&
+        finalEmergency.restored && finalEmergency.restoredEpoch == finalEmergency.epoch;
+    portENTER_CRITICAL(&guardMux);
+    const auto gate = serialTimerProbe.status();
+    const bool publishedSuccess = finalFresh && controlOwnerLocked(owner) &&
+        !serialProbeCancelled.load() && guard.fault() == motor_guard::Fault::None && !deadlineTripped;
+    const bool proof = finite && publishedSuccess && gate.passed &&
+        finalEmergency.qualificationPassed && finalSample.continuity == gate.restoredContinuity;
+    serialTimerStopVerified = proof;
+    if (proof) {
+        serialProofContinuity = finalSample.continuity;
+        serialTimerProofEpoch = finalEmergency.epoch;
+    }
+    if (!publishedSuccess || (finite && !proof)) guard.tripFault(motor_guard::Fault::StopPathUnverified);
+    // An unverified stop retains both the claim and the durable crash sentinel.
+    // A genuine fault never requests same-boot transport restoration.
+    if (cleanupVerified && (!finite || gate.finished)) {
+        serialProbeClaimed = false;
+        serialTimerOperation = TimerOperation::None;
+    }
+    publishCoreLocked(millis());
+    portEXIT_CRITICAL(&guardMux);
+    if (!publishedSuccess || (finite && !proof)) {
+        ossmHatEmergencyCancelProcedure();
+        ossmHatEmergencyFault();
+    }
+    serialProbeTask = nullptr;
+    vTaskDelete(nullptr);
+}
+
+bool requestTimerOperation(TimerOperation operation, bool reviewed) {
+    if (!reviewed || !ossmHatDetected()) return false;
+    const auto emergency = getOssmHatEmergencyStatus();
+    const bool finite = operation == TimerOperation::Finite;
+    if (!emergency.available || !emergency.irqInstalled || emergency.outputMayBeOn ||
+        emergency.isolated || emergency.restoring || emergency.failed || !emergency.quietVerified ||
+        (finite && (!emergency.offOnlyPassed || !emergency.cacheOffPassed || emergency.qualificationPassed)) ||
+        (operation == TimerOperation::OffPreflight && emergency.offOnlyPassed) ||
+        (operation == TimerOperation::CachePreflight && (!emergency.offOnlyPassed || emergency.cacheOffPassed)))
+        return false;
+    OssmHatTelemetry sample;
+    const auto position = getOssmHatPositionStatus();
+    if (position.pending || position.enabled || serialPreparing.load() || serialEnabling.load() ||
+        !timerOffSnapshot(sample)) return false;
+    portENTER_CRITICAL(&guardMux);
+    const bool allowed = !guard.armed() && !homingSession.active() &&
+        !serialProbeClaimed.load() && !deadlineTripped &&
+        guard.fault() == motor_guard::Fault::None &&
+        serialTimerProbe.status().phase == serial_timer_probe::Phase::Idle;
+    if (allowed) {
+        invalidateSerialLocked();
+        serialProbeClaimed = true;
+        serialTimerOperation = operation;
+        serialProbeCancelled = false;
+        serialTimerCheckpointRequested = false;
+        serialTimerRestorePending = false;
+        serialGpioStopVerified = false;
+        serialTimerStopVerified = false;
+        serialProofContinuity = 0;
+        ++safetyControlRevision;
+        published.controlRevision = safetyControlRevision;
+    }
+    portEXIT_CRITICAL(&guardMux);
+    if (!allowed) return false;
+    const bool created = xTaskCreatePinnedToCore(serialTimerWorker,"serialTimerTest",8192,nullptr,
+        configMAX_PRIORITIES-3,&serialProbeTask,1) == pdPASS;
+    if (!created) {
+        portENTER_CRITICAL(&guardMux);
+        serialProbeClaimed = false;
+        serialTimerOperation = TimerOperation::None;
+        portEXIT_CRITICAL(&guardMux);
+    }
+    return created;
+}
+} // namespace
+
+bool requestMotorSerialTimerPreflight(bool reviewed, bool cacheOff) {
+    return requestTimerOperation(cacheOff ? TimerOperation::CachePreflight : TimerOperation::OffPreflight,
+                                 reviewed);
+}
+bool requestMotorSerialTimerProbe(bool reviewedPositiveCorridor) {
+    return requestTimerOperation(TimerOperation::Finite,reviewedPositiveCorridor);
 }

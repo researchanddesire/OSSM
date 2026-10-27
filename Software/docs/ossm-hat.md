@@ -99,12 +99,14 @@ limits are written and read back only while serial output is disabled. The initi
 normal cap is37RPM (24.67mm/s with the stock40mm/revolution pulley), with a
 1500RPM/s motor ramp cap; the local trajectory may request less. Ordinary targets
 must use the same verified limits. Enable is a separate final guarded write.
-Stop cancels pending work, asserts GPIO26 HIGH, writes only register1=0 and
+Stop cancels pending work, asserts GPIO26 HIGH as a best effort, writes only register1=0 and
 verifies mode1/output0 plus physical stationarity. It never changes control mode.
 
 GPIO26 drives the PCB's ENA transistor; it is not a motor-power switch. Its ability
 to stop a serial move must be characterized on the actual connected harness.
-Each boot therefore starts with normal serial motion blocked. The explicit BLE
+The tested harness did not establish this GPIO stop authority in serial mode.
+Each boot starts with normal serial motion blocked until a separate stop path
+is qualified. The explicit BLE
 `target.guardProbe` commissioning request requires a lease and both
 `reviewed:true` and `positiveCorridorClear:true`. The operator must verify an
 unoccupied positive encoder direction before requesting it. It is one-shot per
@@ -122,6 +124,46 @@ a volatile proof tied to the current telemetry continuity. Fault, mode change,
 bus contention, lost feedback or reboot revokes it. A normal home remains a
 separate explicit action with exactly two allowed contacts.
 
+### UART timer stop qualification
+
+The alternate stop uses an unused UART1 and raw level3 IRAM interrupts on core1.
+It isolates both TX22 and DE2 from the ordinary UART2 owner, waits for a quiet
+RTU bus, and sends only the fixed register1=0 frame. Actual shift-register idle
+ends DE assertion. The stop obligation begins before output enable and survives
+software disarm until fresh output-off and physical quiet are verified.
+Guard silence beyond34ms, coherent telemetry silence beyond80ms, a pending
+off request beyond50ms, or a fault can trigger the alternate path. No task lock,
+normal UART driver or flash code is required to transmit that frame.
+
+Before any enable, reviewed `target.guardTimerPreflight` requests with explicit
+`cacheOff:false` and then `cacheOff:true` must each pass. They never enable the
+drive. The second uses the pinned SDK's shared flash-operation lock and real
+cache-disabled interval; it performs no erase or write. Both require an actual
+interrupt transmission, echo, coherent output-off readback and500ms of measured
+quiet at an observed rate of at least45Hz. GPIO DE LOW/TX HIGH fencing remains
+through full UART2 teardown and reset. Every queued target and old reply loses
+authority before clean transport restoration with a new telemetry continuity.
+
+The separate one-shot `target.guardTimerProbe` then requires `reviewed:true` and
+`positiveCorridorClear:true`. It uses one+0.5mm target at1RPM/15RPM/s, a0.25A
+limit, a0.75mm envelope and3second deadline. It requires measured positive
+progress, a real timer-originated stop while at least0.25mm remains, and fresh
+physical quiet before and after restoration. Powered samples are limited to
+2mm/s. Only after the first coherent output-off sample may passive settling use
+the separate30mm/s ceiling. All nonzero alarms block these non-homing tests,
+including the battery warning otherwise permitted by the homing policy.
+
+Success grants a volatile UART timer proof bound to the restored emergency epoch
+and new telemetry continuity. It does not change `gpioStopVerified`. A fault or
+reboot revokes authority. Genuine fault takeovers never automatically restore
+UART2; only a successful reviewed qualification can do so. Homing and normal
+motion remain separate requests after qualification.
+
+This mechanism assumes bounded level3 interrupt masking and a functioning CPU,
+APB clock, UART, bus and motor controller. It cannot cover a permanently masked
+interrupt, failed processor or broken physical bus. A transmitted stop without
+fresh readback and physical quiet is never reported as a verified stop.
+
 ## Independent onboard motor guard
 
 A high-priority FreeRTOS task runs every 5 ms, independently of the UART reader and
@@ -129,16 +171,17 @@ motion tasks. It accepts only coherent physical encoder/current/voltage/alarm
 samples. Before arming, it requires at least 30 Hz observed over 500 ms, samples no
 older than 100 ms, healthy 20..36 V supply/alarm data, GPIO26 HIGH readback, and at
 least 100 ms of measured stationary position with current below0.5A. HAT motion
-requires mode1 and the per-boot hardware stop proof, followed by a disabled,
+requires mode1 and a per-boot GPIO or UART timer stop proof, followed by a disabled,
 verified hold before enabling serial output. Register readback and actual GPIO
 stop authority are distinct checks.
 
 Every firmware output-enable path, including StrokeEngine, goes through the
 guard. Fault/disarm and output enabling share a lock. A separate hardware timer
-forces ENA HIGH if the safety task misses its 34 ms deadline. The first stop does
-not wait for UART, UI or BLE: pulses stop and output is disabled immediately.
-The sole UART owner subsequently requests register1=0 and verifies mode1/output bit0=0
-when it owns the bus; it refuses to compete with another master.
+asserts ENA HIGH and invokes the qualified UART fallback if the safety task
+misses its34ms deadline. Serial disable is credited only to a proven GPIO path
+or actual fresh register1=0 readback; GPIO HIGH alone is insufficient. The sole
+ordinary UART owner also requests and verifies mode1/output bit0=0 when it owns
+the bus; it refuses to compete with another master.
 
 The initial conservative policy bounds current to 2.2 A (not a motor rating), loaded contact to 200 ms, and actual homing speed
 to 30 mm/s. Only two explicitly sequenced homing contacts are allowed. Homing and
@@ -231,15 +274,22 @@ helper for its existing numeric position field.
 `motor.drive` reports the selected backend and trajectory state;
 `motor.serial` separates queued/acknowledged targets and raw vendor reply words;
 `motor.serialTx` counts actual accepted UART control writes;
-`motor.driveSafety` reports the volatile ENA proof and verified limits;
-`motor.serialProbe` reports the one-shot commissioning result. None of these
+`motor.driveSafety` distinguishes GPIO and UART timer proofs and verified limits;
+`motor.serialProbe` reports the GPIO commissioning result. The separate
+`motor.serialTimerProbe` and `motor.serialEmergency` use3 and5 read-only pages,
+respectively, selected by integer `page`. Match their procedure identities and
+bracket terminal evidence with unchanged summary pages. Raw microsecond timer
+values have their own clock domain; `nowUs`/`capturedAtMs` provide a paired capture.
+None of these
 read-only resources arms or resets anything.
 
 ## Verification
 
 Run native suites `test_ossm_hat`, `test_motor_feedback`, `test_motor_guard`,
 `test_homing_logic`, `test_homing_session`, `test_ossm_hat_position`,
-`test_serial_axis`, `test_serial_interlock_probe` and `test_state_json`. They cover independent fixed protocol vectors, leading zeroes,
+`test_serial_axis`, `test_serial_interlock_probe`, `test_hat_emergency`,
+`test_serial_timer_probe`, `test_serial_stop_diagnostics` and `test_state_json`.
+They cover independent fixed protocol vectors, leading zeroes,
 CRC errors, incomplete and mismatched replies, other masters, noise recovery,
 freshness/continuity, encoder rollover, polarity, frame conversion and contact
 qualification. Build both staging and production hardware variants through the

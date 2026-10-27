@@ -86,6 +86,14 @@ class Decoder {
 
     void invalidateControls() { controls_.valid = false; }
 
+    // A transport teardown invalidates every previous coordinate reference,
+    // even if its wall-clock gap was shorter than the ordinary freshness limit.
+    void restartContinuity() {
+        reset();
+        sample_.sequence = 0;
+        controls_.valid = false;
+    }
+
     // A prioritized owner exchange uses the same read-back cache as regular
     // polling. Never retain a pre-stop mode0 snapshot after a mode1 takeover.
     void acceptControlReadback(uint16_t mode, uint16_t output, uint32_t now) {

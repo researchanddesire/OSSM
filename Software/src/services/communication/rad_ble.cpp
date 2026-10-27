@@ -21,6 +21,8 @@
 #include "services/stepper.h"
 #include "services/motorFeedback.h"
 #include "services/ossmHat.h"
+#include "services/ossmHatEmergency.h"
+#include "services/serialStopDiagnostics.h"
 #include "services/motorSafety.h"
 
 #ifndef FIRMWARE_BUILD_SHA
@@ -66,12 +68,18 @@ const radble::Resource RESOURCES[] = {
     {"motor_serial", "motor.serial", "motor", "object", "", RS, ""},
     {"motor_serial_tx", "motor.serialTx", "motor", "object", "", RS, ""},
     {"motor_serial_probe", "motor.serialProbe", "motor", "object", "", RS, ""},
+    {"motor_serial_timer_probe", "motor.serialTimerProbe", "motor", "object", "", RS, R"({"pages":3})"},
+    {"motor_serial_emergency", "motor.serialEmergency", "motor", "object", "", RS, R"({"pages":5})"},
     {"guard_reviewed_reset", "target.guardReset", "target", "event", "", RWS,
      "{\"requiresReviewed\":true}"},
     {"guard_external_control", "target.guardPrepare", "target", "event", "", RWS,
      "{\"requiresReviewed\":true,\"enablesOutput\":false}"},
     {"guard_serial_probe", "target.guardProbe", "target", "event", "", RWS,
      "{\"requiresReviewed\":true,\"requiresPositiveCorridorClear\":true,\"maxTravelMm\":0.5,\"oneShot\":true}"},
+    {"guard_timer_preflight", "target.guardTimerPreflight", "target", "event", "", RWS,
+     "{\"requiresReviewed\":true,\"requiresCacheOffBoolean\":true,\"enablesOutput\":false}"},
+    {"guard_timer_probe", "target.guardTimerProbe", "target", "event", "", RWS,
+     "{\"requiresReviewed\":true,\"requiresPositiveCorridorClear\":true,\"maxTravelMm\":0.5,\"oneShot\":true,\"stopMethod\":\"uart-timer\"}"},
     {"emergency_stop", "button.emergencyStop", "button", "bool", "", RS,
      ""},
     {"limit", "button.limit", "button", "bool", "", RS, ""},
@@ -362,6 +370,10 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             const auto safety = getMotorSerialSafetyStatus();
             document["serialSelected"] = safety.selected;
             document["hardwareStopVerified"] = safety.hardwareStopVerified;
+            document["gpioStopVerified"] = safety.gpioStopVerified;
+            document["uartTimerStopVerified"] = safety.uartTimerStopVerified;
+            document["stopMethod"] = safety.uartTimerStopVerified ? "uart-timer" :
+                safety.gpioStopVerified ? "gpio-ena" : "unqualified";
             document["prepared"] = safety.prepared;
             document["enabled"] = safety.enabled;
             document["preparing"] = safety.preparing;
@@ -426,6 +438,15 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["lastCounts"] = probe.lastCounts;
             document["startedAtMs"] = probe.startedAtMs;
             document["gpioCutAtMs"] = probe.gpioCutAtMs;
+        } else if (path == "motor.serialTimerProbe" || path == "motor.serialEmergency") {
+            if (!args["page"].isNull() && !args["page"].is<int>())
+                return radble::Result::failure("invalid_value", "An integer sensor page is required");
+            const int page = args["page"] | 0;
+            const bool valid = path == "motor.serialTimerProbe" ?
+                serial_stop_diagnostics::timerProbePage(document, page, getMotorSerialTimerProbeStatus()) :
+                serial_stop_diagnostics::emergencyPage(document, page, getOssmHatEmergencyStatus());
+            if (!valid)
+                return radble::Result::failure("invalid_value", "Unknown sensor page");
         }
         else if (path == "motion.homed")
             document["value"] = calibration.isHomed;
@@ -694,6 +715,21 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (!requestMotorSerialInterlockProbe(true))
                 return radble::Result::failure("not_ready", "The one-shot serial stop probe requires fresh stopped feedback and an unarmed healthy guard");
             return radble::Result::success(R"({"requested":true,"maxTravelMm":0.5,"oneShot":true})");
+        } else if (path == "target.guardTimerPreflight") {
+            if (!(args["reviewed"] | false) || !args["cacheOff"].is<bool>())
+                return radble::Result::failure("review_required", "Reviewed stopped feedback and an explicit cacheOff boolean are required");
+            const bool cacheOff = args["cacheOff"].as<bool>();
+            if (!requestMotorSerialTimerPreflight(true, cacheOff))
+                return radble::Result::failure("not_ready", "The timer preflight requires verified output-off and physical quiet");
+            return radble::Result::success(cacheOff ?
+                R"({"requested":true,"cacheOff":true,"enablesOutput":false,"stopMethod":"uart-timer"})" :
+                R"({"requested":true,"cacheOff":false,"enablesOutput":false,"stopMethod":"uart-timer"})");
+        } else if (path == "target.guardTimerProbe") {
+            if (!(args["reviewed"] | false) || !(args["positiveCorridorClear"] | false))
+                return radble::Result::failure("review_required", "Review the stopped fixture and clear positive travel corridor first");
+            if (!requestMotorSerialTimerProbe(true))
+                return radble::Result::failure("not_ready", "Both timer preflights and fresh stopped feedback are required");
+            return radble::Result::success(R"({"requested":true,"maxTravelMm":0.5,"oneShot":true,"stopMethod":"uart-timer"})");
         } else if (path == "target.emergencyStop") {
             // Always apply the stop, including when already in a menu.
             ossmEmergencyStop();
