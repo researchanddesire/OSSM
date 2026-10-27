@@ -20,6 +20,12 @@ namespace Tasks {
     // Constants can stay in the header
     constexpr int stepperCore = 1;
     constexpr int operationTaskCore = 0;
+
+    // Start a motion mode's task. Internal RAM fragments while TLS sessions
+    // come and go, so retry briefly before giving up; logs and returns false
+    // if the task never starts.
+    bool startOperation(TaskFunction_t task, const char *name,
+                        uint32_t stackSize, TaskHandle_t *handle = nullptr);
 }
 
 #endif  // OSSM_SOFTWARE_TASKS_H

@@ -15,7 +15,6 @@
 #include "services/stepper.h"
 #include "services/tasks.h"
 
-#include <esp_heap_caps.h>
 
 namespace sml = boost::sml;
 using namespace sml;
@@ -173,25 +172,12 @@ void startHoming() {
     int stackSize = 10 * configMINIMAL_STACK_SIZE;
 
     // The timeout, stall detection and Done event all live inside this task.
-    // If it silently fails to start, the state machine waits in homing
-    // forever, so retry briefly (internal RAM frees up as the radios settle)
-    // and fall back to the existing homing error instead of hanging.
-    BaseType_t created = pdFAIL;
-    for (int attempt = 0; attempt < 20 && created != pdPASS; attempt++) {
-        if (attempt > 0) vTaskDelay(pdMS_TO_TICKS(250));
-        created = xTaskCreatePinnedToCore(
-            startHomingTask, "startHomingTask", stackSize, nullptr,
-            configMAX_PRIORITIES - 1, &Tasks::runHomingTaskH,
-            Tasks::operationTaskCore);
+    // If it fails to start, the state machine would wait in homing forever,
+    // so fall back to the existing homing error instead of hanging.
+    if (Tasks::startOperation(startHomingTask, "startHomingTask", stackSize,
+                              &Tasks::runHomingTaskH)) {
+        return;
     }
-    if (created == pdPASS) return;
-
-    ESP_LOGE("Homing",
-             "Could not create homing task: internal free=%u largest=%u",
-             static_cast<unsigned>(heap_caps_get_free_size(
-                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
-             static_cast<unsigned>(heap_caps_get_largest_free_block(
-                 MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
     errorState.message = ui::strings::homingTookTooLong;
     setHomingActive(false);
     resumeMqttAfterHoming();

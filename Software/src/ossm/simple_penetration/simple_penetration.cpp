@@ -124,13 +124,9 @@ void startSimplePenetration() {
     // still finds a free block.
     int stackSize = 4 * configMINIMAL_STACK_SIZE;
 
-    if (xTaskCreatePinnedToCore(startSimplePenetrationTask,
-                                "startSimplePenetrationTask", stackSize, nullptr,
-                                configMAX_PRIORITIES - 1,
-                                &Tasks::runSimplePenetrationTaskH,
-                                Tasks::operationTaskCore) != pdPASS) {
-        ESP_LOGE("SimplePenetration", "Could not create the motion task");
-    }
+    Tasks::startOperation(startSimplePenetrationTask,
+                          "startSimplePenetrationTask", stackSize,
+                          &Tasks::runSimplePenetrationTaskH);
 }
 
 }  // namespace simple_penetration

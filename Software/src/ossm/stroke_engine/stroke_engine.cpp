@@ -194,12 +194,8 @@ void startStrokeEngine() {
     // still finds a free block (12x failed to start beside the OSSM HAT).
     int stackSize = 4 * configMINIMAL_STACK_SIZE;
 
-    if (xTaskCreatePinnedToCore(startStrokeEngineTask, "startStrokeEngineTask",
-                                stackSize, nullptr, configMAX_PRIORITIES - 1,
-                                &Tasks::runStrokeEngineTaskH,
-                                Tasks::operationTaskCore) != pdPASS) {
-        ESP_LOGE("StrokeEngine", "Could not create the stroke engine task");
-    }
+    Tasks::startOperation(startStrokeEngineTask, "startStrokeEngineTask",
+                          stackSize, &Tasks::runStrokeEngineTaskH);
 
     if (xTaskCreatePinnedToCore(publishStateTask, "publishStateTask",
                                 5 * configMINIMAL_STACK_SIZE, nullptr,
