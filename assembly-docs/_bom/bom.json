@@ -1,6 +1,6 @@
 {
   "repo": "OSSM",
-  "commit": "7074e9d0ce23d9ca84abdd395cd2963a0ebca06a",
+  "commit": "892cd23165650714c1cbf03036ef396359c0267c",
   "columns": [
     "#",
     "Part Name",
@@ -27,7 +27,7 @@
       "–",
       "R+D",
       "–",
-      "https://www.researchanddesire.com/products/ossm-reference-board",
+      "cad/remote/README.md",
       "Electronics."
     ],
     [
@@ -69,7 +69,7 @@
       "–",
       "R+D",
       "–",
-      "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md",
+      "–",
       "Electronics. Included with wired remote."
     ],
     [
@@ -410,20 +410,6 @@
     ],
     [
       "29",
-      "OSSM T Nut Support",
-      "FDM",
-      "FDM-printed OSSM T Nut Support",
-      "2",
-      "each",
-      "R+D",
-      "–",
-      "R+D",
-      "–",
-      "–",
-      "Extrusion stand."
-    ],
-    [
-      "30",
       "End caps",
       "FDM",
       "FDM-printed extrusion end cap",
@@ -437,7 +423,77 @@
       "Extrusion stand. Bag 3."
     ],
     [
+      "30",
+      "OSSM - 24mm Rail Adapter",
+      "FDM",
+      "Rail-to-24 mm thread end effector",
+      "1",
+      "each",
+      "R+D",
+      "–",
+      "R+D",
+      "–",
+      "cad/actuator/24mm-rail-adapter.step",
+      "Actuator. Included in the printed parts kit."
+    ],
+    [
       "31",
+      "OSSM - Double Double",
+      "FDM",
+      "24 mm threaded Double Double toy mount",
+      "1",
+      "each",
+      "R+D",
+      "–",
+      "R+D",
+      "–",
+      "–",
+      "Actuator. Included in the printed parts kit."
+    ],
+    [
+      "32",
+      "OSSM - Flange Base",
+      "FDM",
+      "24 mm threaded flange base",
+      "1",
+      "each",
+      "R+D",
+      "–",
+      "R+D",
+      "–",
+      "cad/end-effectors/flange-base.step",
+      "Actuator. Included in the printed parts kit."
+    ],
+    [
+      "33",
+      "OSSM - Flange Ring 50mm",
+      "FDM",
+      "2 in (50 mm) flange ring",
+      "1",
+      "each",
+      "R+D",
+      "–",
+      "R+D",
+      "–",
+      "cad/end-effectors/flange-ring-50mm.step",
+      "Actuator. Included in the printed parts kit."
+    ],
+    [
+      "34",
+      "OSSM - Flange Ring 63mm",
+      "FDM",
+      "2.5 in (63 mm) flange ring",
+      "1",
+      "each",
+      "R+D",
+      "–",
+      "R+D",
+      "–",
+      "cad/end-effectors/flange-ring-63mm.step",
+      "Actuator. Included in the printed parts kit."
+    ],
+    [
+      "35",
       "M3x8mm",
       "FST",
       "ISO 4762 — M3x8 hexagon socket head cap screw",
@@ -451,7 +507,7 @@
       "Actuator. Includes 2 spares. Black oxide. Screw property class 12.9."
     ],
     [
-      "32",
+      "36",
       "M3x20mm",
       "FST",
       "ISO 4762 — M3x20 hexagon socket head cap screw",
@@ -465,7 +521,7 @@
       "Actuator. Includes 1 spare. Black oxide. Screw property class 12.9."
     ],
     [
-      "33",
+      "37",
       "M3 Nuts",
       "FST",
       "ISO 4032 — M3 hexagon regular nut (style 1)",
@@ -479,7 +535,7 @@
       "Actuator. Black oxide."
     ],
     [
-      "34",
+      "38",
       "M4x25mm",
       "FST",
       "ISO 4762 — M4x25 hexagon socket head cap screw",
@@ -493,7 +549,7 @@
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "35",
+      "39",
       "M4 Nuts",
       "FST",
       "ISO 4032 — M4 hexagon regular nut (style 1)",
@@ -507,7 +563,7 @@
       "Actuator. Black oxide."
     ],
     [
-      "36",
+      "40",
       "M5x20mm Caphead screws",
       "FST",
       "ISO 4762 — M5x20 hexagon socket head cap screw",
@@ -521,7 +577,7 @@
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "37",
+      "41",
       "M5x35mm",
       "FST",
       "ISO 4762 — M5x35 hexagon socket head cap screw",
@@ -535,7 +591,7 @@
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "38",
+      "42",
       "M5 Nuts",
       "FST",
       "ISO 4032 — M5 hexagon regular nut (style 1)",
@@ -549,7 +605,7 @@
       "Actuator. Includes 2 spares. Black oxide."
     ],
     [
-      "39",
+      "43",
       "M6x16mm",
       "FST",
       "ISO 4762 — M6x16 hexagon socket head cap screw",
@@ -563,7 +619,7 @@
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "40",
+      "44",
       "M6 T nut",
       "FST",
       "ISO 299 — M6 T-nut for 3030 extrusion",
@@ -577,7 +633,7 @@
       "Actuator. Black oxide. Property class 12.9."
     ],
     [
-      "41",
+      "45",
       "M6x12 Screw",
       "FST",
       "ISO 4762 — M6x12 hexagon socket head cap screw",
@@ -591,7 +647,7 @@
       "Extrusion stand. Bag 1. Black oxide. Screw property class 12.9."
     ],
     [
-      "42",
+      "46",
       "M6x25 Screw",
       "FST",
       "ISO 4762 — M6x25 hexagon socket head cap screw",
@@ -605,7 +661,7 @@
       "Extrusion stand. Bag 1. Black oxide. Screw property class 12.9."
     ],
     [
-      "43",
+      "47",
       "M6 Washer",
       "FST",
       "ISO 7089 — M6 plain washer, normal series, product grade A",
@@ -619,7 +675,7 @@
       "Extrusion stand. Bag 1. Black oxide."
     ],
     [
-      "44",
+      "48",
       "M6 T-Nuts",
       "FST",
       "ISO 299 — M6 T-nut for 3030 extrusion",
@@ -633,7 +689,7 @@
       "Extrusion stand. Bag 1. Black oxide. Property class 12.9."
     ],
     [
-      "45",
+      "49",
       "M6x25mm Handle",
       "FST",
       "M6x25mm Handle",
@@ -647,7 +703,7 @@
       "Extrusion stand. Bag 2."
     ],
     [
-      "46",
+      "50",
       "Rubber Washer",
       "FST",
       "Rubber washer",
@@ -661,7 +717,7 @@
       "Extrusion stand. Bag 3."
     ],
     [
-      "47",
+      "51",
       "M4x8mm Buttonhead Screws",
       "FST",
       "M4x8 buttonhead screws for the wired remote",
@@ -671,11 +727,11 @@
       "–",
       "R+D",
       "–",
-      "https://github.com/researchanddesire/ossm/blob/82c124c19f5a219288c71b431a415fc73f786b92/developer-docs/docs/hardware/bom.md",
+      "–",
       "Electronics. Included with wired remote."
     ],
     [
-      "48",
+      "52",
       "5x11x4mm Bearings",
       "LNM",
       "5 x 11 x 4 mm sealed bearing",
@@ -689,7 +745,7 @@
       "Actuator."
     ],
     [
-      "49",
+      "53",
       "350mm Linear Rail",
       "LNM",
       "350 mm MGN12 linear rail with one carriage",
@@ -703,7 +759,7 @@
       "Actuator."
     ],
     [
-      "50",
+      "54",
       "Gold Motor",
       "MTR",
       "NEMA 23 integrated servo motor, gold finish",
@@ -717,7 +773,7 @@
       "Actuator."
     ],
     [
-      "51",
+      "55",
       "OSSM Controller PCBA",
       "PCA",
       "Assembled ESP32 controller board, revision 2.3, 24 V input",
@@ -727,11 +783,11 @@
       "–",
       "R+D",
       "–",
-      "https://www.researchanddesire.com/products/ossm-reference-board",
+      "pcb/controller/OSSM_rev2_3.dip",
       "Electronics."
     ],
     [
-      "52",
+      "56",
       "3x3\" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",
       "PKG",
       "3x3\" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",
@@ -745,7 +801,7 @@
       "Extrusion stand."
     ],
     [
-      "53",
+      "57",
       "6x8\" bag (3x3\" bags + End caps + Base brackets)",
       "PKG",
       "6x8\" bag (3x3\" bags + End caps + Base brackets)",
@@ -759,7 +815,7 @@
       "Extrusion stand."
     ],
     [
-      "54",
+      "58",
       "6x12\" bags (All printed parts)",
       "PKG",
       "6x12\" bags (All printed parts)",
@@ -773,7 +829,7 @@
       "Extrusion stand."
     ],
     [
-      "55",
+      "59",
       "20x6x6\" Cardboard box",
       "PKG",
       "20x6x6\" Cardboard box",
@@ -787,7 +843,7 @@
       "Extrusion stand."
     ],
     [
-      "56",
+      "60",
       "24V Power Supply",
       "PSU",
       "24 V DC power supply, 5 A continuous output",
