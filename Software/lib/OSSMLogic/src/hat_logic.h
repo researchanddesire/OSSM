@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cstdint>
 
-// Pure math for the OSSM HAT follower in src/services/ossmHat.cpp.
+// Pure math for the OSSM HAT reader in src/services/ossmHat.cpp.
 // No hardware dependencies — testable on native platform.
 
 namespace hat_logic {
@@ -26,14 +26,8 @@ inline int32_t countsToPulses(int32_t counts, double countsPerPulse) {
     return static_cast<int32_t>(std::lround(counts / countsPerPulse));
 }
 
-/// Encoder target for the position the STEP/DIR pulses describe.
-inline int32_t targetCounts(int32_t anchorCounts, int32_t pulses,
-                            double countsPerPulse) {
-    return anchorCounts + pulsesToCounts(pulses, countsPerPulse);
-}
-
-/// Anchor that maps the current pulse total onto the measured position, so
-/// enabling the servo holds it where it already is.
+/// Anchor that maps the current pulse total onto the measured position: a
+/// servo coming out of ENA holds where it already is.
 inline int32_t anchorAt(int32_t measuredCounts, int32_t pulses,
                         double countsPerPulse) {
     return measuredCounts - pulsesToCounts(pulses, countsPerPulse);

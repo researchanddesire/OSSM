@@ -45,22 +45,22 @@ void test_countsToPulses_round_trip(void) {
     }
 }
 
-// ─── anchor / target ───
+// ─── anchor / following error ───
 
 void test_anchorAt_holds_measured_position(void) {
-    // Whatever the pulse total, re-anchoring targets the measured position.
+    // Whatever the pulse total, the anchored spot has no following error.
     const int32_t anchor = hat_logic::anchorAt(17026, -4321, kCountsPerPulse);
-    TEST_ASSERT_EQUAL_INT32(17026,
-                            hat_logic::targetCounts(anchor, -4321, kCountsPerPulse));
+    TEST_ASSERT_EQUAL_INT32(
+        0, hat_logic::followingErrorPulses(17026, anchor, -4321, kCountsPerPulse));
 }
 
-void test_targetCounts_follows_pulses_from_anchor(void) {
+void test_followingErrorPulses_tracks_pulses_from_anchor(void) {
     const int32_t anchor = hat_logic::anchorAt(1000, 0, kCountsPerPulse);
     // 20 pulses = 1 mm = 819.2 counts on a 40 mm pulley.
-    TEST_ASSERT_EQUAL_INT32(1819,
-                            hat_logic::targetCounts(anchor, 20, kCountsPerPulse));
-    TEST_ASSERT_EQUAL_INT32(181,
-                            hat_logic::targetCounts(anchor, -20, kCountsPerPulse));
+    TEST_ASSERT_EQUAL_INT32(
+        0, hat_logic::followingErrorPulses(1819, anchor, 20, kCountsPerPulse));
+    TEST_ASSERT_EQUAL_INT32(
+        0, hat_logic::followingErrorPulses(181, anchor, -20, kCountsPerPulse));
 }
 
 void test_followingErrorPulses(void) {
@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_countsToPulses_round_trip);
 
     RUN_TEST(test_anchorAt_holds_measured_position);
-    RUN_TEST(test_targetCounts_follows_pulses_from_anchor);
+    RUN_TEST(test_followingErrorPulses_tracks_pulses_from_anchor);
     RUN_TEST(test_followingErrorPulses);
 
     return UNITY_END();

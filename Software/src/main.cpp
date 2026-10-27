@@ -67,7 +67,7 @@ void __attribute__((weak)) setup() {
 
     // Before BLE/Wi-Fi/MQTT (getSketchMD5 needs a big buffer) and before the
     // state machine can start homing: hashing the image stalls everything
-    // outside IRAM, including an OSSM HAT's position stream.
+    // outside IRAM, including the OSSM HAT readings homing stops on.
     cacheSketchMd5();
 
     // Initialize state machine after global state is set up

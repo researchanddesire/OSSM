@@ -14,16 +14,13 @@ namespace ossm_hat {
 namespace {
 
 // 57AIM registers (YZ-AIM manual section V.2).
-constexpr uint16_t serialControlRegister = 0x00;  // 1 = RS-485 targets, STEP/DIR ignored
-constexpr uint16_t outputEnableRegister = 0x01;
-constexpr uint16_t accelerationRegister = 0x03;   // ramp; >= 60000 = none
+constexpr uint16_t serialControlRegister = 0x00;  // 1 = STEP/DIR ignored
 constexpr uint16_t telemetryRegister = 0x0E;      // alarm, current, speed, voltage, ...
 constexpr uint16_t telemetryCount = 10;           // ... through position at 0x16/0x17
 
 constexpr uint8_t servoId = 1;
 constexpr uint8_t pulseCounterUnit = 7;  // FastAccelStepper leaves 6 and 7 free
-constexpr uint32_t telemetryEvery = 4;   // every 4th request reads telemetry
-// Consecutive failed requests (each waits a reply timeout) before the servo
+// Consecutive failed reads (each waits a reply timeout) before the servo
 // counts as gone. Counting failures, not time, ignores CPU stalls.
 constexpr uint32_t maxFailures = 20;
 // The servo ignores a request that starts within ~1.2 ms of its own reply
@@ -32,10 +29,12 @@ constexpr uint32_t turnaroundUs = 1500;
 
 HardwareSerial &uart = Serial2;
 bool present = false;
+volatile bool answering = false;
 portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 Telemetry latest;
 int32_t anchorCounts = 0;  // encoder count that pulse total 0 maps onto
 int32_t pulses = 0;        // STEP pulses since the counter was attached
+int16_t lastCount = 0;
 
 // ── One request on the bus at a time ────────────────────────────────────
 uint8_t sent[8];
@@ -64,11 +63,6 @@ AimFrame::Status poll() {
         if (millis() - sentMs < replyTimeoutMs) return status;
         status = AimFrame::Status::BadReply;  // timed out
     }
-    // The servo echoes a write it accepted.
-    if (status == AimFrame::Status::Ok && sent[1] == AimFrame::fcWriteSingle &&
-        memcmp(sent, rx + reply.offset, 6) != 0) {
-        status = AimFrame::Status::BadReply;
-    }
     if (status == AimFrame::Status::Ok && reply.offset > 0) {
         memmove(rx, rx + reply.offset, replyLength);
     }
@@ -78,41 +72,12 @@ AimFrame::Status poll() {
 
 bool busReady() { return micros() - lastReplyUs >= turnaroundUs; }
 
-// Each request builder prepares `sent`; transmit() puts it on the bus.
-void prepareRead() {
-    sentLength =
-        AimFrame::buildRead(sent, servoId, telemetryRegister, telemetryCount);
-    replyLength = AimFrame::replyLength(AimFrame::fcReadHolding, telemetryCount);
+void prepareRead(uint16_t address, uint16_t count) {
+    sentLength = AimFrame::buildRead(sent, servoId, address, count);
+    replyLength = AimFrame::replyLength(AimFrame::fcReadHolding, count);
 }
 
-void prepareWrite(uint16_t address, uint16_t value) {
-    sentLength = AimFrame::buildWriteSingle(sent, servoId, address, value);
-    replyLength = 8;
-}
-
-void prepareTarget(int32_t target) {
-    sentLength = AimFrame::buildMoveAbsolute(sent, servoId, target);
-    replyLength = 8;
-}
-
-// Decode the telemetry reply in rx (registers 0x0E..0x17).
-void storeTelemetry() {
-    uint16_t r[telemetryCount];
-    for (uint16_t i = 0; i < telemetryCount; i++) {
-        r[i] = AimFrame::be16(rx + 3 + 2 * i);
-    }
-    const uint32_t now = millis();
-    portENTER_CRITICAL(&lock);
-    latest.alarm = r[0];
-    latest.currentAmps = r[1] / 2000.0f;
-    latest.voltage = r[3] / 327.0f;
-    latest.positionCounts =
-        static_cast<int32_t>((static_cast<uint32_t>(r[9]) << 16) | r[8]);
-    latest.sampledMs = now;
-    portEXIT_CRITICAL(&lock);
-}
-
-// Blocking request, for setup before the follower starts.
+// Blocking request, for setup before the reader starts.
 bool transact() {
     while (!busReady()) {
     }
@@ -122,16 +87,45 @@ bool transact() {
     return status == AimFrame::Status::Ok;
 }
 
+// Extend the 16-bit hardware count into the running pulse total.
+void countPulses() {
+    const int16_t count = stepper->readPulseCounter();
+    portENTER_CRITICAL(&lock);
+    pulses = hat_logic::accumulatePulses(pulses, lastCount, count);
+    portEXIT_CRITICAL(&lock);
+    lastCount = count;
+}
+
+// Decode the telemetry reply in rx (registers 0x0E..0x17).
+void storeTelemetry() {
+    uint16_t r[telemetryCount];
+    for (uint16_t i = 0; i < telemetryCount; i++) {
+        r[i] = AimFrame::be16(rx + 3 + 2 * i);
+    }
+    const uint32_t now = millis();
+    // ENA is active low (services/stepper.cpp). While the servo is off it
+    // ignores pulses, so it comes back on holding wherever it now is: map
+    // that spot onto the pulse total until it does.
+    const bool outputOff = digitalRead(Pins::Driver::motorEnablePin) == HIGH;
+    portENTER_CRITICAL(&lock);
+    latest.alarm = r[0];
+    latest.currentAmps = r[1] / 2000.0f;
+    latest.voltage = r[3] / 327.0f;
+    latest.positionCounts =
+        static_cast<int32_t>((static_cast<uint32_t>(r[9]) << 16) | r[8]);
+    latest.sampledMs = now;
+    if (outputOff) {
+        anchorCounts = hat_logic::anchorAt(latest.positionCounts, pulses,
+                                           Config::Hat::countsPerPulse);
+    }
+    portEXIT_CRITICAL(&lock);
+}
+
 bool readTelemetry() {
-    prepareRead();
+    prepareRead(telemetryRegister, telemetryCount);
     if (!transact()) return false;
     storeTelemetry();
     return true;
-}
-
-bool writeRegister(uint16_t address, uint16_t value) {
-    prepareWrite(address, value);
-    return transact();
 }
 
 bool openAt(uint32_t baud) {
@@ -144,118 +138,31 @@ bool openAt(uint32_t baud) {
            uart.setMode(UART_MODE_RS485_HALF_DUPLEX);
 }
 
-// Switch the servo to RS-485 targets, aimed at where it is, output off until
-// the follower sees ENA asking for it. The OSSM servo profile's ramp (as used
-// with STEP/DIR) keeps any catch-up after a stall smooth.
-bool takeControl() {
-    if (!readTelemetry() || !writeRegister(serialControlRegister, 1)) return false;
-    prepareTarget(telemetry().positionCounts);
-    return transact() && writeRegister(outputEnableRegister, 0) &&
-           writeRegister(accelerationRegister, 50000);
-}
-
-// ── Follower: a non-blocking step every millisecond (no task stack) ─────
-enum class Request : uint8_t { None, Telemetry, Target, Hold, Enable, Disable };
-enum class Output : uint8_t { Off, Holding, On };
-
+// ── Reader: a non-blocking step every millisecond (no task stack) ───────
 esp_timer_handle_t timer = nullptr;
-Request inFlight = Request::None;
-Output output = Output::Off;
-uint32_t requests = 0;
+bool waiting = false;
 uint32_t failures = 0;
-int16_t lastCount = 0;
-int32_t sentTarget = 0;
-
-// A servo that stops answering cannot be steered: stop like an emergency stop.
-void stopFollowing() {
-    esp_timer_stop(timer);
-    ESP_LOGE("HAT", "Servo stopped answering on RS-485; stopping motion");
-    stepper->forceStop();
-    stepper->disableOutputs();
-    prepareWrite(outputEnableRegister, 0);  // best effort
-    transmit();
-}
-
-void onReply(Request request) {
-    switch (request) {
-        case Request::Telemetry:
-            storeTelemetry();
-            break;
-        case Request::Target:
-            portENTER_CRITICAL(&lock);
-            latest.targetCounts = sentTarget;
-            portEXIT_CRITICAL(&lock);
-            break;
-        case Request::Hold:
-            output = Output::Holding;
-            break;
-        case Request::Enable:
-            output = Output::On;
-            break;
-        case Request::Disable:
-            output = Output::Off;
-            break;
-        case Request::None:
-            break;
-    }
-}
-
-// Mirror ENA and the STEP/DIR pulse position onto the servo.
-Request prepareNext() {
-    const int16_t count = stepper->readPulseCounter();
-    portENTER_CRITICAL(&lock);
-    pulses = hat_logic::accumulatePulses(pulses, lastCount, count);
-    const int32_t target = hat_logic::targetCounts(anchorCounts, pulses,
-                                                   Config::Hat::countsPerPulse);
-    const Telemetry now = latest;
-    portEXIT_CRITICAL(&lock);
-    lastCount = count;
-
-    // ENA is active low (services/stepper.cpp).
-    const bool wantOn = digitalRead(Pins::Driver::motorEnablePin) == LOW;
-    const bool fresh = millis() - now.sampledMs < 20;
-    if (!wantOn && output != Output::Off) {
-        prepareWrite(outputEnableRegister, 0);
-        return Request::Disable;
-    }
-    if (wantOn && output == Output::Off && fresh) {
-        // Like a servo coming out of ENA: hold where it is, then follow.
-        portENTER_CRITICAL(&lock);
-        anchorCounts = hat_logic::anchorAt(now.positionCounts, pulses,
-                                           Config::Hat::countsPerPulse);
-        portEXIT_CRITICAL(&lock);
-        prepareTarget(now.positionCounts);
-        return Request::Hold;
-    }
-    if (wantOn && output == Output::Holding) {
-        prepareWrite(outputEnableRegister, 1);
-        return Request::Enable;
-    }
-    if (output == Output::Off || ++requests % telemetryEvery == 0) {
-        prepareRead();
-        return Request::Telemetry;
-    }
-    sentTarget = target;
-    prepareTarget(target);
-    return Request::Target;
-}
 
 void step(void *) {
-    if (inFlight != Request::None) {
+    countPulses();
+    if (waiting) {
         const auto status = poll();
         if (status == AimFrame::Status::Incomplete) return;
+        waiting = false;
         if (status == AimFrame::Status::Ok) {
-            onReply(inFlight);
+            storeTelemetry();
             failures = 0;
         } else if (++failures >= maxFailures) {
-            stopFollowing();
+            // Motion never depended on the HAT: only the readings go.
+            answering = false;
+            esp_timer_stop(timer);
+            ESP_LOGE("HAT", "Servo stopped answering on RS-485; using board readings");
             return;
         }
-        inFlight = Request::None;
     }
     if (!busReady()) return;
-    inFlight = prepareNext();
     transmit();
+    waiting = true;
 }
 
 }  // namespace
@@ -277,18 +184,29 @@ bool begin() {
         }
     }
     // The pulse counter must attach in the native frame (initStepper).
-    if (present &&
-        !(stepper->attachToPulseCounter(pulseCounterUnit, 0, 0) &&
-          takeControl())) {
-        ESP_LOGE("HAT", "OSSM HAT answered but could not take control");
+    if (present && !stepper->attachToPulseCounter(pulseCounterUnit, 0, 0)) {
+        ESP_LOGE("HAT", "OSSM HAT answered but no pulse counter is free");
         present = false;
     }
     if (!present) {
         uart.end();
-        ESP_LOGI("HAT", "No OSSM HAT: driving the motor with STEP/DIR");
+        ESP_LOGI("HAT", "No OSSM HAT: STEP/DIR only");
         return false;
     }
+    // The firmware never writes to the servo. One left in serial control
+    // (a power cycle clears it) would not follow the pulses.
+    prepareRead(serialControlRegister, 1);
+    if (transact() && AimFrame::be16(rx + 3) != 0) {
+        ESP_LOGE("HAT", "Servo is in RS-485 control and ignores STEP/DIR; "
+                        "power-cycle the motor");
+    }
     lastCount = stepper->readPulseCounter();
+    readTelemetry();  // anchor the encoder at boot, before any motion
+    portENTER_CRITICAL(&lock);
+    anchorCounts = hat_logic::anchorAt(latest.positionCounts, pulses,
+                                       Config::Hat::countsPerPulse);
+    portEXIT_CRITICAL(&lock);
+    answering = true;  // the reader repeats the telemetry request in `sent`
     esp_timer_create_args_t args = {};
     args.callback = step;
     args.name = "ossmHat";
@@ -299,6 +217,8 @@ bool begin() {
 }
 
 bool isPresent() { return present; }
+
+bool isAnswering() { return answering; }
 
 Telemetry telemetry() {
     portENTER_CRITICAL(&lock);

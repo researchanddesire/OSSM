@@ -25,10 +25,10 @@ bool readFreshHat(ossm_hat::Telemetry &out) {
 
 void begin() { ossm_hat::begin(); }
 
-bool hasHat() { return ossm_hat::isPresent(); }
+bool hasHat() { return ossm_hat::isAnswering(); }
 
 bool reservesPin(int pin) {
-    return hasHat() &&
+    return ossm_hat::isPresent() &&
            (pin == Pins::Hat::de || pin == Pins::Hat::tx || pin == Pins::Hat::rx);
 }
 
@@ -59,8 +59,8 @@ float getHomingCurrentLimit() {
                     : Config::Driver::sensorlessCurrentLimit;
 }
 
+// Also with a HAT: the analog sensor takes over if the HAT stops answering.
 void zeroCurrent() {
-    if (hasHat()) return;
     calibration.currentSensorOffset = getAnalogAveragePercent(
         SampleOnPin{Pins::Driver::currentSensorPin, 1000});
 }
