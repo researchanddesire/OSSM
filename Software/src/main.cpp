@@ -65,13 +65,17 @@ void __attribute__((weak)) setup() {
     // Create OSSM instance for backward compatibility (BLE command handling)
     ossm = new OSSM();
 
+    // Before BLE/Wi-Fi/MQTT (getSketchMD5 needs a big buffer) and before the
+    // state machine can start homing: hashing the image stalls everything
+    // outside IRAM, including an OSSM HAT's position stream.
+    cacheSketchMd5();
+
     // Initialize state machine after global state is set up
     initStateMachine();
 
     // The board, display, and state machine initialized successfully. Confirm
     // the running image if a rollback-capable bootloader marked it pending.
     ossmConfirmRunningImage();
-    cacheSketchMd5();  // before BLE/Wi-Fi/MQTT: getSketchMD5 needs a big buffer
 
     // ialize LED for BLE and machine status indication
     ESP_LOGI("MAIN", "LED initialized for BLE and machine status indication");

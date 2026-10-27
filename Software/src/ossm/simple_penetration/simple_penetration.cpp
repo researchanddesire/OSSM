@@ -120,13 +120,17 @@ static void startSimplePenetrationTask(void *pvParameters) {
 }
 
 void startSimplePenetration() {
-    int stackSize = 10 * configMINIMAL_STACK_SIZE;
+    // Peaks under 1 KB of stack. Internal RAM is fragmented: a smaller stack
+    // still finds a free block.
+    int stackSize = 4 * configMINIMAL_STACK_SIZE;
 
-    xTaskCreatePinnedToCore(startSimplePenetrationTask,
-                            "startSimplePenetrationTask", stackSize, nullptr,
-                            configMAX_PRIORITIES - 1,
-                            &Tasks::runSimplePenetrationTaskH,
-                            Tasks::operationTaskCore);
+    if (xTaskCreatePinnedToCore(startSimplePenetrationTask,
+                                "startSimplePenetrationTask", stackSize, nullptr,
+                                configMAX_PRIORITIES - 1,
+                                &Tasks::runSimplePenetrationTaskH,
+                                Tasks::operationTaskCore) != pdPASS) {
+        ESP_LOGE("SimplePenetration", "Could not create the motion task");
+    }
 }
 
 }  // namespace simple_penetration

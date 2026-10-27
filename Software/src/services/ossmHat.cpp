@@ -16,14 +16,16 @@ namespace {
 // 57AIM registers (YZ-AIM manual section V.2).
 constexpr uint16_t serialControlRegister = 0x00;  // 1 = RS-485 targets, STEP/DIR ignored
 constexpr uint16_t outputEnableRegister = 0x01;
-constexpr uint16_t accelerationRegister = 0x03;   // >= 60000 = no internal ramp
+constexpr uint16_t accelerationRegister = 0x03;   // ramp; >= 60000 = none
 constexpr uint16_t telemetryRegister = 0x0E;      // alarm, current, speed, voltage, ...
 constexpr uint16_t telemetryCount = 10;           // ... through position at 0x16/0x17
 
 constexpr uint8_t servoId = 1;
 constexpr uint8_t pulseCounterUnit = 7;  // FastAccelStepper leaves 6 and 7 free
 constexpr uint32_t telemetryEvery = 4;   // every 4th request reads telemetry
-constexpr uint32_t linkTimeoutMs = 150;
+// Consecutive failed requests (each waits a reply timeout) before the servo
+// counts as gone. Counting failures, not time, ignores CPU stalls.
+constexpr uint32_t maxFailures = 20;
 // The servo ignores a request that starts within ~1.2 ms of its own reply
 // (Alex Warner's bench measurement).
 constexpr uint32_t turnaroundUs = 1500;
@@ -143,12 +145,13 @@ bool openAt(uint32_t baud) {
 }
 
 // Switch the servo to RS-485 targets, aimed at where it is, output off until
-// the follower sees ENA asking for it.
+// the follower sees ENA asking for it. The OSSM servo profile's ramp (as used
+// with STEP/DIR) keeps any catch-up after a stall smooth.
 bool takeControl() {
     if (!readTelemetry() || !writeRegister(serialControlRegister, 1)) return false;
     prepareTarget(telemetry().positionCounts);
     return transact() && writeRegister(outputEnableRegister, 0) &&
-           writeRegister(accelerationRegister, 60000);
+           writeRegister(accelerationRegister, 50000);
 }
 
 // ── Follower: a non-blocking step every millisecond (no task stack) ─────
@@ -159,7 +162,7 @@ esp_timer_handle_t timer = nullptr;
 Request inFlight = Request::None;
 Output output = Output::Off;
 uint32_t requests = 0;
-uint32_t lastOkMs = 0;
+uint32_t failures = 0;
 int16_t lastCount = 0;
 int32_t sentTarget = 0;
 
@@ -243,13 +246,12 @@ void step(void *) {
         if (status == AimFrame::Status::Incomplete) return;
         if (status == AimFrame::Status::Ok) {
             onReply(inFlight);
-            lastOkMs = millis();
+            failures = 0;
+        } else if (++failures >= maxFailures) {
+            stopFollowing();
+            return;
         }
         inFlight = Request::None;
-    }
-    if (millis() - lastOkMs > linkTimeoutMs) {
-        stopFollowing();
-        return;
     }
     if (!busReady()) return;
     inFlight = prepareNext();
@@ -287,7 +289,6 @@ bool begin() {
         return false;
     }
     lastCount = stepper->readPulseCounter();
-    lastOkMs = millis();
     esp_timer_create_args_t args = {};
     args.callback = step;
     args.name = "ossmHat";

@@ -190,19 +190,23 @@ static void publishStateTask(void *pvParameters) {
 }
 
 void startStrokeEngine() {
-    // Same as the other mode tasks: this one peaks under 1 KB, and a larger
-    // stack can fail to allocate once internal RAM is fragmented.
-    int stackSize = 10 * configMINIMAL_STACK_SIZE;
+    // Peaks under 2 KB of stack. Internal RAM is fragmented: a smaller stack
+    // still finds a free block (12x failed to start beside the OSSM HAT).
+    int stackSize = 4 * configMINIMAL_STACK_SIZE;
 
-    xTaskCreatePinnedToCore(startStrokeEngineTask, "startStrokeEngineTask",
-                            stackSize, nullptr, configMAX_PRIORITIES - 1,
-                            &Tasks::runStrokeEngineTaskH,
-                            Tasks::operationTaskCore);
+    if (xTaskCreatePinnedToCore(startStrokeEngineTask, "startStrokeEngineTask",
+                                stackSize, nullptr, configMAX_PRIORITIES - 1,
+                                &Tasks::runStrokeEngineTaskH,
+                                Tasks::operationTaskCore) != pdPASS) {
+        ESP_LOGE("StrokeEngine", "Could not create the stroke engine task");
+    }
 
-    xTaskCreatePinnedToCore(publishStateTask, "publishStateTask",
-                            5 * configMINIMAL_STACK_SIZE, nullptr,
-                            tskIDLE_PRIORITY + 1, nullptr,
-                            Tasks::operationTaskCore);
+    if (xTaskCreatePinnedToCore(publishStateTask, "publishStateTask",
+                                5 * configMINIMAL_STACK_SIZE, nullptr,
+                                tskIDLE_PRIORITY + 1, nullptr,
+                                Tasks::operationTaskCore) != pdPASS) {
+        ESP_LOGE("StrokeEngine", "Could not create the state publishing task");
+    }
 }
 
 }  // namespace stroke_engine

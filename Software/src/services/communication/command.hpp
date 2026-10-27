@@ -2,7 +2,6 @@
 #define OSSM_COMMUNICATION_COMMAND_HPP
 
 #include <queue>
-#include <regex>
 
 #include "Arduino.h"
 #include "NimBLECharacteristic.h"
