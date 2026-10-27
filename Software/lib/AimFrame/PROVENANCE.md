@@ -6,6 +6,8 @@ Original location: `Hardware/Servo Tools/Gold Motor/RS485-Hat-Test/lib/AimFrame/
 The source directory declares no separate per-file license. Its repository's
 CERN-OHL-S v2 license is preserved verbatim here as `LICENSE`.
 
-The production HAT service uses only the read-frame and CRC helpers. Its
-receive-only parser and shared-bus policy are in `src/services/ossmHatProtocol.hpp`
-and `src/services/ossmHat.cpp` under the firmware source root.
+The production HAT service uses the original read/CRC, FC06 output-control,
+and FC7B absolute-position builders. Its single UART owner, external-master
+policy and guarded/coalescing position transport are in `src/services/ossmHat.cpp`,
+`ossmHatProtocol.hpp` and `ossmHatPositionProtocol.hpp` under the firmware source root.
+FC10 at0x0C remains an incremental protocol example and is not used for moves.

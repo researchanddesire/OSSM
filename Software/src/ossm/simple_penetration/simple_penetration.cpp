@@ -1,4 +1,5 @@
 #include "simple_penetration.h"
+#include <new>
 
 #include "simple_pen_logic.h"
 #include "constants/Config.h"
@@ -18,6 +19,13 @@ using namespace sml;
 namespace simple_penetration {
 
 static void startSimplePenetrationTask(void *pvParameters) {
+    const uint64_t safetyRevision = *static_cast<uint64_t *>(pvParameters);
+    delete static_cast<uint64_t *>(pvParameters);
+    if (!motorSafetyEventCurrent(safetyRevision)) { vTaskDelete(nullptr); return; }
+    if (!motorSafetyBeginNormalOperation(safetyRevision)) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
+        vTaskDelete(nullptr); return;
+    }
     // Own the shared stepper config at mode entry: a preceding StrokeEngine
     // session leaves the shared DIR polarity inverted (StrokeEngine::begin)
     // and the counter in the StrokeEngine frame; only homing resets them.
@@ -26,8 +34,8 @@ static void startSimplePenetrationTask(void *pvParameters) {
     // stroke runs physically reversed and/or displaced into a hard stop.
     stepperTranslateFrame(StepperFrame::Native);
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
-    if (!motorSafetyBeginNormalOperation() || !enableMotorOutputs()) {
-        stateMachine->process_event(MotorSafetyFault{});
+    if (!motorSafetyEventCurrent(safetyRevision) || !enableMotorOutputs()) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
         vTaskDelete(nullptr);
         return;
     }
@@ -35,7 +43,8 @@ static void startSimplePenetrationTask(void *pvParameters) {
     int fullStrokeCount = 0;
     static int32_t targetPosition = 0;
 
-    auto isInCorrectState = []() {
+    auto isInCorrectState = [safetyRevision]() {
+        if (!motorSafetyEventCurrent(safetyRevision)) return false;
         // Add any states that you want to support here.
         return stateMachine->is("simplePenetration"_s) ||
                stateMachine->is("simplePenetration.idle"_s);
@@ -68,12 +77,12 @@ static void startSimplePenetrationTask(void *pvParameters) {
 
         // If the speed is zero, then stop the stepper and wait for the next
         if (isSpeedZero) {
-            stepper->stopMove();
+            stepper->stopMoveForOwner(safetyRevision, motorSafetyEventCurrent);
             stopped = true;
             vTaskDelay(100);
             continue;
         } else if (stopped) {
-            stepper->moveTo(targetPosition, false);
+            stepper->moveToForOwner(targetPosition, safetyRevision, motorSafetyEventCurrent, false);
             stopped = false;
         }
 
@@ -103,7 +112,7 @@ static void startSimplePenetrationTask(void *pvParameters) {
         ESP_LOGV("SimplePenetration", "target: %f,\tspeed: %f,\tacc: %f",
                  targetPosition, speed, acceleration);
 
-        stepper->moveTo(targetPosition, false);
+        stepper->moveToForOwner(targetPosition, safetyRevision, motorSafetyEventCurrent, false);
 
         if (settings.speed > Config::Advanced::commandDeadZonePercentage &&
             settings.stroke >
@@ -127,12 +136,13 @@ static void startSimplePenetrationTask(void *pvParameters) {
 
 void startSimplePenetration() {
     int stackSize = 10 * configMINIMAL_STACK_SIZE;
-
-    xTaskCreatePinnedToCore(startSimplePenetrationTask,
-                            "startSimplePenetrationTask", stackSize, nullptr,
+    auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
+    if (!revision) return;
+    if (xTaskCreatePinnedToCore(startSimplePenetrationTask,
+                            "startSimplePenetrationTask", stackSize, revision,
                             configMAX_PRIORITIES - 1,
                             &Tasks::runSimplePenetrationTaskH,
-                            Tasks::operationTaskCore);
+                            Tasks::operationTaskCore) != pdPASS) delete revision;
 }
 
 }  // namespace simple_penetration

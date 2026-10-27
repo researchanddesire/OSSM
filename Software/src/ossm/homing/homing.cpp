@@ -116,6 +116,14 @@ void resumeMqttAfterHoming() {
 }
 
 bool prepareHoming(const HomingTaskContext &context) {
+    // A serial target can still be decelerating after output disable. Frame
+    // translation/direction changes require fresh stationary encoder data.
+    const uint32_t waitingAt = millis();
+    while (stepper->isRunning()) {
+        if (!motorHomingTicketCurrent(context.ticket) || millis() - waitingAt >= 200)
+            return false;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
     if (!runMotorHomingCommand(context.ticket, [&] {
         if (!stepper->isRunning()) stepperTranslateFrame(StepperFrame::Native);
         stepper->setAcceleration(1000_mm);
@@ -142,7 +150,11 @@ void runHomingPass(const HomingTaskContext &context) {
         failHatHoming(context, "Could not prepare homing network resources.");
         return;
     }
-    if (!motorHomingTicketCurrent(context.ticket) || !prepareHoming(context)) return;
+    if (!motorHomingTicketCurrent(context.ticket)) return;
+    if (!prepareHoming(context)) {
+        failHatHoming(context, "Motor did not become stationary before homing setup.");
+        return;
+    }
     if (!motorHomingTicketCurrent(context.ticket)) return;
 #ifdef AJ_DEVELOPMENT_HARDWARE
     if (!runMotorHomingCommand(context.ticket, [] {
@@ -219,9 +231,12 @@ void runHomingPass(const HomingTaskContext &context) {
             failHatHoming(context, motorSafetyReason());
             return;
         }
+        // The serial axis reads telemetry and takes its own short lock. Keep
+        // that work outside the guard's publication critical section.
+        const int32_t stoppedPosition = stepper->getCurrentPosition();
         if (!commitMotorHomingState(context.ticket, [&] {
             calibration.measuredStrokeSteps = homing_logic::calculateMeasuredStroke(
-                stepper->getCurrentPosition(), Config::Driver::maxStrokeSteps);
+                stoppedPosition, Config::Driver::maxStrokeSteps);
             return true;
         })) return;
         if (context.useHat) finishMotorFeedbackHomingPass(context.ticket);

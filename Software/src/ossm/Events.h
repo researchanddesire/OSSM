@@ -31,7 +31,7 @@ struct HomingFailed { homing_session::Ticket ticket; const char *message; };
 struct Error {};
 struct EmergencyStop {};
 struct Home {};
-struct MotorSafetyFault {};
+struct MotorSafetyFault { uint64_t revision; };
 struct MotorSafetyReviewed {};
 struct InspectBoot {};
 

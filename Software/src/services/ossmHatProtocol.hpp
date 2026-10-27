@@ -160,7 +160,8 @@ class Decoder {
                 continue;
             }
             // Observe the guard's emergency register writes as external bus
-            // ownership too. The service itself never constructs these frames.
+            // ownership too. Explicit owner exchanges validate their own replies
+            // separately; all other matching frames establish external ownership.
             if (fc == AimFrame::fcWriteSingle || fc == AimFrame::fcMove ||
                 fc == AimFrame::fcMoveAbsolute) {
                 if (used_ < 8) break;

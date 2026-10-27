@@ -7,6 +7,12 @@
 #include "ossm/state/calibration.h"
 #include "ossm/state/menu.h"
 #include "utils/analog.h"
+#include "ossm/Events.h"
+#include "services/motorSafety.h"
+
+bool ossmMotorSafetyEventCurrent(const MotorSafetyFault &event) {
+    return motorSafetyEventCurrent(event.revision);
+}
 
 bool ossmIsStrokeTooShort() {
     return homing::isStrokeTooShort();

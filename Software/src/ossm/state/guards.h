@@ -11,8 +11,14 @@ bool ossmIsStrokeTooShort();
 bool ossmIsNotHomed();
 bool ossmIsPreflightSafe();
 Menu ossmGetMenuOption();
+struct MotorSafetyFault;
+bool ossmMotorSafetyEventCurrent(const MotorSafetyFault &event);
 
 namespace guards {
+
+    constexpr auto currentSafetyFault = [](const MotorSafetyFault &event) {
+        return ossmMotorSafetyEventCurrent(event);
+    };
 
     // Guard for checking if stroke is too short
     constexpr auto isStrokeTooShort = []() {

@@ -1,12 +1,17 @@
-# OSSM V2.3 RS-485 HAT feedback
+# OSSM V2.3 RS-485 HAT motion and feedback
 
 The firmware discovers a live 57AIM30 feedback path at startup, then reads motor
-position, current, supply voltage and alarm through UART2. STEP/DIR remains the
-motion command interface. Detection and telemetry are read-only. The onboard
-safety guard can latch Modbus control with output disabled on a fault and verify
-the registers. An explicit reviewed handback can return register 0 to STEP/DIR
-mode while GPIO ENA remains disabled. Neither path writes targets, gearing,
-EEPROM or the absolute encoder, or removes physical motor power.
+position, current, supply voltage and alarm through UART2. A detected HAT selects
+absolute RS485 position commands for homing, Simple Penetration, Streaming and
+StrokeEngine. Boards without a detected/remembered HAT retain STEP/DIR. Discovery
+is read-only; motion requires an explicitly armed session and a proven independent
+ENA stop. A detected HAT never silently falls back to pulses after a fault.
+
+The supported serial admission state is already-configured Modbus mode1 with
+output bit0 off, exclusive 115200-baud ownership and fresh feedback. Firmware
+refuses arbitrary mode0-to-mode1 transitions because a stale serial target could
+become active. It does not write gearing, EEPROM, baud or the absolute encoder.
+No firmware command in this feature removes physical motor power.
 
 The pinout, AIM register scaling and leading-zero reply workaround come from
 [Alex Warner's HAT work](https://github.com/KinkyMakers/OSSM-Hardware/tree/faa79768fccbdbec5b236f6c96457b45fcaca74c/Hardware/Servo%20Tools/Gold%20Motor/RS485-Hat-Test).
@@ -59,6 +64,11 @@ a quiet bus before probing, and latch receive-only mode after observing another
 master. Listen-first discovery is not an arbitration guarantee: use the explicit
 listen-only build when sharing any bus with another master.
 
+Once serial position preparation is requested, every existing telemetry poll
+includes register0/count26, through cancellation and final quiet. This supplies
+fresh control-mode evidence during the GPIO stop test without adding a second
+polling transaction or a second UART owner.
+
 The explicit `hat-validation-16mb` profile uses the ESP32 guard as the primary safety
 monitor instead: pause the PC RTU master before using it. That image requires a
 working HAT and boots into a stopped inspection menu. It cannot fall back to ADC
@@ -66,10 +76,50 @@ homing, and it does not auto-home after flashing. Existing installed PC-based HI
 gates remain separate; a manual onboard-guard run must not be relabeled as a
 passing PC-guard run.
 
-A passive onboard guard also needs fresh control registers: the PC master must
+A passive onboard observer also needs fresh control registers: the PC master must
 read register 0 with count 26 at least once a second, alongside its regular telemetry
 polls. A telemetry-only `0x0E` block omits the STEP/DIR control mode and cannot prove
-that it is safe to arm. The guard blocks motion until those reads are available.
+that it is safe to arm. Serial motion additionally requires exclusive UART
+ownership; the HAT cannot send targets while the PC is acting as an RTU master.
+
+## Serial position commands and commissioning
+
+`MotionAxis` adapts the existing motion modes to the HAT or FastAccelStepper.
+Logical coordinates remain pulse-equivalent steps. The serial adapter anchors
+them to fresh absolute encoder counts, converts direction/frame changes locally,
+and never re-zeros the motor. A bounded local acceleration planner submits at
+most one waypoint per20ms, requires the exact previous target ACK before advancing,
+and stops advancing beyond a1mm following envelope. Arrival also requires fresh,
+quiet measured encoder samples; an ACK alone is never physical arrival.
+
+The vendor absolute command is FC0x7B (MSB-first request, low-word-first reply).
+FC0x10 at register0x0C is incremental and is not used for moves. RAM speed/ramp
+limits are written and read back only while serial output is disabled. The initial
+normal cap is37RPM (24.67mm/s with the stock40mm/revolution pulley), with a
+1500RPM/s motor ramp cap; the local trajectory may request less. Ordinary targets
+must use the same verified limits. Enable is a separate final guarded write.
+Stop cancels pending work, asserts GPIO26 HIGH, writes only register1=0 and
+verifies mode1/output0 plus physical stationarity. It never changes control mode.
+
+GPIO26 drives the PCB's ENA transistor; it is not a motor-power switch. Its ability
+to stop a serial move must be characterized on the actual connected harness.
+Each boot therefore starts with normal serial motion blocked. The explicit BLE
+`target.guardProbe` commissioning request requires a lease and both
+`reviewed:true` and `positiveCorridorClear:true`. The operator must verify an
+unoccupied positive encoder direction before requesting it. It is one-shot per
+boot and is never automatically run at startup.
+
+The independent safety task supervises this single target of at most+0.5mm at
+1RPM/15RPM/s, bounded to0.25A,2mm/s, a0.75mm envelope and3seconds. After measured
+positive progress, it asserts ENA HIGH while at least0.25mm remains to the target.
+It then requires six unique quiet samples over100ms, after100ms braking, with
+no intervening UART control write and ENA continuously HIGH. UART output-off is
+mandatory within250ms of the GPIO cut, followed by a fresh readback and separate
+physical quiet proof. Any failure blocks ordinary serial operation and latches
+the warning; there is no reverse, retry or automatic homing. Success grants only
+a volatile proof tied to the current telemetry continuity. Fault, mode change,
+bus contention, lost feedback or reboot revokes it. A normal home remains a
+separate explicit action with exactly two allowed contacts.
 
 ## Independent onboard motor guard
 
@@ -77,15 +127,16 @@ A high-priority FreeRTOS task runs every 5 ms, independently of the UART reader 
 motion tasks. It accepts only coherent physical encoder/current/voltage/alarm
 samples. Before arming, it requires at least 30 Hz observed over 500 ms, samples no
 older than 100 ms, healthy 20..36 V supply/alarm data, GPIO26 HIGH readback, and at
-least 100 ms of measured stationary position with current below 0.5 A. STEP/DIR mode
-must be read back from the motor. The serial output-enable register is not used
-as GPIO ENA's status; it can legitimately remain0 in external-control mode.
+least 100 ms of measured stationary position with current below0.5A. HAT motion
+requires mode1 and the per-boot hardware stop proof, followed by a disabled,
+verified hold before enabling serial output. Register readback and actual GPIO
+stop authority are distinct checks.
 
 Every firmware output-enable path, including StrokeEngine, goes through the
 guard. Fault/disarm and output enabling share a lock. A separate hardware timer
 forces ENA HIGH if the safety task misses its 34 ms deadline. The first stop does
 not wait for UART, UI or BLE: pulses stop and output is disabled immediately.
-The sole UART owner subsequently requests and verifies register 0 = 1/output bit 0 = 0
+The sole UART owner subsequently requests register1=0 and verifies mode1/output bit0=0
 when it owns the bus; it refuses to compete with another master.
 
 The initial conservative policy bounds current to 2.2 A (not a motor rating), loaded contact to 200 ms, and actual homing speed
@@ -118,8 +169,8 @@ ordered by sequence; an older snapshot cannot rewind or refresh the guard.
 Faults persist in NVS, including an interrupted armed run. A remembered HAT makes
 later boot failures fail closed rather than selecting ADC homing. Faults show on
 the display/LED, USB and BLE. A reviewed reset requires fresh stopped-motor proof
-and never arms automatically. `target.guardPrepare` queues only the reviewed
-mode 0 handback while outputs stay disabled; it is distinct from clearing a fault
+and never arms automatically. `target.guardPrepare` prepares the serial hold and
+RAM limits while outputs stay disabled; it is distinct from clearing a fault
 or enabling motion. None of these operations claims physical power removal.
 
 ## Runtime helpers and units
@@ -127,7 +178,8 @@ or enabling motion. None of these operations claims physical power removal.
 - `getMotorPositionMm()` uses fresh measured feedback after homing establishes
   encoder polarity and a stopped home reference. Otherwise it returns the
   existing command-counter estimate; `motorPositionUsesRs485()` exposes the
-  choice. Planner/completion comparisons continue to use exact command steps.
+  choice. The serial motion adapter also uses measured position for completion;
+  its requested/acknowledged targets remain separate from physical position.
 - `readMotorCurrentAmps(float&)` and `readMotorVoltageVolts(float&)` return false
   when fresh physical measurements are unavailable. They never invent a voltage
   from an ADC current input or relabel ADC values as amps.
@@ -158,7 +210,8 @@ before flushing queued homing commands. Delayed work must still own its ticket
 when arming, enabling, submitting a move, publishing a reference or completing a
 pass. The second pass inherits the same ticket. A completed home returns to the
 menu; selecting an operating mode requires a new user action. This cancellation
-contract covers homing and does not claim to serialize every ordinary-mode worker.
+contract covers homing. Normal-mode task creation captures the control revision;
+stale startup/fault events cannot adopt a newer Home request's revision.
 
 ## Inspecting the running ESP32
 
@@ -174,10 +227,18 @@ Absent/stale amp or volt reads return `unavailable`; detailed HAT diagnostics om
 stale measurements. The MQTT state schema is unchanged and uses the position
 helper for its existing numeric position field.
 
+`motor.drive` reports the selected backend and trajectory state;
+`motor.serial` separates queued/acknowledged targets and raw vendor reply words;
+`motor.serialTx` counts actual accepted UART control writes;
+`motor.driveSafety` reports the volatile ENA proof and verified limits;
+`motor.serialProbe` reports the one-shot commissioning result. None of these
+read-only resources arms or resets anything.
+
 ## Verification
 
 Run native suites `test_ossm_hat`, `test_motor_feedback`, `test_motor_guard`,
-`test_homing_logic`, `test_homing_session` and `test_state_json`. They cover independent fixed protocol vectors, leading zeroes,
+`test_homing_logic`, `test_homing_session`, `test_ossm_hat_position`,
+`test_serial_axis`, `test_serial_interlock_probe` and `test_state_json`. They cover independent fixed protocol vectors, leading zeroes,
 CRC errors, incomplete and mismatched replies, other masters, noise recovery,
 freshness/continuity, encoder rollover, polarity, frame conversion and contact
 qualification. Build both staging and production hardware variants through the

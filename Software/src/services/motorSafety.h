@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <type_traits>
 #include "homing_session.h"
+#include "serial_interlock_probe.h"
 
 using MotorHomingTicket = homing_session::Ticket;
 
@@ -41,6 +42,7 @@ struct MotorSafetyStatus {
     bool activeMaster = false;
     uint8_t fault = 0;
     uint8_t contacts = 0;
+    uint64_t controlRevision = 0;
     float observedHz = 0;
     uint32_t sampleAgeMs = UINT32_MAX;
     int32_t lowerStopCounts = 0;
@@ -69,6 +71,7 @@ struct MotorSafetyFaultInfo {
 
 void initMotorSafety();
 MotorSafetyStatus getMotorSafetyStatus();
+bool motorSafetyEventCurrent(uint64_t revision);
 MotorSafetyFaultInfo getMotorSafetyFaultInfo();
 const char *motorSafetyReason();
 bool motorSafetyCanEnableOutputs();
@@ -78,7 +81,26 @@ bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket);
 bool motorSafetyBeginHomingMotion(MotorHomingTicket ticket);
 bool motorSafetyEndHomingPass(MotorHomingTicket ticket);
 bool motorSafetyBeginNormalOperation(MotorHomingTicket ticket);
+bool motorSafetyBeginNormalOperation(uint64_t expectedRevision);
 bool motorSafetyBeginNormalOperation();
+// HAT motion uses a distinct, revocable serial session. An unset/unproven
+// hardware stop never grants normal serial motion authority.
+uint64_t motorSafetySerialSession();
+bool motorSafetySerialCanMove(uint64_t session);
+struct MotorSerialSafetyStatus {
+    bool selected = false;
+    bool hardwareStopVerified = false;
+    bool prepared = false;
+    bool enabled = false;
+    bool preparing = false;
+    uint16_t maximumSpeedRpm = 37;
+    uint16_t accelerationRpmPerSec = 1500;
+};
+MotorSerialSafetyStatus getMotorSerialSafetyStatus();
+// One-shot per boot, +0.5mm characterization into an explicitly reviewed
+// free corridor. This never authorizes arbitrary motion or clears a fault.
+bool requestMotorSerialInterlockProbe(bool reviewedPositiveCorridor);
+serial_interlock_probe::Status getMotorSerialInterlockProbeStatus();
 // OTA/maintenance only: stop and disarm, never enable or clear a fault.
 void disarmMotorSafety();
 // Explicit operator review only. Does not restore motor registers or arm.

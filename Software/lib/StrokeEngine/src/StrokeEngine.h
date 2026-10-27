@@ -14,6 +14,9 @@
 #include <Arduino.h>
 
 #include "FastAccelStepper.h"
+#include "FastAccelStepperAxis.h"
+#include "MotionAxis.h"
+#include "motion_owner.h"
 #include "pattern.h"
 
 // Debug Levels
@@ -103,11 +106,23 @@ static String verboseState[] = {
 */
 /**************************************************************************/
 class StrokeEngine {
-    FastAccelStepper *_servo;
+    MotionAxis *_servo;
+    FastAccelStepperAxis _legacyAxis;
+    motion_owner::Gate _motionOwner;
+    portMUX_TYPE _motionOwnerMux = portMUX_INITIALIZER_UNLOCKED;
+    motion_owner::Ticket _ownerSnapshot();
+    bool _ownerCurrent(motion_owner::Ticket owner);
+    bool _startPattern(motion_owner::Ticket owner);
+    void _stopMotion(motion_owner::Ticket owner);
     bool (*_outputGuard)() = nullptr;
     bool (*_outputEnableGuard)() = nullptr;
 
   public:
+    // Bind before begin/startPattern. Revocation does not wait for telemetry
+    // and an old worker never acquires a later binding's motion authority.
+    bool bindMotionOwner(uint64_t revision, motion_owner::Validator validator);
+    bool startPatternForOwner(uint64_t revision);
+    void stopMotionForOwner(uint64_t revision);
     void setOutputGuard(bool (*guard)(), bool (*enable)() = nullptr) {
         _outputGuard = guard;
         _outputEnableGuard = enable;
@@ -120,6 +135,8 @@ class StrokeEngine {
     /**************************************************************************/
     void begin(machineGeometry *physics, motorProperties *motor,
                FastAccelStepper *servo);
+    void begin(machineGeometry *physics, motorProperties *motor,
+               MotionAxis *servo);
 
     /**************************************************************************/
     /*!
@@ -436,7 +453,7 @@ class StrokeEngine {
     TaskHandle_t _taskHomingHandle = NULL;
     TaskHandle_t _taskStreamingHandle = NULL;
     SemaphoreHandle_t _patternMutex = xSemaphoreCreateMutex();
-    void _applyMotionProfile(motionParameter *motion);
+    void _applyMotionProfile(motionParameter *motion, motion_owner::Ticket owner);
     void (*_callBackHomeing)(bool) = NULL;
     void (*_callbackTelemetry)(float, float, bool) = NULL;
     int _homeingSpeed;

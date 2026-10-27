@@ -595,6 +595,22 @@ void test_load_drop_without_retreat_marker_does_not_reset_progress_clock() {
     assertFault(Fault::HomingProgress, bench.guard);
 }
 
+void test_completed_home_can_rearm_after_clean_menu_stop() {
+    Bench bench;
+    bench.home();
+    const int32_t lower = bench.guard.lowerStopCounts();
+    const int32_t upper = bench.guard.upperStopCounts();
+    bench.guard.disarm();
+    for (int i = 0; i < 6; ++i) bench.sample();
+    TEST_ASSERT_TRUE(bench.guard.boundsValid());
+    TEST_ASSERT_TRUE(bench.guard.ready(bench.now));
+    TEST_ASSERT_TRUE(bench.guard.arm(bench.now));
+    TEST_ASSERT_TRUE(bench.guard.beginNormalOperation(bench.now));
+    TEST_ASSERT_EQUAL_INT32(lower, bench.guard.lowerStopCounts());
+    TEST_ASSERT_EQUAL_INT32(upper, bench.guard.upperStopCounts());
+    TEST_ASSERT_EQUAL_UINT8(2, bench.guard.contactCount());
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_discovery_blocks_arm_without_latching);
@@ -626,5 +642,6 @@ int main(int, char **) {
     RUN_TEST(test_qualified_retreat_has_bounded_grace_for_virtual_overtravel);
     RUN_TEST(test_stalled_retreat_cannot_restart_absolute200ms_progress_bound);
     RUN_TEST(test_load_drop_without_retreat_marker_does_not_reset_progress_clock);
+    RUN_TEST(test_completed_home_can_rearm_after_clean_menu_stop);
     return UNITY_END();
 }

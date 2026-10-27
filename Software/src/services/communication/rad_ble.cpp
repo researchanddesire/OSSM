@@ -61,10 +61,17 @@ const radble::Resource RESOURCES[] = {
     {"motor_guard", "motor.guard", "motor", "object", "", RS, ""},
     {"motor_guard_control", "motor.guardControl", "motor", "object", "", RS, ""},
     {"motor_guard_fault", "motor.guardFault", "motor", "object", "", RS, ""},
+    {"motor_drive_safety", "motor.driveSafety", "motor", "object", "", RS, ""},
+    {"motor_drive", "motor.drive", "motor", "object", "", RS, ""},
+    {"motor_serial", "motor.serial", "motor", "object", "", RS, ""},
+    {"motor_serial_tx", "motor.serialTx", "motor", "object", "", RS, ""},
+    {"motor_serial_probe", "motor.serialProbe", "motor", "object", "", RS, ""},
     {"guard_reviewed_reset", "target.guardReset", "target", "event", "", RWS,
      "{\"requiresReviewed\":true}"},
     {"guard_external_control", "target.guardPrepare", "target", "event", "", RWS,
      "{\"requiresReviewed\":true,\"enablesOutput\":false}"},
+    {"guard_serial_probe", "target.guardProbe", "target", "event", "", RWS,
+     "{\"requiresReviewed\":true,\"requiresPositiveCorridorClear\":true,\"maxTravelMm\":0.5,\"oneShot\":true}"},
     {"emergency_stop", "button.emergencyStop", "button", "bool", "", RS,
      ""},
     {"limit", "button.limit", "button", "bool", "", RS, ""},
@@ -342,15 +349,83 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["lowerStopCounts"] = safety.lowerStopCounts;
             document["upperStopCounts"] = safety.upperStopCounts;
             document["rs485StopVerified"] = getOssmHatEmergencyStopStatus().verified;
-            const auto external = getOssmHatExternalControlStatus();
-            document["prepareRequested"] = external.requested;
-            document["prepareComplete"] = external.complete;
-            document["prepareVerified"] = external.verified;
+            const auto position = getOssmHatPositionStatus();
+            document["prepareRequested"] = position.requested;
+            document["prepareComplete"] = position.prepared || position.faulted;
+            document["prepareVerified"] = position.prepared && !position.faulted;
             OssmHatControlSnapshot controls;
             if (readOssmHatControlSnapshot(controls)) {
                 document["modbusEnable"] = controls.modbusEnable;
                 document["serialOutputSetting"] = controls.outputEnable;
             }
+        } else if (path == "motor.driveSafety") {
+            const auto safety = getMotorSerialSafetyStatus();
+            document["serialSelected"] = safety.selected;
+            document["hardwareStopVerified"] = safety.hardwareStopVerified;
+            document["prepared"] = safety.prepared;
+            document["enabled"] = safety.enabled;
+            document["preparing"] = safety.preparing;
+            document["maximumSpeedRpm"] = safety.maximumSpeedRpm;
+            document["accelerationRpmPerSec"] = safety.accelerationRpmPerSec;
+        } else if (path == "motor.drive") {
+            const auto drive = getMotorMotionStatus();
+            document["backend"] = drive.serial ? "rs485-absolute" : "step-dir";
+            document["frameReady"] = drive.frameReady;
+            document["moving"] = drive.moving;
+            document["pending"] = drive.pending;
+            document["requestedStepsPerSecond"] = drive.requestedStepsPerSecond;
+            document["requestedAcceleration"] = drive.requestedAcceleration;
+            document["maximumSpeedRpm"] = drive.maximumSpeedRpm;
+            document["accelerationRpmPerSecond"] = drive.accelerationRpmPerSecond;
+            document["commandTarget"] = drive.commandTarget;
+            document["followingLimitMm"] = drive.followingLimitMm;
+        } else if (path == "motor.serial") {
+            const auto position = getOssmHatPositionStatus();
+            document["session"] = position.session;
+            document["prepared"] = position.prepared;
+            document["enabled"] = position.enabled;
+            document["pending"] = position.pending;
+            document["fault"] = static_cast<uint8_t>(position.fault);
+            document["queuedId"] = position.queuedRequestId;
+            document["acknowledgedId"] = position.acknowledgedRequestId;
+            document["targetCounts"] = position.targetCounts;
+            document["acknowledgedTargetCounts"] = position.acknowledgedTargetCounts;
+            document["acknowledgedAtMs"] = position.acknowledgedAtMs;
+            document["replyAvailable"] = position.vendorReplyAvailable;
+            document["replyValue"] = position.vendorReplyValue;
+            document["replyAtMs"] = position.vendorReplyAtMs;
+        } else if (path == "motor.serialTx") {
+            const auto tx = getOssmHatTxAudit();
+            document["controlWrites"] = tx.controlWrites;
+            document["absoluteTargets"] = tx.absoluteTargets;
+            document["outputEnables"] = tx.outputEnables;
+            document["outputDisables"] = tx.outputDisables;
+            document["setupWrites"] = tx.setupWrites;
+            document["modeWrites"] = tx.modeWrites;
+            document["lastType"] = static_cast<uint8_t>(tx.lastType);
+            document["lastFunction"] = tx.lastFunction;
+            document["lastRegister"] = tx.lastRegister;
+            document["lastValue"] = tx.lastValue;
+            document["lastAtMs"] = tx.lastAtMs;
+            document["lastCompleteFrame"] = tx.lastCompleteFrame;
+        } else if (path == "motor.serialProbe") {
+            const auto probe = getMotorSerialInterlockProbeStatus();
+            document["phase"] = static_cast<uint8_t>(probe.phase);
+            document["failure"] = static_cast<uint8_t>(probe.failure);
+            document["active"] = probe.active;
+            document["finished"] = probe.finished;
+            document["passed"] = probe.passed;
+            document["gpioStopProven"] = probe.gpioStopProven;
+            document["serialDisabled"] = probe.serialDisabled;
+            document["finalQuiet"] = probe.finalQuiet;
+            document["positiveIntervals"] = probe.positiveIntervals;
+            document["gpioQuietSamples"] = probe.gpioQuietSamples;
+            document["finalQuietSamples"] = probe.finalQuietSamples;
+            document["originCounts"] = probe.originCounts;
+            document["targetCounts"] = probe.targetCounts;
+            document["lastCounts"] = probe.lastCounts;
+            document["startedAtMs"] = probe.startedAtMs;
+            document["gpioCutAtMs"] = probe.gpioCutAtMs;
         }
         else if (path == "motion.homed")
             document["value"] = calibration.isHomed;
@@ -612,7 +687,13 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
                 return radble::Result::failure("review_required", "Explicit stopped-motor review is required");
             if (!prepareMotorSafetyExternalControlAfterReview())
                 return radble::Result::failure("not_ready", "Unarmed, stationary, healthy motor feedback is required");
-            return radble::Result::success(R"({"pending":true,"enablesOutput":false})");
+            return radble::Result::success(R"({"prepared":true,"enablesOutput":false,"backend":"rs485-absolute"})");
+        } else if (path == "target.guardProbe") {
+            if (!(args["reviewed"] | false) || !(args["positiveCorridorClear"] | false))
+                return radble::Result::failure("review_required", "Review the stopped fixture and clear positive travel corridor first");
+            if (!requestMotorSerialInterlockProbe(true))
+                return radble::Result::failure("not_ready", "The one-shot serial stop probe requires fresh stopped feedback and an unarmed healthy guard");
+            return radble::Result::success(R"({"requested":true,"maxTravelMm":0.5,"oneShot":true})");
         } else if (path == "target.emergencyStop") {
             // Always apply the stop, including when already in a menu.
             ossmEmergencyStop();

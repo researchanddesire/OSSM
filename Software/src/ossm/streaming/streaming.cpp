@@ -2,6 +2,7 @@
 
 #include <queue>
 #include <chrono>
+#include <new>
 #include "streaming_logic.h"
 #include "constants/Config.h"
 #include "ossm/state/calibration.h"
@@ -21,18 +22,26 @@ using namespace sml;
 namespace streaming {
 
 static void startStreamingTask(void *pvParameters) {
+    const uint64_t safetyRevision = *static_cast<uint64_t *>(pvParameters);
+    delete static_cast<uint64_t *>(pvParameters);
+    if (!motorSafetyEventCurrent(safetyRevision)) { vTaskDelete(nullptr); return; }
+    if (!motorSafetyBeginNormalOperation(safetyRevision)) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
+        vTaskDelete(nullptr); return;
+    }
     // Own the shared stepper config at mode entry (see simple_penetration.cpp:
     // StrokeEngine leaves the shared DIR polarity inverted and the counter in
     // its own frame; this mode's targets are native-frame absolutes).
     stepperTranslateFrame(StepperFrame::Native);
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
-    if (!motorSafetyBeginNormalOperation() || !enableMotorOutputs()) {
-        stateMachine->process_event(MotorSafetyFault{});
+    if (!motorSafetyEventCurrent(safetyRevision) || !enableMotorOutputs()) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
         vTaskDelete(nullptr);
         return;
     }
 
-    auto isInCorrectState = []() {
+    auto isInCorrectState = [safetyRevision]() {
+        if (!motorSafetyEventCurrent(safetyRevision)) return false;
         return stateMachine->is("streaming"_s) ||
                stateMachine->is("streaming.preflight"_s) ||
                stateMachine->is("streaming.idle"_s);
@@ -144,7 +153,7 @@ static void startStreamingTask(void *pvParameters) {
                 }
                 stepper->setAcceleration(requiredAccel);
                 stepper->setSpeedInHz(requiredSpeed);
-                stepper->moveTo(targetPosition, false);
+                stepper->moveToForOwner(targetPosition, safetyRevision, motorSafetyEventCurrent, false);
 
                 ESP_LOGI("Streaming", "P(%d): %d -> %d = %d, T: %.3f, S: %d, A: %d, Q: %d",
                         targetPositionTime.position, currentPosition, targetPosition, distance,
@@ -161,10 +170,11 @@ static void startStreamingTask(void *pvParameters) {
 
 void startStreaming() {
     int stackSize = 10 * configMINIMAL_STACK_SIZE;
-
-    xTaskCreatePinnedToCore(startStreamingTask, "startStreamingTask", stackSize,
-                            nullptr, configMAX_PRIORITIES - 1, nullptr,
-                            Tasks::operationTaskCore);
+    auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
+    if (!revision) return;
+    if (xTaskCreatePinnedToCore(startStreamingTask, "startStreamingTask", stackSize,
+                            revision, configMAX_PRIORITIES - 1, nullptr,
+                            Tasks::operationTaskCore) != pdPASS) delete revision;
 }
 
 }  // namespace simple_penetration
