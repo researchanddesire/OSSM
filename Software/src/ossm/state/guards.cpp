@@ -6,6 +6,7 @@
 #include "ossm/homing/homing.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/menu.h"
+#include "services/board.h"
 #include "utils/analog.h"
 
 bool ossmIsStrokeTooShort() {
@@ -17,8 +18,7 @@ bool ossmIsNotHomed() {
 }
 
 bool ossmIsPreflightSafe() {
-    float potReading =
-        getAnalogAveragePercent({Pins::Remote::speedPotPin, 50});
+    float potReading = readSpeedKnobPercent();
     return guard_logic::isPreflightSafeLogic(
         potReading, Config::Advanced::commandDeadZonePercentage);
 }

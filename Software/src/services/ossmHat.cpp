@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <rom/ets_sys.h>
+#include <soc/soc_caps.h>
 
 #include <algorithm>
 
@@ -22,7 +23,8 @@ constexpr uint16_t telemetryRegister = 0x0E;      // alarm, current, speed, volt
 constexpr uint16_t telemetryCount = 10;           // ... through position at 0x16/0x17
 
 constexpr uint8_t servoId = 1;
-constexpr uint8_t pulseCounterUnit = 7;  // FastAccelStepper leaves 6 and 7 free
+// FastAccelStepper takes the first pulse counters (ESP32: 8, ESP32-S3: 4).
+constexpr uint8_t pulseCounterUnit = SOC_PCNT_UNITS_PER_GROUP - 1;
 // Every read takes the full telemetry, which is back ~4.6 ms after the request
 // at 115200 baud, so reads start every 5 ms on RTOS ticks: 200 a second. The
 // servo also ignores a request that starts less than ~3.7 ms after the

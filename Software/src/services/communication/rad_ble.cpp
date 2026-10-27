@@ -243,10 +243,14 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
         JsonDocument document;
         document["path"] = path;
         if (path == "analog.speedKnob")
-            document["value"] = analogRead(Pins::Remote::speedPotPin);
+            document["value"] = Pins::Remote::hasSpeedKnob
+                                    ? analogRead(Pins::Remote::speedPotPin)
+                                    : 0;
         else if (path == "analog.speedKnobPercent")
             document["value"] =
-                analogRead(Pins::Remote::speedPotPin) * 100.0f / 4095.0f;
+                Pins::Remote::hasSpeedKnob
+                    ? analogRead(Pins::Remote::speedPotPin) * 100.0f / 4095.0f
+                    : 0.0f;
         else if (path == "analog.motorCurrent")
             document["value"] = analogRead(Pins::Driver::currentSensorPin);
         else if (path == "analog.motorCurrentFiltered")
@@ -623,9 +627,13 @@ String snapshot(radble::Surface surface, void*) {
             document["value"] = encoder.readEncoder();
             break;
         case radble::Surface::Analog:
-            document["speedKnob"] = analogRead(Pins::Remote::speedPotPin);
+            document["speedKnob"] = Pins::Remote::hasSpeedKnob
+                                        ? analogRead(Pins::Remote::speedPotPin)
+                                        : 0;
             document["speedKnobPercent"] =
-                analogRead(Pins::Remote::speedPotPin) * 100.0f / 4095.0f;
+                Pins::Remote::hasSpeedKnob
+                    ? analogRead(Pins::Remote::speedPotPin) * 100.0f / 4095.0f
+                    : 0.0f;
             document["motorCurrent"] =
                 analogRead(Pins::Driver::currentSensorPin);
             document["motorCurrentFiltered"] =
