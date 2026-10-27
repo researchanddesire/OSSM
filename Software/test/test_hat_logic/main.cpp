@@ -73,6 +73,24 @@ void test_followingErrorPulses(void) {
         0, hat_logic::followingErrorPulses(measured, anchor, 150, kCountsPerPulse));
 }
 
+// ─── telemetry decoding ───
+
+void test_decodeTelemetry_signed_fields_and_word_order(void) {
+    // A read captured from the Test Rig, with speed and output made negative.
+    const uint16_t regs[10] = {0x0000, 8,     static_cast<uint16_t>(-1234),
+                               7637,   33,    static_cast<uint16_t>(-16384),
+                               0,      1,     52243, 65533};
+    const auto s = hat_logic::decodeTelemetry(regs);
+    TEST_ASSERT_EQUAL_UINT16(0, s.alarm);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 0.004f, s.currentAmps);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4, -123.4f, s.speedRpm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01, 23.35f, s.voltage);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6, 33.0f, s.temperatureC);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4, -50.0f, s.outputPercent);
+    // Low word first: 0xFFFD:0xCC13 is -144365.
+    TEST_ASSERT_EQUAL_INT32(-144365, s.positionCounts);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
 
@@ -86,6 +104,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_anchorAt_holds_measured_position);
     RUN_TEST(test_followingErrorPulses_tracks_pulses_from_anchor);
     RUN_TEST(test_followingErrorPulses);
+
+    RUN_TEST(test_decodeTelemetry_signed_fields_and_word_order);
 
     return UNITY_END();
 }

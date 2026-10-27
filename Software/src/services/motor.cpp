@@ -70,4 +70,30 @@ float getVoltage() {
     return hasHat() && readFreshHat(hat) ? hat.voltage : NAN;
 }
 
+float getSpeedMmPerSec() {
+    ossm_hat::Telemetry hat;
+    if (stepper == nullptr || !hasHat() || !readFreshHat(hat)) return NAN;
+    constexpr float mmPerRevolution =
+        Config::Driver::pulleyToothCount * Config::Driver::beltPitchMm;
+    // The servo counts the native frame's way; StrokeEngine's counts the
+    // other way (services/stepper.h).
+    const float native = hat.speedRpm * mmPerRevolution / 60.0f;
+    return stepper->directionPinHighCountsUp() ? -native : native;
+}
+
+float getTemperatureC() {
+    ossm_hat::Telemetry hat;
+    return hasHat() && readFreshHat(hat) ? hat.temperatureC : NAN;
+}
+
+float getOutputPercent() {
+    ossm_hat::Telemetry hat;
+    return hasHat() && readFreshHat(hat) ? hat.outputPercent : NAN;
+}
+
+int getAlarm() {
+    ossm_hat::Telemetry hat;
+    return hasHat() && readFreshHat(hat) ? hat.alarm : -1;
+}
+
 }  // namespace motor

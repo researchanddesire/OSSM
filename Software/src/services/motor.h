@@ -34,6 +34,16 @@ void zeroCurrent();
 // Servo supply volts with a HAT, NAN without one.
 float getVoltage();
 
+// Carriage speed the servo measures, mm/s in the current stepper frame, with
+// a HAT; NAN without one.
+float getSpeedMmPerSec();
+// Servo temperature in degrees C, NAN without a HAT.
+float getTemperatureC();
+// Servo drive output, -100..100 %, NAN without a HAT.
+float getOutputPercent();
+// Servo alarm code (0 = none; YZ-AIM manual alarm table), -1 without a HAT.
+int getAlarm();
+
 }  // namespace motor
 
 #endif  // OSSM_SOFTWARE_MOTOR_H

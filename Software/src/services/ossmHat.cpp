@@ -1,13 +1,16 @@
 #include "ossmHat.h"
 
 #include <Arduino.h>
-#include <esp_timer.h>
+#include <rom/ets_sys.h>
+
+#include <algorithm>
 
 #include "AimFrame.h"
 #include "constants/Config.h"
 #include "constants/Pins.h"
 #include "hat_logic.h"
 #include "services/stepper.h"
+#include "services/tasks.h"
 
 namespace ossm_hat {
 
@@ -20,20 +23,26 @@ constexpr uint16_t telemetryCount = 10;           // ... through position at 0x1
 
 constexpr uint8_t servoId = 1;
 constexpr uint8_t pulseCounterUnit = 7;  // FastAccelStepper leaves 6 and 7 free
+// Every read takes the full telemetry, which is back ~4.6 ms after the request
+// at 115200 baud, so reads start every 5 ms on RTOS ticks: 200 a second. The
+// servo also ignores a request that starts less than ~3.7 ms after the
+// previous one (Test Rig).
+static_assert(configTICK_RATE_HZ == 1000, "read slots are in 1 ms ticks");
+constexpr TickType_t readSlot = 5;
+constexpr uint32_t minSpacingUs = 3900;
 // Consecutive failed reads (each waits a reply timeout) before the servo
 // counts as gone. Counting failures, not time, ignores CPU stalls.
 constexpr uint32_t maxFailures = 20;
-// The servo ignores a request that starts within ~1.2 ms of its own reply
-// (Alex Warner's bench measurement).
-constexpr uint32_t turnaroundUs = 1500;
+constexpr uint32_t readerStack = 3072;
 
 HardwareSerial &uart = Serial2;
 bool present = false;
 volatile bool answering = false;
 portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 Telemetry latest;
-int32_t anchorCounts = 0;  // encoder count that pulse total 0 maps onto
-int32_t pulses = 0;        // STEP pulses since the counter was attached
+int32_t anchorCounts = 0;   // encoder count that pulse total 0 maps onto
+int32_t samplePulses = 0;   // pulse total when `latest` was read
+int32_t pulses = 0;         // STEP pulses since the counter was attached
 int16_t lastCount = 0;
 
 // ── One request on the bus at a time ────────────────────────────────────
@@ -41,90 +50,83 @@ uint8_t sent[8];
 size_t sentLength = 0;
 size_t replyLength = 0;
 uint8_t rx[AimFrame::maxFrame + 8];
-size_t received = 0;
-uint32_t sentMs = 0;
 uint32_t replyTimeoutMs = 10;
-uint32_t lastReplyUs = 0;
-
-void transmit() {
-    while (uart.available()) uart.read();
-    uart.write(sent, sentLength);  // fits the TX FIFO: returns at once
-    received = 0;
-    sentMs = millis();
-}
-
-// Collect the reply: Incomplete while waiting, then Ok or a failure.
-AimFrame::Status poll() {
-    while (uart.available() && received < sizeof(rx)) rx[received++] = uart.read();
-    const auto reply =
-        AimFrame::parseReply(rx, received, servoId, sent[1], replyLength);
-    auto status = reply.status;
-    if (status == AimFrame::Status::Incomplete) {
-        if (millis() - sentMs < replyTimeoutMs) return status;
-        status = AimFrame::Status::BadReply;  // timed out
-    }
-    if (status == AimFrame::Status::Ok && reply.offset > 0) {
-        memmove(rx, rx + reply.offset, replyLength);
-    }
-    lastReplyUs = micros();
-    return status;
-}
-
-bool busReady() { return micros() - lastReplyUs >= turnaroundUs; }
+uint32_t lastStartUs = 0;
 
 void prepareRead(uint16_t address, uint16_t count) {
     sentLength = AimFrame::buildRead(sent, servoId, address, count);
     replyLength = AimFrame::replyLength(AimFrame::fcReadHolding, count);
 }
 
-// Blocking request, for setup before the reader starts.
-bool transact() {
-    while (!busReady()) {
+// Send `sent` and block until its reply is in rx (true) or it timed out.
+bool exchange() {
+    const uint32_t since = micros() - lastStartUs;
+    if (since < minSpacingUs) ets_delay_us(minSpacingUs - since);
+    lastStartUs = micros();
+    while (uart.available()) uart.read();
+    uart.write(sent, sentLength);
+    size_t received = 0;
+    for (;;) {
+        const auto reply =
+            AimFrame::parseReply(rx, received, servoId, sent[1], replyLength);
+        if (reply.status == AimFrame::Status::Ok) {
+            if (reply.offset > 0) memmove(rx, rx + reply.offset, replyLength);
+            return true;
+        }
+        const uint32_t waitedMs = (micros() - lastStartUs) / 1000;
+        if (reply.status != AimFrame::Status::Incomplete ||
+            waitedMs >= replyTimeoutMs || received >= sizeof(rx)) {
+            return false;
+        }
+        // Sleeps until bytes land (a stray 0x00 before the reply costs a pass).
+        uart.setTimeout(replyTimeoutMs - waitedMs);
+        received += uart.readBytes(
+            rx + received, std::max<size_t>(1, replyLength - std::min(received, replyLength)));
     }
-    transmit();
-    AimFrame::Status status;
-    while ((status = poll()) == AimFrame::Status::Incomplete) vTaskDelay(1);
-    return status == AimFrame::Status::Ok;
 }
 
 // Extend the 16-bit hardware count into the running pulse total.
-void countPulses() {
+int32_t countPulses() {
     const int16_t count = stepper->readPulseCounter();
     portENTER_CRITICAL(&lock);
     pulses = hat_logic::accumulatePulses(pulses, lastCount, count);
+    const int32_t total = pulses;
     portEXIT_CRITICAL(&lock);
     lastCount = count;
+    return total;
 }
 
-// Decode the telemetry reply in rx (registers 0x0E..0x17).
-void storeTelemetry() {
+// Store the telemetry reply in rx, read while the pulse total was `atPulses`.
+void storeReply(int32_t atPulses) {
     uint16_t r[telemetryCount];
     for (uint16_t i = 0; i < telemetryCount; i++) {
         r[i] = AimFrame::be16(rx + 3 + 2 * i);
     }
-    const uint32_t now = millis();
+    const auto reading = hat_logic::decodeTelemetry(r);
     // ENA is active low (services/stepper.cpp). While the servo is off it
     // ignores pulses, so it comes back on holding wherever it now is: map
     // that spot onto the pulse total until it does.
     const bool outputOff = digitalRead(Pins::Driver::motorEnablePin) == HIGH;
+    const uint32_t now = millis();
     portENTER_CRITICAL(&lock);
-    latest.alarm = r[0];
-    latest.currentAmps = r[1] / 2000.0f;
-    latest.voltage = r[3] / 327.0f;
-    latest.positionCounts =
-        static_cast<int32_t>((static_cast<uint32_t>(r[9]) << 16) | r[8]);
+    static_cast<hat_logic::ServoReading &>(latest) = reading;
     latest.sampledMs = now;
+    samplePulses = atPulses;
     if (outputOff) {
-        anchorCounts = hat_logic::anchorAt(latest.positionCounts, pulses,
+        anchorCounts = hat_logic::anchorAt(reading.positionCounts, atPulses,
                                            Config::Hat::countsPerPulse);
     }
     portEXIT_CRITICAL(&lock);
 }
 
-bool readTelemetry() {
+// One read, paired with the pulse total halfway through it (about when the
+// servo samples its encoder). Needs the pulse counter attached.
+bool read() {
     prepareRead(telemetryRegister, telemetryCount);
-    if (!transact()) return false;
-    storeTelemetry();
+    const int32_t before = countPulses();
+    if (!exchange()) return false;
+    const int32_t after = countPulses();
+    storeReply(before + (after - before) / 2);
     return true;
 }
 
@@ -138,31 +140,25 @@ bool openAt(uint32_t baud) {
            uart.setMode(UART_MODE_RS485_HALF_DUPLEX);
 }
 
-// ── Reader: a non-blocking step every millisecond (no task stack) ───────
-esp_timer_handle_t timer = nullptr;
-bool waiting = false;
-uint32_t failures = 0;
-
-void step(void *) {
-    countPulses();
-    if (waiting) {
-        const auto status = poll();
-        if (status == AimFrame::Status::Incomplete) return;
-        waiting = false;
-        if (status == AimFrame::Status::Ok) {
-            storeTelemetry();
+// ── Reader task: one read per slot, only when a HAT answered ────────────
+void readLoop(void *) {
+    TickType_t wake = xTaskGetTickCount();
+    uint32_t failures = 0;
+    for (;;) {
+        if (read()) {
             failures = 0;
         } else if (++failures >= maxFailures) {
             // Motion never depended on the HAT: only the readings go.
             answering = false;
-            esp_timer_stop(timer);
             ESP_LOGE("HAT", "Servo stopped answering on RS-485; using board readings");
-            return;
+            vTaskDelete(nullptr);
         }
+        // Next slot; after a timeout start afresh rather than catch up.
+        wake += readSlot;
+        const TickType_t now = xTaskGetTickCount();
+        if (static_cast<int32_t>(wake - now) <= 0) wake = now + 1;
+        vTaskDelay(wake - now);
     }
-    if (!busReady()) return;
-    transmit();
-    waiting = true;
 }
 
 }  // namespace
@@ -174,9 +170,10 @@ bool begin() {
 #else
     if (stepper == nullptr) return false;
     // A motor powered up with the board may need a moment before it answers.
+    prepareRead(telemetryRegister, telemetryCount);
     for (int attempt = 0; attempt < 3 && !present; attempt++) {
         for (uint32_t baud : {115200u, 19200u}) {
-            if (openAt(baud) && readTelemetry()) {
+            if (openAt(baud) && exchange()) {
                 present = true;
                 ESP_LOGI("HAT", "OSSM HAT found at %u baud", baud);
                 break;
@@ -196,22 +193,24 @@ bool begin() {
     // The firmware never writes to the servo. One left in serial control
     // (a power cycle clears it) would not follow the pulses.
     prepareRead(serialControlRegister, 1);
-    if (transact() && AimFrame::be16(rx + 3) != 0) {
+    if (exchange() && AimFrame::be16(rx + 3) != 0) {
         ESP_LOGE("HAT", "Servo is in RS-485 control and ignores STEP/DIR; "
                         "power-cycle the motor");
     }
     lastCount = stepper->readPulseCounter();
-    readTelemetry();  // anchor the encoder at boot, before any motion
+    read();  // anchor the encoder at boot, before any motion
     portENTER_CRITICAL(&lock);
-    anchorCounts = hat_logic::anchorAt(latest.positionCounts, pulses,
+    anchorCounts = hat_logic::anchorAt(latest.positionCounts, samplePulses,
                                        Config::Hat::countsPerPulse);
     portEXIT_CRITICAL(&lock);
-    answering = true;  // the reader repeats the telemetry request in `sent`
-    esp_timer_create_args_t args = {};
-    args.callback = step;
-    args.name = "ossmHat";
-    esp_timer_create(&args, &timer);
-    esp_timer_start_periodic(timer, 1000);
+    // Beside the motion tasks, at their priority: position matters as much.
+    // The reader mostly sleeps on the UART. Its stack is allocated here, so
+    // boards without a HAT pay nothing.
+    answering = xTaskCreatePinnedToCore(readLoop, "ossmHat", readerStack,
+                                        nullptr, configMAX_PRIORITIES - 1,
+                                        nullptr, Tasks::operationTaskCore) ==
+                pdPASS;
+    if (!answering) ESP_LOGE("HAT", "Could not start the OSSM HAT reader");
     return true;
 #endif
 }
@@ -230,7 +229,7 @@ Telemetry telemetry() {
 int32_t followingErrorPulses() {
     portENTER_CRITICAL(&lock);
     const int32_t error = hat_logic::followingErrorPulses(
-        latest.positionCounts, anchorCounts, pulses,
+        latest.positionCounts, anchorCounts, samplePulses,
         Config::Hat::countsPerPulse);
     portEXIT_CRITICAL(&lock);
     return error;
