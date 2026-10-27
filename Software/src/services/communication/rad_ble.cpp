@@ -18,6 +18,7 @@
 #include "services/board.h"
 #include "services/communication/nimble.h"
 #include "services/led.h"
+#include "services/motor.h"
 #include "services/stepper.h"
 
 #ifndef FIRMWARE_BUILD_SHA
@@ -255,11 +256,13 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
         else if (path == "motion.homed")
             document["value"] = calibration.isHomed;
         else if (path == "motion.position")
-            document["value"] =
-                stepper == nullptr
-                    ? 0.0f
-                    : static_cast<float>(stepper->getCurrentPosition()) /
-                          static_cast<float>(1_mm);
+            document["value"] = motor::getPositionMm();
+        else if (path == "motor.hat")
+            document["value"] = motor::hasHat();
+        else if (path == "motor.currentAmps")
+            document["value"] = motor::hasHat() ? motor::getCurrent() : NAN;
+        else if (path == "motor.voltage")
+            document["value"] = motor::getVoltage();
         else if (path == "motion.currentOffset")
             document["value"] = calibration.currentSensorOffset;
         else if (path == "motion.measuredStroke")
@@ -276,13 +279,17 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["value"] = digitalRead(Pins::Driver::stopPin) == LOW;
         else if (path == "button.limit")
             document["value"] = digitalRead(Pins::Driver::limitSwitchPin) == LOW;
-        else if (path == "analog.expansion1")
+        else if (path == "analog.expansion1" &&
+                 !motor::reservesPin(Pins::GPIO::pin1))
             document["value"] = analogRead(Pins::GPIO::pin1);
-        else if (path == "analog.expansion2")
+        else if (path == "analog.expansion2" &&
+                 !motor::reservesPin(Pins::GPIO::pin2))
             document["value"] = analogRead(Pins::GPIO::pin2);
-        else if (path == "analog.expansion3")
+        else if (path == "analog.expansion3" &&
+                 !motor::reservesPin(Pins::GPIO::pin3))
             document["value"] = analogRead(Pins::GPIO::pin3);
-        else if (path == "analog.expansion4")
+        else if (path == "analog.expansion4" &&
+                 !motor::reservesPin(Pins::GPIO::pin4))
             document["value"] = analogRead(Pins::GPIO::pin4);
         else if (path == "button.enter")
             document["value"] =
@@ -314,6 +321,9 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (index < 1 || index > 4)
                 return radble::Result::failure("unknown_path",
                                                "Unknown expansion GPIO");
+            if (motor::reservesPin(pins[index - 1]))
+                return radble::Result::failure("busy",
+                                               "The OSSM HAT uses this GPIO");
             const String mode = args["mode"] | "output";
             if (mode == "input") {
                 pinMode(pins[index - 1], INPUT);
@@ -590,10 +600,7 @@ String snapshot(radble::Surface surface, void*) {
             document["powered"] = true;
             document["batteryPercent"] = nullptr;
             document["charging"] = nullptr;
-            document["positionMm"] =
-                stepper == nullptr ? 0.0f
-                                   : static_cast<float>(stepper->getCurrentPosition()) /
-                                         static_cast<float>(1_mm);
+            document["positionMm"] = motor::getPositionMm();
             document["sessionDistanceMeters"] = session.distanceMeters;
             document["sessionStrokeCount"] = session.strokeCount;
             break;
@@ -624,17 +631,22 @@ String snapshot(radble::Surface surface, void*) {
             document["motorCurrentFiltered"] =
                 analogRead(Pins::Driver::currentSensorPin) -
                 calibration.currentSensorOffset;
-            document["expansion1"] = analogRead(Pins::GPIO::pin1);
+            // analogRead() would take a HAT pin away from its UART.
+            if (!motor::reservesPin(Pins::GPIO::pin1))
+                document["expansion1"] = analogRead(Pins::GPIO::pin1);
             document["expansion2"] = analogRead(Pins::GPIO::pin2);
-            document["expansion3"] = analogRead(Pins::GPIO::pin3);
-            document["expansion4"] = analogRead(Pins::GPIO::pin4);
+            if (!motor::reservesPin(Pins::GPIO::pin3))
+                document["expansion3"] = analogRead(Pins::GPIO::pin3);
+            if (!motor::reservesPin(Pins::GPIO::pin4))
+                document["expansion4"] = analogRead(Pins::GPIO::pin4);
             break;
         case radble::Surface::Motion:
             document["homed"] = calibration.isHomed;
-            document["positionMm"] =
-                stepper == nullptr ? 0.0f
-                                   : static_cast<float>(stepper->getCurrentPosition()) /
-                                         static_cast<float>(1_mm);
+            document["positionMm"] = motor::getPositionMm();
+            document["hat"] = motor::hasHat();
+            document["motorCurrentAmps"] =
+                motor::hasHat() ? motor::getCurrent() : NAN;
+            document["motorVoltage"] = motor::getVoltage();
             document["speed"] = settings.speed;
             document["stroke"] = settings.stroke;
             document["depth"] = settings.depth;

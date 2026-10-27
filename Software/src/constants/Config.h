@@ -67,6 +67,19 @@ namespace Config {
     }
 
     /**
+        OSSM HAT (RS-485 to the 57AIM servo)
+    */
+    namespace Hat {
+        // Servo encoder counts per STEP pulse: 32768 counts per revolution
+        // over the servo's 800 pulses per revolution. Native pulses count the
+        // encoder up (measured on the Test Rig 57AIM30, DIR polarity 1).
+        constexpr double countsPerPulse =
+            32768.0 / Driver::motorStepPerRevolution;
+        // Servo current while pushing a hard stop during homing.
+        constexpr float homingCurrentAmps = 1.2f;
+    }
+
+    /**
         Web Config
 */
     namespace Web {

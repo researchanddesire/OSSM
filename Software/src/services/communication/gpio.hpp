@@ -9,6 +9,7 @@
 #include "NimBLEUUID.h"
 #include "constants/LogTags.h"
 #include "constants/Pins.h"
+#include "services/motor.h"
 
 // Simple helper to map 1-4 to actual board pins
 static int mapGpioIndexToPin(int index) {
@@ -49,7 +50,7 @@ class GPIOCallbacks : public NimBLECharacteristicCallbacks {
         stateStr.toLowerCase();
 
         int targetPin = mapGpioIndexToPin(index);
-        if (targetPin < 0) {
+        if (targetPin < 0 || motor::reservesPin(targetPin)) {
             static const char err[] PROGMEM = "error:pin_out_of_range";
             ESP_LOGW(NIMBLE_TAG, "GPIO write out of range index: %d", index);
             pCharacteristic->setValue(String(FPSTR(err)));

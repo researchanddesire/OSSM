@@ -63,6 +63,13 @@ namespace Pins {
         constexpr int pin4 = 33;
     }
 
+    // OSSM HAT on the expansion header (J9): RS-485 to the servo.
+    namespace Hat {
+        constexpr int de = GPIO::pin1;  // IO2, driver enable (high = transmit)
+        constexpr int tx = GPIO::pin3;  // IO22
+        constexpr int rx = GPIO::pin4;  // IO33
+    }
+
     /** These are configured for the OSSM Remote - which has a screen, a
      * potentiometer and an encoder which clicks*/
     namespace Remote {

@@ -11,9 +11,9 @@
 #include "ossm/state/state.h"
 #include "services/communication/mqtt.h"
 #include "services/led.h"
+#include "services/motor.h"
 #include "services/stepper.h"
 #include "services/tasks.h"
-#include "utils/analog.h"
 
 #include <esp_heap_caps.h>
 
@@ -66,8 +66,7 @@ void clearHoming() {
     calibration.measuredStrokeSteps = 0;
 
     // Recalibrate the current sensor offset.
-    calibration.currentSensorOffset = (getAnalogAveragePercent(
-        SampleOnPin{Pins::Driver::currentSensorPin, 1000}));
+    motor::zeroCurrent();
 }
 
 static void startHomingTask(void *pvParameters) {
@@ -116,14 +115,11 @@ static void startHomingTask(void *pvParameters) {
             break;
         }
 
-        // measure the current analog value.
-        float current = getAnalogAveragePercent(
-                            SampleOnPin{Pins::Driver::currentSensorPin, 50}) -
-                        calibration.currentSensorOffset;
+        float current = motor::getCurrent();
 
         ESP_LOGV("Homing", "Current: %f", current);
         bool isCurrentOverLimit = homing_logic::isCurrentOverLimit(
-            current, 0, Config::Driver::sensorlessCurrentLimit);
+            current, 0, motor::getHomingCurrentLimit());
 
         if (!isCurrentOverLimit) {
             vTaskDelay(10);  // Increased from 1ms to 10ms to reduce CPU load

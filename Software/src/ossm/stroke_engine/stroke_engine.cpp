@@ -190,7 +190,9 @@ static void publishStateTask(void *pvParameters) {
 }
 
 void startStrokeEngine() {
-    int stackSize = 12 * configMINIMAL_STACK_SIZE;
+    // Same as the other mode tasks: this one peaks under 1 KB, and a larger
+    // stack can fail to allocate once internal RAM is fragmented.
+    int stackSize = 10 * configMINIMAL_STACK_SIZE;
 
     xTaskCreatePinnedToCore(startStrokeEngineTask, "startStrokeEngineTask",
                             stackSize, nullptr, configMAX_PRIORITIES - 1,

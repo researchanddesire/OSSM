@@ -14,6 +14,7 @@
 #include "services/communication/mqtt.h"
 #include "services/communication/queue.h"
 #include "services/encoder.h"
+#include "services/motor.h"
 #include "services/stepper.h"
 
 namespace sml = boost::sml;
@@ -203,7 +204,7 @@ String OSSM::getCurrentState() {
             [&input](auto state) { input.state = state.c_str(); });
     }
 
-    float positionMm = float(stepper->getCurrentPosition()) / float(1_mm);
+    float positionMm = motor::getPositionMm();
     if (isnan(positionMm)) positionMm = 0.0f;
 
     const String provenanceId =

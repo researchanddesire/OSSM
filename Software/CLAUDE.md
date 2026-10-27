@@ -100,7 +100,7 @@ Software/
 | Encoder A         | 18      | Rotary encoder phase A         |
 | Encoder B         | 5       | Rotary encoder phase B         |
 | WiFi Reset        | 23      | WiFi config reset button       |
-| Expansion         | 2, 15, 22, 33 | Unused GPIO              |
+| Expansion         | 2, 15, 22, 33 | Unused GPIO; an OSSM HAT owns 2/22/33 |
 
 ## Key Patterns
 
@@ -128,6 +128,10 @@ idle → homing → menu → operation modes → error
 | Display header | Normal   | Status bar updates                        |
 
 ### Motor Control
+
+Ask `services/motor.h` for position, current and voltage. With an OSSM HAT
+(RS-485 to the servo) the same STEP/DIR plan is sent over RS-485 and the
+readings come from the servo; see `docs/ossm-hat.md`.
 
 Three operation modes:
 
