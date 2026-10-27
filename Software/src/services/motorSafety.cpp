@@ -38,6 +38,18 @@ volatile uint32_t guardHeartbeatUs = 0;
 hw_timer_t *deadlineTimer = nullptr;
 TaskHandle_t guardTaskHandle = nullptr;
 SemaphoreHandle_t persistenceMutex = nullptr;
+SemaphoreHandle_t homingCommandMutex = nullptr;
+homing_session::Gate homingSession;
+
+bool ticketCurrentLocked(MotorHomingTicket ticket) {
+    return homingSession.accepts(ticket) && !deadlineTripped &&
+           guard.fault() == motor_guard::Fault::None;
+}
+
+void revokeHomingLocked() {
+    if (homingSession.active()) homingSession.cancel();
+    GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+}
 
 // Hardware timer is independent of the UART reader and safety task. Even a
 // stalled task cannot leave ENA asserted. GPIO register access is IRAM-safe.
@@ -188,6 +200,7 @@ void monitor(void *) {
         guard.tick(now);
         armed = guard.armed();
         fault = guard.fault() != motor_guard::Fault::None;
+        if (fault) revokeHomingLocked();
         portEXIT_CRITICAL(&guardMux);
 
         if (needed && fault) disableNow();
@@ -270,7 +283,7 @@ void report(void *) {
                 settings.speed = 0;
                 settings.speedBLE = 0;
                 errorState.message = motorSafetyReason();
-                setHomingActive(false);
+                setHomingActive(false, false);
                 setLEDStatusError();
                 Serial.printf("RAD_GUARD fault=%u reason=%s; output disabled, power remains connected\n",
                               currentState.fault, motorSafetyReason());
@@ -294,6 +307,7 @@ void initMotorSafety() {
     bool wasInitialized = false;
     if (!initialized.compare_exchange_strong(wasInitialized, true)) return;
     persistenceMutex = xSemaphoreCreateMutex();
+    homingCommandMutex = xSemaphoreCreateMutex();
 #ifdef OSSM_HAT_REQUIRE_SAFETY
     localExclusive = true;
 #endif
@@ -321,7 +335,7 @@ void initMotorSafety() {
     const auto reportCreated = xTaskCreatePinnedToCore(
         report, "motorSafetyReport", 4096, nullptr, 2, nullptr, 0);
     if (created != pdPASS || reportCreated != pdPASS || deadlineTimer == nullptr ||
-        persistenceMutex == nullptr) {
+        persistenceMutex == nullptr || homingCommandMutex == nullptr) {
         portENTER_CRITICAL(&guardMux);
         guard.tripFault(motor_guard::Fault::ObserverDelayed);
         portEXIT_CRITICAL(&guardMux);
@@ -385,12 +399,14 @@ bool motorSafetyCanEnableOutputs() {
            (!localExclusive.load() || !hat.passive) && controls;
 }
 
-bool enableMotorSafetyOutputs() {
+static bool enableOutputsForTicket(const MotorHomingTicket *ticket) {
     const bool needed = required();
     const auto hat = getOssmHatStatus();
     const bool control = controlsReady();
     portENTER_CRITICAL(&guardMux);
-    const bool allowed = initialized.load() && stepper != nullptr &&
+    const bool allowed = (ticket ? ticketCurrentLocked(*ticket) :
+        !homingSession.active()) && homingSession.commandsReady() &&
+        initialized.load() && stepper != nullptr &&
         guard.fault() == motor_guard::Fault::None && !deadlineTripped &&
         (!needed || (guard.armed() && deadlineArmed && hat.ageMs <= 100 &&
                      hat.sampleRateHz >= 30 && control &&
@@ -405,28 +421,139 @@ bool enableMotorSafetyOutputs() {
     return enabled;
 }
 
-bool motorSafetyBeginHomingPass(uint8_t pass) {
-    if (!required()) return motorSafetyCanEnableOutputs();
+bool enableMotorSafetyOutputs() { return enableOutputsForTicket(nullptr); }
+
+bool enableMotorSafetyHomingOutputs(MotorHomingTicket ticket) {
+    return runMotorHomingCommand(ticket, [&] { return enableOutputsForTicket(&ticket); });
+}
+
+bool motorHomingTicketCurrent(MotorHomingTicket ticket) {
+    portENTER_CRITICAL(&guardMux);
+    const bool current = ticketCurrentLocked(ticket);
+    portEXIT_CRITICAL(&guardMux);
+    return current;
+}
+
+bool motorHomingSessionActive() {
+    portENTER_CRITICAL(&guardMux);
+    const bool active = homingSession.active();
+    portEXIT_CRITICAL(&guardMux);
+    return active;
+}
+
+bool completeMotorHomingSession(MotorHomingTicket ticket) {
+    portENTER_CRITICAL(&guardMux);
+    const bool current = ticketCurrentLocked(ticket);
+    if (current) {
+        calibration.isHomed = true;
+        calibration.justHomed = true;
+        homingSession.cancel();
+    }
+    portEXIT_CRITICAL(&guardMux);
+    return current;
+}
+
+MotorHomingTicket beginMotorHomingSession() {
+    // Reserve intent before any mutex/task allocation can block. A Stop during
+    // the following command flush invalidates this exact ticket permanently.
+    portENTER_CRITICAL(&guardMux);
+    if (homingSession.active()) {
+        guard.disarm();
+        deadlineArmed = false;
+    }
+    const auto ticket = homingSession.begin();
+    calibration.isHomed = false;
+    setHomingActive(true, false);
+    GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+    portEXIT_CRITICAL(&guardMux);
+    runMotorHomingCommand(ticket, [] { disableNow(); return true; });
+    return ticket;
+}
+
+static void cancelAndFlushHoming(bool disarm) {
+    portENTER_CRITICAL(&guardMux);
+    const bool abandonedHome = homingSession.active();
+    homingSession.beginCancel();
+    if (abandonedHome || disarm) {
+        guard.disarm();
+        deadlineArmed = false;
+        if (abandonedHome) {
+            calibration.isHomed = false;
+            setHomingActive(false, false);
+        }
+        publishCoreLocked(millis());
+    }
+    GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+    portEXIT_CRITICAL(&guardMux);
+    // This mutex never spans NVS, network shutdown, feedback waits or SML.
+    // A submission already in progress completes with ENA HIGH, then is
+    // flushed before this Stop acknowledges completion.
+    if (homingCommandMutex != nullptr) xSemaphoreTake(homingCommandMutex, portMAX_DELAY);
     disableNow();
+    portENTER_CRITICAL(&guardMux);
+    homingSession.finishCancel();
+    GPIO.out_w1ts = 1UL << Pins::Driver::motorEnablePin;
+    portEXIT_CRITICAL(&guardMux);
+    if (homingCommandMutex != nullptr) xSemaphoreGive(homingCommandMutex);
+}
+
+void cancelMotorHomingSession() { cancelAndFlushHoming(false); }
+
+bool runMotorHomingCommand(MotorHomingTicket ticket, MotorHomingAction action, void *context) {
+    if (homingCommandMutex == nullptr) return false;
+    while (motorHomingTicketCurrent(ticket)) {
+        if (xSemaphoreTake(homingCommandMutex, pdMS_TO_TICKS(20)) != pdTRUE) continue;
+        portENTER_CRITICAL(&guardMux);
+        const bool current = ticketCurrentLocked(ticket);
+        const bool flushing = !homingSession.commandsReady();
+        portEXIT_CRITICAL(&guardMux);
+        if (!current) { xSemaphoreGive(homingCommandMutex); return false; }
+        if (flushing) {
+            xSemaphoreGive(homingCommandMutex);
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+        }
+        const bool result = action(context);
+        const bool stillCurrent = motorHomingTicketCurrent(ticket);
+        xSemaphoreGive(homingCommandMutex);
+        return result && stillCurrent;
+    }
+    return false;
+}
+
+bool commitMotorHomingState(MotorHomingTicket ticket, MotorHomingAction action, void *context) {
+    portENTER_CRITICAL(&guardMux);
+    const bool result = ticketCurrentLocked(ticket) &&
+        homingSession.commit(ticket, [&] { return action(context); });
+    portEXIT_CRITICAL(&guardMux);
+    return result;
+}
+
+bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket) {
+    if (!motorHomingTicketCurrent(ticket)) return false;
+    if (!required()) return motorHomingTicketCurrent(ticket) && motorSafetyCanEnableOutputs();
+    if (!runMotorHomingCommand(ticket, [] { disableNow(); return true; })) return false;
     // A requested new home may follow an operator-aborted first pass. A real
     // latched fault is never cleared by this path.
     portENTER_CRITICAL(&guardMux);
-    if (pass == 1 && guard.fault() == motor_guard::Fault::None &&
-        !guard.boundsValid() && guard.contactCount() != 0) {
+    if (ticketCurrentLocked(ticket) && pass == 1 &&
+        guard.fault() == motor_guard::Fault::None) {
         guard.resetAfterReview();
         deadlineArmed = false;
+        published.ready = false;
+        publishCoreLocked(millis());
     }
     portEXIT_CRITICAL(&guardMux);
     const uint32_t started = millis();
     while (!getMotorSafetyStatus().ready && millis() - started < 3000) {
-        if (getMotorSafetyStatus().latched) return false;
+        if (!motorHomingTicketCurrent(ticket) || getMotorSafetyStatus().latched) return false;
         vTaskDelay(pdMS_TO_TICKS(5));
     }
-    if (!getMotorSafetyStatus().ready) return false;
+    if (!motorHomingTicketCurrent(ticket) || !getMotorSafetyStatus().ready) return false;
     if (!lockPersistence()) return false;
     portENTER_CRITICAL(&guardMux);
     const bool alreadyArmed = guard.armed();
-    const bool hasFault = guard.fault() != motor_guard::Fault::None;
+    const bool hasFault = !ticketCurrentLocked(ticket);
     portEXIT_CRITICAL(&guardMux);
     if (hasFault) {
         xSemaphoreGive(persistenceMutex);
@@ -450,7 +577,8 @@ bool motorSafetyBeginHomingPass(uint8_t pass) {
     // can neither start a flash write nor race the crash marker while armed.
     const uint32_t now = millis();
     portENTER_CRITICAL(&guardMux);
-    const bool result = guard.arm(now) && guard.beginHomingPass(pass, 25.0f, now);
+    const bool result = ticketCurrentLocked(ticket) &&
+        guard.arm(now) && guard.beginHomingPass(pass, 25.0f, now);
     if (result && !alreadyArmed)
         guardHeartbeatUs = static_cast<uint32_t>(esp_timer_get_time());
     deadlineArmed = result && guard.armed() && !deadlineTripped;
@@ -461,8 +589,9 @@ bool motorSafetyBeginHomingPass(uint8_t pass) {
     return result;
 }
 
-bool motorSafetyEndHomingPass() {
-    if (!required()) return motorSafetyCanEnableOutputs();
+bool motorSafetyEndHomingPass(MotorHomingTicket ticket) {
+    if (!motorHomingTicketCurrent(ticket)) return false;
+    if (!required()) return motorHomingTicketCurrent(ticket) && motorSafetyCanEnableOutputs();
     // The last physical sample can still average part of the retreat. Wait
     // for new stationary encoder/current evidence while the guard keeps its
     // independent5ms loop running; do not wait inside a critical section.
@@ -474,7 +603,7 @@ bool motorSafetyEndHomingPass() {
         const bool fresh = readOssmHatTelemetry(sample) &&
             static_cast<uint32_t>(now - sample.updatedAtMs) <= 100;
         portENTER_CRITICAL(&guardMux);
-        const bool fault = guard.fault() != motor_guard::Fault::None;
+        const bool fault = !ticketCurrentLocked(ticket);
         stopped = fresh && guard.armed() &&
             std::abs(guard.speedMmS()) <= 2.0 && sample.currentAmps < 1.5f;
         portEXIT_CRITICAL(&guardMux);
@@ -484,14 +613,15 @@ bool motorSafetyEndHomingPass() {
     }
     if (!stopped) return false;
     portENTER_CRITICAL(&guardMux);
-    const bool result = guard.endHomingPass(millis());
+    const bool result = ticketCurrentLocked(ticket) && guard.endHomingPass(millis());
     publishCoreLocked(millis());
     portEXIT_CRITICAL(&guardMux);
     return result;
 }
 
-bool motorSafetyBeginHomingMotion() {
-    if (!required()) return motorSafetyCanEnableOutputs();
+bool motorSafetyBeginHomingMotion(MotorHomingTicket ticket) {
+    if (!motorHomingTicketCurrent(ticket)) return false;
+    if (!required()) return motorHomingTicketCurrent(ticket) && motorSafetyCanEnableOutputs();
     OssmHatTelemetry sample;
     if (!readOssmHatTelemetry(sample)) return false;
     const uint32_t now = millis();
@@ -502,10 +632,21 @@ bool motorSafetyBeginHomingMotion() {
     // observer's next tick. Ingest that frame before checking its marker.
     // Older/duplicate snapshots do not refresh any guard evidence. Only the
     // independent task refreshes the hardware deadline heartbeat.
-    guard.observe({sample.sequence, sample.updatedAtMs, sample.continuity,
-                   sample.positionCounts, sample.currentAmps,
-                   sample.voltageVolts, sample.alarm}, now);
-    const bool result = !deadlineTripped && guard.beginHomingMotion(millis());
+    if (ticketCurrentLocked(ticket))
+        guard.observe({sample.sequence, sample.updatedAtMs, sample.continuity,
+                       sample.positionCounts, sample.currentAmps,
+                       sample.voltageVolts, sample.alarm}, now);
+    const bool result = ticketCurrentLocked(ticket) && guard.beginHomingMotion(millis());
+    publishCoreLocked(millis());
+    portEXIT_CRITICAL(&guardMux);
+    return result;
+}
+
+bool motorSafetyBeginNormalOperation(MotorHomingTicket ticket) {
+    if (!motorHomingTicketCurrent(ticket)) return false;
+    if (!required()) return motorHomingTicketCurrent(ticket) && motorSafetyCanEnableOutputs();
+    portENTER_CRITICAL(&guardMux);
+    const bool result = ticketCurrentLocked(ticket) && guard.beginNormalOperation(millis());
     publishCoreLocked(millis());
     portEXIT_CRITICAL(&guardMux);
     return result;
@@ -514,14 +655,15 @@ bool motorSafetyBeginHomingMotion() {
 bool motorSafetyBeginNormalOperation() {
     if (!required()) return motorSafetyCanEnableOutputs();
     portENTER_CRITICAL(&guardMux);
-    const bool result = guard.beginNormalOperation(millis());
+    const bool result = !homingSession.active() && !deadlineTripped &&
+        guard.beginNormalOperation(millis());
     publishCoreLocked(millis());
     portEXIT_CRITICAL(&guardMux);
     return result;
 }
 
 void disarmMotorSafety() {
-    disableNow();
+    cancelAndFlushHoming(true);
     portENTER_CRITICAL(&guardMux);
     guard.disarm();
     deadlineArmed = false;
@@ -544,7 +686,7 @@ void disarmMotorSafety() {
 }
 
 bool resetMotorSafetyAfterReview() {
-    disableNow();
+    cancelMotorHomingSession();
     if (liveArmed() || !stoppedForReview() || !lockPersistence()) return false;
     // The first-arm path also owns this mutex, so it cannot arm while a
     // reviewed reset updates persistent state and clears the live latch.
@@ -583,6 +725,7 @@ bool resetMotorSafetyAfterReview() {
 }
 
 bool prepareMotorSafetyExternalControlAfterReview() {
+    cancelMotorHomingSession();
     if (liveArmed() || !lockPersistence()) return false;
     portENTER_CRITICAL(&guardMux);
     const bool permitted = !guard.armed() &&

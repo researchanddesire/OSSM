@@ -54,16 +54,23 @@ struct OSSMStateMachine {
 #endif
 
             "homing"_s / startHoming = "homing.forward"_s,
-            "homing.forward"_s + error = "error"_s,
+            "homing.forward"_s [homingStartupFailed] / emergencyStop = "error"_s,
+            "homing.forward"_s + error / emergencyStop = "error"_s,
+            "homing.forward"_s + event<HomingFailed>[currentHomeFailure] / (setHomingError, emergencyStop) = "error"_s,
+            "homing.forward"_s + event<ReturnToMenu> / (emergencyStop, setNotHomed) = "menu"_s,
+            "homing.forward"_s + longPress / (emergencyStop, setNotHomed) = "menu"_s,
             "homing.forward"_s + emergencyStopEvent / (emergencyStop, setNotHomed) = "menu"_s,
-            "homing.forward"_s + done / startHoming = "homing.backward"_s,
-            "homing.backward"_s + error = "error"_s,
+            "homing.forward"_s + event<HomingPassDone>[forwardHomeDone] / startSecondHoming = "homing.backward"_s,
+            "homing.backward"_s [homingStartupFailed] / emergencyStop = "error"_s,
+            "homing.backward"_s + error / emergencyStop = "error"_s,
+            "homing.backward"_s + event<HomingFailed>[currentHomeFailure] / (setHomingError, emergencyStop) = "error"_s,
+            "homing.backward"_s + event<ReturnToMenu> / (emergencyStop, setNotHomed) = "menu"_s,
+            "homing.backward"_s + longPress / (emergencyStop, setNotHomed) = "menu"_s,
             "homing.backward"_s + emergencyStopEvent / (emergencyStop, setNotHomed) = "menu"_s,
-            "homing.backward"_s + done[(isStrokeTooShort)] = "error"_s,
-            "homing.backward"_s + done[isFirstHomed] / setHomed = "menu"_s,
-            "homing.backward"_s + done[(isOption(Menu::SimplePenetration))] / setHomed = "simplePenetration"_s,
-            "homing.backward"_s + done[(isOption(Menu::StrokeEngine))] / setHomed = "strokeEngine"_s,
-            "homing.backward"_s + done[(isOption(Menu::Streaming))] / setHomed = "streaming"_s,
+            "homing.backward"_s + event<HomingPassDone>[backwardHomeDone && (isStrokeTooShort)] / emergencyStop = "error"_s,
+            // Completion always returns to a menu. A subsequent mode needs an
+            // explicit request; stale completion cannot trigger automatic Home.
+            "homing.backward"_s + event<HomingPassDone>[backwardHomeDone] / setHomed = "menu"_s,
 
             "menu"_s / (drawMenu, clearRemoteMenuAction) = "menu.idle"_s,
             "menu.idle"_s + buttonPress[(isOption(Menu::SimplePenetration))] = "simplePenetration"_s,

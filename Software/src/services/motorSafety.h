@@ -1,6 +1,34 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
+#include "homing_session.h"
+
+using MotorHomingTicket = homing_session::Ticket;
+
+MotorHomingTicket beginMotorHomingSession();
+bool motorHomingTicketCurrent(MotorHomingTicket ticket);
+bool motorHomingSessionActive();
+bool completeMotorHomingSession(MotorHomingTicket ticket);
+// Revokes first and asserts ENA HIGH immediately; flushes serialized stepper
+// commands before returning. Does not clear faults or restore drive registers.
+void cancelMotorHomingSession();
+using MotorHomingAction = bool (*)(void *);
+bool runMotorHomingCommand(MotorHomingTicket, MotorHomingAction, void *);
+// Only bounded, nonblocking state publication belongs in this critical section.
+bool commitMotorHomingState(MotorHomingTicket, MotorHomingAction, void *);
+template <class Action>
+bool runMotorHomingCommand(MotorHomingTicket ticket, Action &&action) {
+    return runMotorHomingCommand(ticket, [](void *context) {
+        return (*static_cast<typename std::remove_reference<Action>::type *>(context))();
+    }, &action);
+}
+template <class Action>
+bool commitMotorHomingState(MotorHomingTicket ticket, Action &&action) {
+    return commitMotorHomingState(ticket, [](void *context) {
+        return (*static_cast<typename std::remove_reference<Action>::type *>(context))();
+    }, &action);
+}
 
 struct MotorSafetyStatus {
     bool required = false;
@@ -45,9 +73,11 @@ MotorSafetyFaultInfo getMotorSafetyFaultInfo();
 const char *motorSafetyReason();
 bool motorSafetyCanEnableOutputs();
 bool enableMotorSafetyOutputs();
-bool motorSafetyBeginHomingPass(uint8_t pass);
-bool motorSafetyBeginHomingMotion();
-bool motorSafetyEndHomingPass();
+bool enableMotorSafetyHomingOutputs(MotorHomingTicket ticket);
+bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket);
+bool motorSafetyBeginHomingMotion(MotorHomingTicket ticket);
+bool motorSafetyEndHomingPass(MotorHomingTicket ticket);
+bool motorSafetyBeginNormalOperation(MotorHomingTicket ticket);
 bool motorSafetyBeginNormalOperation();
 // OTA/maintenance only: stop and disarm, never enable or clear a fault.
 void disarmMotorSafety();

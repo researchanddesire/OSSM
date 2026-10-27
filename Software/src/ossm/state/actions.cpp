@@ -21,7 +21,9 @@
 #include "ossm/stroke_engine/stroke_engine.h"
 #include "services/communication/mqtt.h"
 #include "services/encoder.h"
+#include "ossm/state/error.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 #include "services/wm.h"
 #include "utils/random.h"
 
@@ -34,8 +36,21 @@ void ossmDrawMenu() {
 }
 
 void ossmStartHoming() {
-    homing::clearHoming();
     homing::startHoming();
+}
+
+void ossmStartSecondHoming(const HomingPassDone &event) {
+    homing::startSecondHoming(event.ticket);
+}
+
+void ossmSetHomingError(const HomingFailed &event) {
+    if (motorHomingTicketCurrent(event.ticket)) errorState.message = event.message;
+}
+
+bool ossmHomingStartupFailed() { return homing::hasTaskCreationFailed(); }
+
+bool ossmHomingTicketCurrent(homing_session::Ticket ticket) {
+    return motorHomingTicketCurrent(ticket);
 }
 
 void ossmDrawPlayControls() {
@@ -152,8 +167,7 @@ void ossmStartStrokeEngine() {
 }
 
 void ossmEmergencyStop() {
-    stepper->forceStop();
-    stepper->disableOutputs();
+    cancelMotorHomingSession();
 }
 
 void ossmDrawHelp() {
@@ -212,9 +226,8 @@ void ossmSetNetworkError(const char *code) {
     networkStatus.error = code;
 }
 
-void ossmSetHomed() {
-    calibration.isHomed = true;
-    calibration.justHomed = true;
+void ossmSetHomed(const HomingPassDone &event) {
+    completeMotorHomingSession(event.ticket);
 }
 
 void ossmSetNotHomed() {

@@ -399,11 +399,11 @@ void pulseForCommunication() {
 // Machine status functions
 static bool homingActiveFlag = false;
 
-void setHomingActive(bool active) {
+void setHomingActive(bool active, bool logChange) {
     if (homingActiveFlag != active) {
         homingActiveFlag = active;
-        ESP_LOGI(TAG, "Homing status changed: %s",
-                 active ? "ACTIVE" : "INACTIVE");
+        if (logChange) ESP_LOGI(TAG, "Homing status changed: %s",
+                               active ? "ACTIVE" : "INACTIVE");
     }
 }
 

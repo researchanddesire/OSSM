@@ -7,6 +7,7 @@
 #include "motor_feedback_logic.h"
 #include "services/ossmHat.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 
 namespace {
 
@@ -122,40 +123,50 @@ bool readMotorVoltageVolts(float &volts) {
     return true;
 }
 
-bool beginMotorFeedbackHomingPass() {
-    portENTER_CRITICAL(&referenceMux);
-    reference.homeKnown = false;
-    reference.passStarted = false;
-    portEXIT_CRITICAL(&referenceMux);
-
+bool beginMotorFeedbackHomingPass(homing_session::Ticket ticket) {
+    if (!commitMotorHomingState(ticket, [] {
+        portENTER_CRITICAL(&referenceMux);
+        reference.homeKnown = false;
+        reference.passStarted = false;
+        portEXIT_CRITICAL(&referenceMux);
+        return true;
+    })) return false;
     OssmHatTelemetry sample;
     int32_t command;
     if (!captureStoppedSample(sample, command)) return false;
-
-    portENTER_CRITICAL(&referenceMux);
-    reference.passEncoder = sample.positionCounts;
-    reference.passCommand = command;
-    reference.passContinuity = sample.continuity;
-    reference.passStarted = true;
-    portEXIT_CRITICAL(&referenceMux);
-    return true;
+    // Capture waits for a new physical sample. Publish only if its original
+    // request still owns homing after that wait (including Stop -> new Home).
+    return commitMotorHomingState(ticket, [&] {
+        portENTER_CRITICAL(&referenceMux);
+        reference.passEncoder = sample.positionCounts;
+        reference.passCommand = command;
+        reference.passContinuity = sample.continuity;
+        reference.passStarted = true;
+        portEXIT_CRITICAL(&referenceMux);
+        return true;
+    });
 }
 
-bool finishMotorFeedbackHomingPass() {
-    portENTER_CRITICAL(&referenceMux);
-    const Reference start = reference;
-    reference.passStarted = false;
-    portEXIT_CRITICAL(&referenceMux);
-    if (!start.passStarted) return false;
-
+bool finishMotorFeedbackHomingPass(homing_session::Ticket ticket) {
+    Reference start;
+    if (!commitMotorHomingState(ticket, [&] {
+        portENTER_CRITICAL(&referenceMux);
+        start = reference;
+        reference.passStarted = false;
+        portEXIT_CRITICAL(&referenceMux);
+        return true;
+    }) || !start.passStarted) return false;
     OssmHatTelemetry sample;
     int32_t command;
     if (!captureStoppedSample(sample, command)) return false;
     if (sample.continuity != start.passContinuity) {
-        portENTER_CRITICAL(&referenceMux);
-        reference.polarityKnown = false;
-        reference.homeKnown = false;
-        portEXIT_CRITICAL(&referenceMux);
+        commitMotorHomingState(ticket, [] {
+            portENTER_CRITICAL(&referenceMux);
+            reference.polarityKnown = false;
+            reference.homeKnown = false;
+            portEXIT_CRITICAL(&referenceMux);
+            return true;
+        });
         return false;
     }
     const int8_t learned = motor_feedback_logic::learnNativePolarity(
@@ -163,32 +174,32 @@ bool finishMotorFeedbackHomingPass() {
         Config::Driver::motorStepPerRevolution,
         5.0 * Config::Driver::stepsPerMM);
     if (learned == 0) return false;
-
-    portENTER_CRITICAL(&referenceMux);
-    // Opposite polarities across passes indicate unreliable references. Require
-    // a subsequent complete calibration instead of choosing either reading.
-    const bool consistent =
-        !reference.polarityKnown || reference.encoderToNativeSign == learned;
-    reference.polarityKnown = consistent;
-    reference.encoderToNativeSign = consistent ? learned : 0;
-    reference.polarityContinuity = consistent ? sample.continuity : 0;
-    reference.homeKnown = false;
-    portEXIT_CRITICAL(&referenceMux);
-    return consistent;
+    return commitMotorHomingState(ticket, [&] {
+        portENTER_CRITICAL(&referenceMux);
+        const bool consistent = !reference.polarityKnown ||
+            reference.encoderToNativeSign == learned;
+        reference.polarityKnown = consistent;
+        reference.encoderToNativeSign = consistent ? learned : 0;
+        reference.polarityContinuity = consistent ? sample.continuity : 0;
+        reference.homeKnown = false;
+        portEXIT_CRITICAL(&referenceMux);
+        return consistent;
+    });
 }
 
-bool rebaseMotorFeedbackAtHome() {
-    invalidateHome();
+bool rebaseMotorFeedbackAtHome(homing_session::Ticket ticket) {
+    if (!commitMotorHomingState(ticket, [] { invalidateHome(); return true; })) return false;
     OssmHatTelemetry sample;
     int32_t command;
     if (!captureStoppedSample(sample, command) || command != 0) return false;
-
-    portENTER_CRITICAL(&referenceMux);
-    reference.homeEncoder = sample.positionCounts;
-    reference.homeContinuity = sample.continuity;
-    reference.homeKnown = reference.polarityKnown &&
-                          reference.polarityContinuity == sample.continuity;
-    const bool valid = reference.homeKnown;
-    portEXIT_CRITICAL(&referenceMux);
-    return valid;
+    return commitMotorHomingState(ticket, [&] {
+        portENTER_CRITICAL(&referenceMux);
+        reference.homeEncoder = sample.positionCounts;
+        reference.homeContinuity = sample.continuity;
+        reference.homeKnown = reference.polarityKnown &&
+            reference.polarityContinuity == sample.continuity;
+        const bool valid = reference.homeKnown;
+        portEXIT_CRITICAL(&referenceMux);
+        return valid;
+    });
 }

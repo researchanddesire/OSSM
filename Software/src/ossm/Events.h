@@ -2,6 +2,7 @@
 #define OSSM_SOFTWARE_EVENTS_H
 
 #include "boost/sml.hpp"
+#include "homing_session.h"
 namespace sml = boost::sml;
 
 /**
@@ -22,6 +23,10 @@ struct LongPress {};
 struct DoublePress {};
 
 struct Done {};
+
+// An old task cannot complete or fail a later homing request.
+struct HomingPassDone { homing_session::Ticket ticket; uint8_t pass; };
+struct HomingFailed { homing_session::Ticket ticket; const char *message; };
 
 struct Error {};
 struct EmergencyStop {};

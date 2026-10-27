@@ -152,6 +152,14 @@ on the actual fixture before merge.** Native tests establish parsing and math,
 not safe physical contact. A previously detected/required HAT losing feedback
 latches the motion interlock rather than resuming from a position estimate.
 
+Each homing request owns a generation ticket captured before task creation or
+blocking preparation. Stop/disarm cancels that ticket and asserts disabled output
+before flushing queued homing commands. Delayed work must still own its ticket
+when arming, enabling, submitting a move, publishing a reference or completing a
+pass. The second pass inherits the same ticket. A completed home returns to the
+menu; selecting an operating mode requires a new user action. This cancellation
+contract covers homing and does not claim to serialize every ordinary-mode worker.
+
 ## Inspecting the running ESP32
 
 The existing USB input reader accepts the read-only `hat` command on every track.
@@ -168,13 +176,20 @@ helper for its existing numeric position field.
 
 ## Verification
 
-Run native suites `test_ossm_hat`, `test_motor_feedback`, `test_motor_guard`, `test_homing_logic` and
-`test_state_json`. They cover independent fixed protocol vectors, leading zeroes,
+Run native suites `test_ossm_hat`, `test_motor_feedback`, `test_motor_guard`,
+`test_homing_logic`, `test_homing_session` and `test_state_json`. They cover independent fixed protocol vectors, leading zeroes,
 CRC errors, incomplete and mismatched replies, other masters, noise recovery,
 freshness/continuity, encoder rollover, polarity, frame conversion and contact
 qualification. Build both staging and production hardware variants through the
-normal PR workflow. Physical evidence must identify the exact enrolled board,
-show the PC guard remaining healthy, and compare the ESP32's `hat`/BLE readings
+normal PR workflow. Required Test Rig evidence must identify the exact enrolled
+board, show the PC guard remaining healthy, and compare the ESP32's `hat`/BLE readings
 with independently observed position/current/voltage/alarm while recording the motor and
 remote. Record absence/disconnect behavior separately; do not claim a passing
 motion demonstration if any safety preflight is unavailable.
+
+An explicitly authorized manual run using the onboard-guard inspection profile
+with the PC master paused is supplemental evidence. Label its firmware commit,
+guard mode, actual result and recording timebase separately; it cannot satisfy
+the required Test Rig checks. A failed or incomplete home is not a normal-operation
+demonstration. Keep a fault latched and halt further motion when contact or stop
+behavior needs review.
