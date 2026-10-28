@@ -154,11 +154,11 @@ static void startStreamingTask(void *pvParameters) {
 }
 
 void startStreaming() {
-    int stackSize = 10 * configMINIMAL_STACK_SIZE;
+    // Peaks near 2.2 KB of stack with its per-move logging. Internal RAM is
+    // fragmented: a smaller stack still finds a free block.
+    int stackSize = 5 * configMINIMAL_STACK_SIZE;
 
-    xTaskCreatePinnedToCore(startStreamingTask, "startStreamingTask", stackSize,
-                            nullptr, configMAX_PRIORITIES - 1, nullptr,
-                            Tasks::operationTaskCore);
+    Tasks::startOperation(startStreamingTask, "startStreamingTask", stackSize);
 }
 
 }  // namespace simple_penetration

@@ -269,16 +269,23 @@ bool StrokeEngine::startPattern() {
 #endif
 
         if (_taskStrokingHandle == NULL) {
-            // Create Stroke Task
-            xTaskCreatePinnedToCore(
-                this->_strokingImpl,   // Function that should be called
-                "Stroking",            // Name of the task (for debugging)
-                4096,                  // Stack size (bytes)
-                this,                  // Pass reference to this class instance
-                24,                    // Pretty high task priority
-                &_taskStrokingHandle,  // Task handle
-                1                      // Pin to application core
-            );
+            // Create Stroke Task. It peaks under 1 KB of stack; internal RAM
+            // is fragmented, so a smaller block is likelier to be found.
+            if (xTaskCreatePinnedToCore(
+                    this->_strokingImpl,   // Function that should be called
+                    "Stroking",            // Name of the task (for debugging)
+                    3072,                  // Stack size (bytes)
+                    this,                  // Pass reference to this class instance
+                    24,                    // Pretty high task priority
+                    &_taskStrokingHandle,  // Task handle
+                    1                      // Pin to application core
+                    ) != pdPASS) {
+                // Stay ready so the next start can try again.
+                ESP_LOGE("StrokeEngine", "Could not create the stroking task");
+                _taskStrokingHandle = NULL;
+                _state = READY;
+                return false;
+            }
         } else {
             // Resume task, if it already exists
             vTaskResume(_taskStrokingHandle);

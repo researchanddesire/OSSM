@@ -85,8 +85,7 @@ static void drawPlayControlsTask(void *pvParameters) {
 #ifdef AJ_DEVELOPMENT_HARDWARE
         next.speedKnob = 0;
 #else
-        next.speedKnob =
-            getAnalogAveragePercent(SampleOnPin{Pins::Remote::speedPotPin, 50});
+        next.speedKnob = readSpeedKnobPercent();
 #endif
         if (abs(next.speedKnob - settings.speedKnob) > 2 &&
             next.speedKnob < settings.speed) {
