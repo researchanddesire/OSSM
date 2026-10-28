@@ -46,8 +46,7 @@ static void drawPatternControlsTask(void *pvParameters) {
     while (isInCorrectState()) {
         nextPattern = encoder.readEncoder() / 3;
         float speed;
-        float speedKnob =
-            getAnalogAveragePercent(SampleOnPin{Pins::Remote::speedPotPin, 50});
+        float speedKnob = readSpeedKnobPercent();
         settings.speedKnob = speedKnob;
         if (USE_SPEED_KNOB_AS_LIMIT || !settings.speedBLE.has_value()) {
             speed = speedKnob * (settings.speedBLE.value_or(100)) / 100;

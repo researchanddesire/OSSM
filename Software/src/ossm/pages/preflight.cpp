@@ -7,6 +7,7 @@
 #include "ossm/Events.h"
 #include "ossm/state/menu.h"
 #include "ossm/state/state.h"
+#include "services/board.h"
 #include "services/display.h"
 #include "services/stepper.h"
 #include "services/tasks.h"
@@ -36,8 +37,7 @@ static void drawPreflightTask(void *pvParameters) {
 #ifdef AJ_DEVELOPMENT_HARDWARE
         speedPercentage = 0;
 #else
-        speedPercentage =
-            getAnalogAveragePercent(SampleOnPin{Pins::Remote::speedPotPin, 50});
+        speedPercentage = readSpeedKnobPercent();
 #endif
         if (speedPercentage < Config::Advanced::commandDeadZonePercentage) {
             stateMachine->process_event(Done{});

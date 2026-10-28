@@ -1,14 +1,13 @@
 #ifndef OSSM_GPIO_HPP
 #define OSSM_GPIO_HPP
 
-#include <regex>
-
 #include "Arduino.h"
 #include "NimBLECharacteristic.h"
 #include "NimBLEService.h"
 #include "NimBLEUUID.h"
 #include "constants/LogTags.h"
 #include "constants/Pins.h"
+#include "services/motor.h"
 
 // Simple helper to map 1-4 to actual board pins
 static int mapGpioIndexToPin(int index) {
@@ -33,23 +32,32 @@ class GPIOCallbacks : public NimBLECharacteristicCallbacks {
         String input = String(raw.c_str());
         input.trim();
 
-        static const std::regex rx(R"(^\s*(\d+)\s*:(low|high|0|1)\s*$)",
-                                   std::regex::icase);
+        // "<index>:<low|high|0|1>", checked by hand: std::regex allocates and
+        // aborts the firmware when internal RAM runs low.
+        const int colon = input.indexOf(':');
+        String indexText = colon > 0 ? input.substring(0, colon) : String();
+        indexText.trim();
+        String levelText = colon > 0 ? input.substring(colon + 1) : String();
+        levelText.toLowerCase();
+        bool wellFormed = indexText.length() > 0 &&
+                          (levelText == "low" || levelText == "high" ||
+                           levelText == "0" || levelText == "1");
+        for (unsigned int i = 0; wellFormed && i < indexText.length(); i++) {
+            wellFormed = isDigit(indexText[i]);
+        }
 
-        if (!std::regex_match(raw, rx)) {
+        if (!wellFormed) {
             static const char err[] PROGMEM = "error:invalid_format";
             ESP_LOGW(NIMBLE_TAG, "GPIO write invalid format: %s", raw.c_str());
             pCharacteristic->setValue(String(FPSTR(err)));
             return;
         }
 
-        int sep = input.indexOf(':');
-        int index = input.substring(0, sep).toInt();
-        String stateStr = input.substring(sep + 1);
-        stateStr.toLowerCase();
+        int index = indexText.toInt();
+        String stateStr = levelText;
 
         int targetPin = mapGpioIndexToPin(index);
-        if (targetPin < 0) {
+        if (targetPin < 0 || motor::reservesPin(targetPin)) {
             static const char err[] PROGMEM = "error:pin_out_of_range";
             ESP_LOGW(NIMBLE_TAG, "GPIO write out of range index: %d", index);
             pCharacteristic->setValue(String(FPSTR(err)));

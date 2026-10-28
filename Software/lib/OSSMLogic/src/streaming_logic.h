@@ -24,12 +24,13 @@ inline int32_t calculateDepthOffset(float measuredStrokeSteps,
     return measuredStrokeSteps * (depthPct / 100.0f) - maxStroke;
 }
 
-/// Scale a BLE position percentage (0-100) into stepper target position.
+/// Scale a BLE position percentage (0-100) into a native-frame stepper target
+/// (services/stepper.h: extension is negative counts).
 /// streaming.cpp line 95
 ///
 inline int32_t scaleStreamPosition(int posPercent, int32_t maxStroke,
                                    int32_t depth) {
-    return (1-(static_cast<float>(posPercent) / 100.0f)) * maxStroke + depth;
+    return -(1 - (static_cast<float>(posPercent) / 100.0f)) * maxStroke - depth;
 }
 
 /// Result of motion profile planning.
