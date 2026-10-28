@@ -18,6 +18,8 @@ OSSM (Open Source Sex Machine) is an ESP32-based stepper motor device firmware. 
 
 ## Quick Commands
 
+Run from `software/firmware/` (this directory):
+
 ```bash
 pio run -e development            # Build development
 pio run -e development -t upload  # Build + upload
@@ -29,7 +31,7 @@ pio check                         # Run clang-tidy static analysis
 ## Project Structure
 
 ```
-Software/
+software/firmware/
 ├── platformio.ini               # Build config (5 environments)
 ├── pre_build_script.py          # Build-time version injection
 ├── src/

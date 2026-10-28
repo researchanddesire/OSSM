@@ -12,7 +12,7 @@ permissions:
 env:
   # The firmware directory. Keep in sync with pr-firmware.yml and the
   # publish_firmware.yml push paths.
-  FIRMWARE_PATHS: '^Software/'
+  FIRMWARE_PATHS: '^software/firmware/'
   FIRMWARE_IGNORE: ''
 
 jobs:
