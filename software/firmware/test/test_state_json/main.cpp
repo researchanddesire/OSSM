@@ -8,6 +8,9 @@
 
 #include "ossm/state_json.hpp"
 
+void setUp() {}
+void tearDown() {}
+
 static StateJsonInput baseInput() {
     StateJsonInput in;
     in.timestamp = 12345;

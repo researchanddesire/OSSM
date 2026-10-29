@@ -2,6 +2,8 @@
 #include "board.h"
 
 #include "services/motor.h"
+#include "services/ossmHat.h"
+#include "services/motorSafety.h"
 #include "utils/analog.h"
 
 bool USE_LATENCY_COMPENSATION = false;
@@ -21,6 +23,13 @@ void initBoard() {
     pinMode(Pins::Remote::encoderSwitch,
             INPUT_PULLDOWN);  // Rotary Encoder Pushbutton
 
+#if OSSM_HAT_SERIAL_BACKEND
+    digitalWrite(Pins::Hat::direction, LOW);
+    pinMode(Pins::Hat::direction, OUTPUT);
+    pinMode(Pins::Hat::rx, INPUT);
+    pinMode(Pins::Hat::tx, INPUT);
+    digitalWrite(Pins::Driver::motorEnablePin, HIGH);
+#endif
     pinMode(Pins::Driver::motorEnablePin, OUTPUT);
     pinMode(Pins::Wifi::resetPin, INPUT_PULLDOWN);
     if (Pins::Remote::hasSpeedKnob) {
@@ -32,12 +41,12 @@ void initBoard() {
     analogSetAttenuation(ADC_11db);  // allows us to read almost full 3.3V range
     initStepper();
     motor::begin();
+    initMotorSafety();
     // A HAT owns IO2/IO22/IO33; otherwise the expansion pins are outputs.
-    if (!motor::hasHat()) {
-        pinMode(Pins::GPIO::pin1, OUTPUT);
-        pinMode(Pins::GPIO::pin2, OUTPUT);
-        pinMode(Pins::GPIO::pin3, OUTPUT);
-        pinMode(Pins::GPIO::pin4, OUTPUT);
+    const int expansionPins[] = {Pins::GPIO::pin1, Pins::GPIO::pin2,
+                                 Pins::GPIO::pin3, Pins::GPIO::pin4};
+    for (int pin : expansionPins) {
+        if (!motor::reservesPin(pin)) pinMode(pin, OUTPUT);
     }
     initEncoder();
     initLED();

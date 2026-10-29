@@ -63,6 +63,10 @@ class GPIOCallbacks : public NimBLECharacteristicCallbacks {
             pCharacteristic->setValue(String(FPSTR(err)));
             return;
         }
+        if (motor::reservesPin(targetPin)) {
+            pCharacteristic->setValue("error:pin_reserved_for_rs485");
+            return;
+        }
 
         int level = (stateStr == "high" || stateStr == "1") ? HIGH : LOW;
         digitalWrite(targetPin, level);
@@ -80,8 +84,9 @@ class GPIOCallbacks : public NimBLECharacteristicCallbacks {
     void onRead(NimBLECharacteristic* pCharacteristic,
                 NimBLEConnInfo& /*connInfo*/) override {
         // Return simple capabilities hint
-        static const char caps[] PROGMEM = "pins:[1,2,3,4]";
-        pCharacteristic->setValue(String(FPSTR(caps)));
+        pCharacteristic->setValue(motor::reservesPin(Pins::GPIO::pin1)
+                                      ? "pins:[2];reserved:rs485"
+                                      : "pins:[1,2,3,4]");
     }
 } inline gpioCallbacks;
 

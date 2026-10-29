@@ -4,17 +4,18 @@
 /**
  * What the firmware asks about the motor, however it is wired.
  *
- * Motion is always planned by FastAccelStepper (services/stepper.h) and
- * reaches the servo as STEP/DIR pulses. Without an OSSM HAT, position is the
- * commanded step count and current comes from the board's analog sensor.
- * With a HAT (services/ossmHat.h) these readings come from the servo itself.
+ * The classic ESP32 HAT uses guarded RS-485 absolute targets; the ALT board
+ * and boards without a HAT keep their STEP/DIR planner. A HAT supplies
+ * measured motor readings, while the legacy board uses its pulse count and
+ * analog current sensor.
  */
 namespace motor {
 
 // Detect the HAT once at boot. Call after initStepper().
 void begin();
-// The readings below come from the servo. A HAT that stops answering hands
-// them back to the board for good, so a caller never mixes the two.
+// The readings below come from the servo. Classic ESP32 HAT selection is
+// latched: stale telemetry never silently selects board sensors. ALT retains
+// its existing telemetry-only behavior and hands readings back after loss.
 bool hasHat();
 // True for expansion pins the HAT is using.
 bool reservesPin(int pin);
