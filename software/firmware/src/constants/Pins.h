@@ -58,6 +58,7 @@ namespace Pins {
     // On-board RS-485 to the servo, used like an OSSM HAT.
     namespace Hat {
         constexpr int de = 11;  // RE/DE (high = transmit)
+        constexpr int direction = de;
         constexpr int tx = 10;  // DI
         constexpr int rx = 12;  // RO
     }
@@ -122,6 +123,7 @@ namespace Pins {
     // OSSM HAT on the expansion header (J9): RS-485 to the servo.
     namespace Hat {
         constexpr int de = GPIO::pin1;  // IO2, driver enable (high = transmit)
+        constexpr int direction = de;
         constexpr int tx = GPIO::pin3;  // IO22
         constexpr int rx = GPIO::pin4;  // IO33
     }

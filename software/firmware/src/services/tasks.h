@@ -25,7 +25,8 @@ namespace Tasks {
     // come and go, so retry briefly before giving up; logs and returns false
     // if the task never starts.
     bool startOperation(TaskFunction_t task, const char *name,
-                        uint32_t stackSize, TaskHandle_t *handle = nullptr);
+                        uint32_t stackSize, TaskHandle_t *handle = nullptr,
+                        void *context = nullptr);
 }
 
 #endif  // OSSM_SOFTWARE_TASKS_H

@@ -2,6 +2,7 @@
 
 #include <queue>
 #include <chrono>
+#include <new>
 #include "streaming_logic.h"
 #include "constants/Config.h"
 #include "ossm/state/calibration.h"
@@ -12,6 +13,7 @@
 #include "services/communication/nimble.h"
 #include "services/communication/queue.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
 
 namespace sml = boost::sml;
@@ -20,14 +22,26 @@ using namespace sml;
 namespace streaming {
 
 static void startStreamingTask(void *pvParameters) {
+    const uint64_t safetyRevision = *static_cast<uint64_t *>(pvParameters);
+    delete static_cast<uint64_t *>(pvParameters);
+    if (!motorSafetyEventCurrent(safetyRevision)) { vTaskDelete(nullptr); return; }
+    if (!motorSafetyBeginNormalOperation(safetyRevision)) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
+        vTaskDelete(nullptr); return;
+    }
     // Own the shared stepper config at mode entry (see simple_penetration.cpp:
     // StrokeEngine leaves the shared DIR polarity inverted and the counter in
     // its own frame; this mode's targets are native-frame absolutes).
     stepperTranslateFrame(StepperFrame::Native);
     stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
-    stepper->enableOutputs();
+    if (!motorSafetyEventCurrent(safetyRevision) || !enableMotorOutputs()) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
+        vTaskDelete(nullptr);
+        return;
+    }
 
-    auto isInCorrectState = []() {
+    auto isInCorrectState = [safetyRevision]() {
+        if (!motorSafetyEventCurrent(safetyRevision)) return false;
         return stateMachine->is("streaming"_s) ||
                stateMachine->is("streaming.preflight"_s) ||
                stateMachine->is("streaming.idle"_s);
@@ -51,6 +65,7 @@ static void startStreamingTask(void *pvParameters) {
     stepper->setAcceleration(maxAccel);
 
     while (isInCorrectState()) {
+        if (!motorSafetyCanEnableOutputs()) break;
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
         // Wait for new command from BLE
         if (targetQueue.empty()){
@@ -138,7 +153,7 @@ static void startStreamingTask(void *pvParameters) {
                 }
                 stepper->setAcceleration(requiredAccel);
                 stepper->setSpeedInHz(requiredSpeed);
-                stepper->moveTo(targetPosition, false);
+                stepper->moveToForOwner(targetPosition, safetyRevision, motorSafetyEventCurrent, false);
 
                 ESP_LOGI("Streaming", "P(%d): %d -> %d = %d, T: %.3f, S: %d, A: %d, Q: %d",
                         targetPositionTime.position, currentPosition, targetPosition, distance,
@@ -154,11 +169,16 @@ static void startStreamingTask(void *pvParameters) {
 }
 
 void startStreaming() {
-    // Peaks near 2.2 KB of stack with its per-move logging. Internal RAM is
-    // fragmented: a smaller stack still finds a free block.
-    int stackSize = 5 * configMINIMAL_STACK_SIZE;
-
-    Tasks::startOperation(startStreamingTask, "startStreamingTask", stackSize);
+    // Keep the current low-stack allocation and retry policy. The captured
+    // revision stays fixed while task creation retries, so stop cannot be undone.
+    const uint32_t stackSize = 5 * configMINIMAL_STACK_SIZE;
+    auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
+    if (!revision) return;
+    if (!Tasks::startOperation(startStreamingTask, "startStreamingTask",
+                               stackSize, nullptr, revision)) {
+        delete revision;
+        return;
+    }
 }
 
 }  // namespace simple_penetration

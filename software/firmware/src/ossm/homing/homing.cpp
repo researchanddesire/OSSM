@@ -2,6 +2,7 @@
 
 #include "Strings.h"
 #include "homing_logic.h"
+#include "motor_feedback_logic.h"
 #include "constants/Config.h"
 #include "constants/Pins.h"
 #include "constants/UserConfig.h"
@@ -13,8 +14,15 @@
 #include "services/led.h"
 #include "services/motor.h"
 #include "services/stepper.h"
+#include "services/motorFeedback.h"
+#include "services/ossmHat.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
+#include "utils/analog.h"
 
+#include <esp_heap_caps.h>
+#include <new>
+#include <atomic>
 
 namespace sml = boost::sml;
 using namespace sml;
@@ -23,166 +31,291 @@ namespace homing {
 
 namespace {
 
-// The MQTT client holds a TLS session that competes with homing for internal
-// RAM. It is paused for the whole homing run and resumed once the state
-// machine has left homing by any route (done, error, emergency stop).
-bool mqttPausedForHoming = false;
+struct HomingTaskContext {
+    MotorHomingTicket ticket;
+    uint8_t pass;
+    bool useHat;
+};
 
-bool isInHomingState() {
-    return stateMachine->is("homing"_s) ||
-           stateMachine->is("homing.forward"_s) ||
-           stateMachine->is("homing.backward"_s);
+bool mqttPausedForHoming = false;
+SemaphoreHandle_t mqttMutex = nullptr;
+std::atomic_bool taskCreationFailed{false};
+
+void failHatHoming(const HomingTaskContext &context, const char *message) {
+    if (!commitMotorHomingState(context.ticket, [&] {
+        digitalWrite(Pins::Driver::motorEnablePin, HIGH);
+        calibration.isHomed = false;
+        setHomingActive(false, false);
+        return true;
+    })) return;
+    if (!runMotorHomingCommand(context.ticket, [] {
+        stepper->forceStop();
+        stepper->disableOutputs();
+        digitalWrite(Pins::Driver::motorEnablePin, HIGH);
+        return true;
+    })) return;
+    // SML validates the same ticket again while processing the event. Cleanup
+    // from an obsolete task cannot fail or stop a newer home.
+    stateMachine->process_event(HomingFailed{context.ticket, message});
 }
 
-void pauseMqttForHoming() {
-    if (mqttPausedForHoming || mqttClient == nullptr) return;
-    esp_mqtt_client_stop(mqttClient);
-    mqttPausedForHoming = true;
+bool hatSampleReady(OssmHatTelemetry &sample) {
+    return readOssmHatTelemetry(sample) &&
+           static_cast<uint32_t>(millis() - sample.updatedAtMs) <= 100 &&
+           sample.voltageVolts >= Config::Hat::minimumSupplyVolts &&
+           (sample.alarm == 0 || sample.alarm == 0x10);
+}
+
+bool submitMove(const HomingTaskContext &context, int32_t target, bool markMotion) {
+    return runMotorHomingCommand(context.ticket, [&] {
+        if (markMotion && !motorSafetyBeginHomingMotion(context.ticket)) return false;
+        return stepper->moveTo(target, false) == 0;
+    });
+}
+
+bool moveAndWait(const HomingTaskContext &context, int32_t target, bool markMotion = false) {
+    if (!submitMove(context, target, markMotion)) return false;
+    while (stepper->isRunning()) {
+        if (!motorHomingTicketCurrent(context.ticket)) return false;
+        if (context.useHat) {
+            OssmHatTelemetry sample;
+            if (!hatSampleReady(sample) || !motorSafetyCanEnableOutputs()) {
+                failHatHoming(context, "OSSM HAT feedback lost. Check motor power and RS485.");
+                return false;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    return motorHomingTicketCurrent(context.ticket);
+}
+
+bool pauseMqttForHoming(MotorHomingTicket ticket) {
+    if (mqttMutex == nullptr) return false;
+    while (xSemaphoreTake(mqttMutex, pdMS_TO_TICKS(20)) != pdTRUE)
+        if (!motorHomingTicketCurrent(ticket)) return false;
+    if (!motorHomingTicketCurrent(ticket)) {
+        xSemaphoreGive(mqttMutex);
+        return false;
+    }
+    if (!mqttPausedForHoming && mqttClient != nullptr) {
+        esp_mqtt_client_stop(mqttClient);  // may block; never owns a motion lock
+        mqttPausedForHoming = true;
+    }
+    xSemaphoreGive(mqttMutex);
+    return motorHomingTicketCurrent(ticket);
 }
 
 void resumeMqttAfterHoming() {
-    if (!mqttPausedForHoming) return;
-    mqttPausedForHoming = false;
-    if (mqttClient != nullptr) esp_mqtt_client_start(mqttClient);
+    if (mqttMutex == nullptr) return;
+    xSemaphoreTake(mqttMutex, portMAX_DELAY);
+    // A new home can own the pause even while an older SDK stop call returns.
+    if (!motorHomingSessionActive() && mqttPausedForHoming) {
+        mqttPausedForHoming = false;
+        if (mqttClient != nullptr) esp_mqtt_client_start(mqttClient);
+    }
+    xSemaphoreGive(mqttMutex);
+}
+
+bool prepareHoming(const HomingTaskContext &context) {
+    // A serial target can still be decelerating after output disable. Frame
+    // translation/direction changes require fresh stationary encoder data.
+    const uint32_t waitingAt = millis();
+    while (stepper->isRunning()) {
+        if (!motorHomingTicketCurrent(context.ticket) || millis() - waitingAt >= 200)
+            return false;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+    if (!runMotorHomingCommand(context.ticket, [&] {
+        if (!stepper->isRunning()) stepperTranslateFrame(StepperFrame::Native);
+        stepper->setAcceleration(1000_mm);
+        stepper->setSpeedInHz(25_mm);
+        stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
+        return true;
+    })) return false;
+    float offset = 0;
+    if (!context.useHat)
+        offset = getAnalogAveragePercent(SampleOnPin{Pins::Driver::currentSensorPin, 1000});
+    return commitMotorHomingState(context.ticket, [&] {
+        setHomingActive(true, false);
+        calibration.isHomed = false;
+        calibration.isForward = true;  // preserve the legacy next-stroke direction
+        calibration.measuredStrokeSteps = 0;
+        if (!context.useHat) calibration.currentSensorOffset = offset;
+        return true;
+    });
+}
+
+void runHomingPass(const HomingTaskContext &context) {
+    if (!motorHomingTicketCurrent(context.ticket)) return;
+    if (!pauseMqttForHoming(context.ticket)) {
+        failHatHoming(context, "Could not prepare homing network resources.");
+        return;
+    }
+    if (!motorHomingTicketCurrent(context.ticket)) return;
+    if (!prepareHoming(context)) {
+        failHatHoming(context, "Motor did not become stationary before homing setup.");
+        return;
+    }
+    if (!motorHomingTicketCurrent(context.ticket)) return;
+#ifdef AJ_DEVELOPMENT_HARDWARE
+    if (!runMotorHomingCommand(context.ticket, [] {
+        stepper->forceStopAndNewPosition(0);
+        stepperFrame = StepperFrame::Native;
+        return true;
+    })) return;
+    stateMachine->process_event(HomingPassDone{context.ticket, context.pass});
+    return;
+#endif
+    if (!motorSafetyBeginHomingPass(context.pass, context.ticket)) {
+        failHatHoming(context, motorSafetyReason());
+        return;
+    }
+    if (!motorHomingTicketCurrent(context.ticket)) return;
+    if (context.useHat) {
+        OssmHatTelemetry sample;
+        if (!hatSampleReady(sample) || !beginMotorFeedbackHomingPass(context.ticket)) {
+            failHatHoming(context, "OSSM HAT feedback unavailable. Check motor power and RS485.");
+            return;
+        }
+    } else if (ossmHatDetected()) {
+        failHatHoming(context, "OSSM HAT appeared during homing setup. Request a new home.");
+        return;
+    }
+    if (!motorHomingTicketCurrent(context.ticket)) return;
+    if (!enableMotorSafetyHomingOutputs(context.ticket)) {
+        failHatHoming(context, motorSafetyReason());
+        return;
+    }
+    const bool backward = context.pass == 2;
+    const int16_t sign = backward ? 1 : -1;
+    const int32_t target = round(sign * Config::Driver::maxStrokeSteps);
+    if (!submitMove(context, target, true)) {
+        failHatHoming(context, motorSafetyReason());
+        return;
+    }
+    const TickType_t started = xTaskGetTickCount();
+    motor_feedback_logic::HatContactDetector hatContact;
+    while (motorHomingTicketCurrent(context.ticket)) {
+        if (homing_logic::isHomingTimedOut(
+                (xTaskGetTickCount() - started) * portTICK_PERIOD_MS, 40000)) {
+            failHatHoming(context, ui::strings::homingTookTooLong);
+            return;
+        }
+        float current;
+        bool overLimit;
+        if (context.useHat) {
+            OssmHatTelemetry sample;
+            if (!hatSampleReady(sample)) {
+                failHatHoming(context, "OSSM HAT feedback lost. Check motor power and RS485.");
+                return;
+            }
+            current = sample.currentAmps;
+            overLimit = hatContact.update(sample.sequence, sample.updatedAtMs,
+                sample.positionCounts, current, Config::Hat::sensorlessCurrentLimitAmps,
+                32768.0 / (Config::Driver::pulleyToothCount * Config::Driver::beltPitchMm));
+        } else {
+            current = motor::getCurrent();
+            overLimit = homing_logic::isCurrentOverLimit(current, 0,
+                motor::getHomingCurrentLimit());
+        }
+        if (!motorHomingTicketCurrent(context.ticket)) return;
+        if (!overLimit) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
+        int32_t retreat = 0;
+        if (!runMotorHomingCommand(context.ticket, [&] {
+            stepper->stopMove();
+            stepper->setSpeedInHz(context.useHat ? 25_mm : 250_mm);
+            retreat = stepper->getCurrentPosition() - sign * Config::Driver::homingOffsetMn;
+            return true;
+        })) return;
+        if (!moveAndWait(context, retreat, true)) {
+            failHatHoming(context, motorSafetyReason());
+            return;
+        }
+        // The serial axis reads telemetry and takes its own short lock. Keep
+        // that work outside the guard's publication critical section.
+        const int32_t stoppedPosition = stepper->getCurrentPosition();
+        if (!commitMotorHomingState(context.ticket, [&] {
+            calibration.measuredStrokeSteps = homing_logic::calculateMeasuredStroke(
+                stoppedPosition, Config::Driver::maxStrokeSteps);
+            return true;
+        })) return;
+        if (context.useHat) finishMotorFeedbackHomingPass(context.ticket);
+        if (!motorSafetyEndHomingPass(context.ticket)) {
+            failHatHoming(context, motorSafetyReason());
+            return;
+        }
+        if (!runMotorHomingCommand(context.ticket, [] {
+            stepper->forceStopAndNewPosition(0);
+            stepperFrame = StepperFrame::Native;
+            return true;
+        })) return;
+        if (context.useHat && !rebaseMotorFeedbackAtHome(context.ticket) && backward) {
+            failHatHoming(context, "OSSM HAT position reference failed. Re-home before use.");
+            return;
+        }
+        if (!motorHomingTicketCurrent(context.ticket)) return;
+        if (backward && !motorSafetyBeginNormalOperation(context.ticket)) {
+            failHatHoming(context, motorSafetyReason());
+            return;
+        }
+        const int32_t rest = homing_logic::calculatePostHomingPosition(
+            sign, calibration.measuredStrokeSteps, UserConfig::afterHomingPosition);
+        if ((!context.useHat || backward) && !moveAndWait(context, rest)) {
+            failHatHoming(context, motorSafetyReason());
+            return;
+        }
+        if (!commitMotorHomingState(context.ticket, [] { setHomingActive(false, false); return true; })) return;
+        stateMachine->process_event(HomingPassDone{context.ticket, context.pass});
+        return;
+    }
+}
+
+void startHomingTask(void *parameter) {
+    const HomingTaskContext context = *static_cast<HomingTaskContext *>(parameter);
+    delete static_cast<HomingTaskContext *>(parameter);
+    runHomingPass(context);
+    resumeMqttAfterHoming();
+    vTaskDelete(nullptr);
+}
+
+void createHomingTask(MotorHomingTicket ticket, uint8_t pass) {
+    if (!motorHomingTicketCurrent(ticket)) return;
+    auto *context = new (std::nothrow) HomingTaskContext{ticket, pass, ossmHatDetected()};
+    BaseType_t created = pdFAIL;
+    for (int attempt = 0; context != nullptr && attempt < 20 && created != pdPASS; ++attempt) {
+        if (attempt > 0) vTaskDelay(pdMS_TO_TICKS(250));
+        if (!motorHomingTicketCurrent(ticket)) break;
+        created = xTaskCreatePinnedToCore(startHomingTask, "startHomingTask",
+            10 * configMINIMAL_STACK_SIZE, context, configMAX_PRIORITIES - 1,
+            &Tasks::runHomingTaskH, Tasks::operationTaskCore);
+    }
+    if (created == pdPASS) return;
+    delete context;
+    if (commitMotorHomingState(ticket, [] { taskCreationFailed.store(true); return true; })) {
+        errorState.message = ui::strings::homingTookTooLong;
+        const HomingTaskContext failed{ticket, pass, ossmHatDetected()};
+        failHatHoming(failed, ui::strings::homingTookTooLong);
+    }
 }
 
 }  // namespace
 
-void clearHoming() {
-    ESP_LOGD("Homing", "Homing started");
-
-    // Set homing active flag for LED indication
-    setHomingActive(true);
-
-    calibration.isForward = true;
-
-    // Set acceleration and deceleration in steps/s^2
-    stepper->setAcceleration(1000_mm);
-    // Set speed in steps/s
-    stepper->setSpeedInHz(25_mm);
-
-    // Clear the stored values.
-    calibration.measuredStrokeSteps = 0;
-
-    // Recalibrate the current sensor offset.
-    motor::zeroCurrent();
-}
-
-static void startHomingTask(void *pvParameters) {
-    TickType_t xTaskStartTime = xTaskGetTickCount();
-
-#ifdef AJ_DEVELOPMENT_HARDWARE
-    stepper->setCurrentPosition(0);
-    stepper->forceStopAndNewPosition(0);
-    stepperFrame = StepperFrame::Native;  // counter re-zeroed at home rest
-    stateMachine->process_event(Done{});
-    vTaskDelete(nullptr);
-    return;
-#endif
-
-    pauseMqttForHoming();
-
-    // Stroke Engine and Simple Penetration treat this differently.
-    stepper->enableOutputs();
-    stepper->setDirectionPin(Pins::Driver::motorDirectionPin, false);
-    int16_t sign = stateMachine->is("homing.backward"_s) ? 1 : -1;
-
-    int32_t targetPositionInSteps =
-        round(sign * Config::Driver::maxStrokeSteps);
-
-    ESP_LOGD("Homing", "Target position in steps: %d", targetPositionInSteps);
-    stepper->moveTo(targetPositionInSteps, false);
-
-    // run loop for 15second or until loop exits
-    while (isInHomingState()) {
-        TickType_t xCurrentTickCount = xTaskGetTickCount();
-        // Calculate the time in ticks that the task has been running.
-        TickType_t xTicksPassed = xCurrentTickCount - xTaskStartTime;
-
-        // If you need the time in milliseconds, convert ticks to milliseconds.
-        // 'portTICK_PERIOD_MS' is the number of milliseconds per tick.
-        uint32_t msPassed = xTicksPassed * portTICK_PERIOD_MS;
-
-        if (homing_logic::isHomingTimedOut(msPassed, 40000)) {
-            ESP_LOGE("Homing", "Homing took too long. Check power and restart");
-            errorState.message = ui::strings::homingTookTooLong;
-
-            // Clear homing active flag for LED indication
-            setHomingActive(false);
-
-            stateMachine->process_event(Error{});
-            break;
-        }
-
-        float current = motor::getCurrent();
-
-        ESP_LOGV("Homing", "Current: %f", current);
-        bool isCurrentOverLimit = homing_logic::isCurrentOverLimit(
-            current, 0, motor::getHomingCurrentLimit());
-
-        if (!isCurrentOverLimit) {
-            vTaskDelay(10);  // Increased from 1ms to 10ms to reduce CPU load
-            continue;
-        }
-
-        ESP_LOGD("Homing", "Current over limit: %f", current);
-        stepper->stopMove();
-
-        stepper->setSpeedInHz(250_mm);
-        // step away from the hard stop, with your hands in the air!
-        int32_t currentPosition = stepper->getCurrentPosition();
-        stepper->moveTo(currentPosition - sign * Config::Driver::homingOffsetMn,
-                        true);
-
-        // measure and save the current position
-        calibration.measuredStrokeSteps =
-            homing_logic::calculateMeasuredStroke(
-                stepper->getCurrentPosition(),
-                Config::Driver::maxStrokeSteps);
-
-        stepper->setCurrentPosition(0);
-        stepper->forceStopAndNewPosition(0);
-        // The counter was just re-zeroed at the homed rest position: the
-        // shared frame is Native again by definition.
-        stepperFrame = StepperFrame::Native;
-
-        int32_t goToPosition = homing_logic::calculatePostHomingPosition(
-            sign, calibration.measuredStrokeSteps,
-            UserConfig::afterHomingPosition);
-
-        stepper->moveTo(goToPosition,true);
-
-        // Clear homing active flag for LED indication
-        setHomingActive(false);
-
-        stateMachine->process_event(Done{});
-        break;
-    };
-
-    // The forward pass hands over to the backward pass while still homing;
-    // only the pass that leaves homing (or any error/stop exit) resumes MQTT.
-    if (!isInHomingState()) {
-        resumeMqttAfterHoming();
-    }
-
-    vTaskDelete(nullptr);
-}
-
 void startHoming() {
-    int stackSize = 10 * configMINIMAL_STACK_SIZE;
-
-    // The timeout, stall detection and Done event all live inside this task.
-    // If it fails to start, the state machine would wait in homing forever,
-    // so fall back to the existing homing error instead of hanging.
-    if (Tasks::startOperation(startHomingTask, "startHomingTask", stackSize,
-                              &Tasks::runHomingTaskH)) {
-        return;
-    }
-    errorState.message = ui::strings::homingTookTooLong;
-    setHomingActive(false);
-    resumeMqttAfterHoming();
-    stateMachine->process_event(Error{});
+    // First instruction reserves this request. No asynchronous work may adopt
+    // a later ticket after a stop, even if task creation or setup takes seconds.
+    const auto ticket = beginMotorHomingSession();
+    taskCreationFailed.store(false);
+    if (mqttMutex == nullptr) mqttMutex = xSemaphoreCreateMutex();
+    createHomingTask(ticket, 1);
 }
+
+void startSecondHoming(homing_session::Ticket ticket) {
+    // SML executes this while the source state is still forward. Pass number
+    // and authorization come from the completed request, never current UI.
+    createHomingTask(ticket, 2);
+}
+
+bool hasTaskCreationFailed() { return taskCreationFailed.load(); }
 
 bool isStrokeTooShort() {
     if (calibration.measuredStrokeSteps > Config::Driver::minStrokeLengthMm) {

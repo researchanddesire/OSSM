@@ -1,6 +1,7 @@
 #include "stroke_engine.h"
 
 #include <mqtt_client.h>
+#include <new>
 
 #include "constants/UserConfig.h"
 #include "ossm/OSSM.h"
@@ -11,6 +12,7 @@
 #include "ossm/state/state.h"
 #include "services/communication/mqtt.h"
 #include "services/stepper.h"
+#include "services/motorSafety.h"
 #include "services/tasks.h"
 #include "structs/SettingPercents.h"
 #include "utils/StrokeEngineHelper.h"
@@ -22,6 +24,18 @@ using namespace sml;
 namespace stroke_engine {
 
 static void startStrokeEngineTask(void *pvParameters) {
+    const uint64_t safetyRevision = *static_cast<uint64_t *>(pvParameters);
+    delete static_cast<uint64_t *>(pvParameters);
+    if (!motorSafetyEventCurrent(safetyRevision)) { vTaskDelete(nullptr); return; }
+    if (!motorSafetyBeginNormalOperation(safetyRevision)) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
+        vTaskDelete(nullptr);
+        return;
+    }
+    if (!Stroker.bindMotionOwner(safetyRevision, motorSafetyEventCurrent)) {
+        vTaskDelete(nullptr);
+        return;
+    }
     float measuredStrokeMm = calibration.measuredStrokeSteps / (1_mm);
 
     machineGeometry strokingMachine = {
@@ -59,7 +73,8 @@ static void startStrokeEngineTask(void *pvParameters) {
     Stroker.setDepth(0.01f * settings.depth * abs(measuredStrokeMm), true);
     Stroker.setStroke(0.01f * settings.stroke * abs(measuredStrokeMm), true);
 
-    auto isInCorrectState = []() {
+    auto isInCorrectState = [safetyRevision]() {
+        if (!motorSafetyEventCurrent(safetyRevision)) return false;
         // Add any states that you want to support here.
         return stateMachine->is("strokeEngine"_s) ||
                stateMachine->is("strokeEngine.idle"_s) ||
@@ -67,13 +82,14 @@ static void startStrokeEngineTask(void *pvParameters) {
     };
 
     while (isInCorrectState()) {
+        if (!motorSafetyCanEnableOutputs()) break;
         if (isChangeSignificant(lastSetting.speed, settings.speed) ||
             wasLastSpeedCommandFromBLE()) {
             // Speed is float, so give a little wiggle room here to assume 0
             if (settings.speed < 0.1f) {
-                Stroker.stopMotion();
+                Stroker.stopMotionForOwner(safetyRevision);
             } else if (Stroker.getState() == READY) {
-                Stroker.startPattern();
+                Stroker.startPatternForOwner(safetyRevision);
             }
 
             Stroker.setSpeed(settings.speed, true);
@@ -146,7 +162,7 @@ static void startStrokeEngineTask(void *pvParameters) {
         }
     }
 
-    Stroker.stopMotion();
+    Stroker.stopMotionForOwner(safetyRevision);
 
     vTaskDelete(nullptr);
 }
@@ -190,12 +206,16 @@ static void publishStateTask(void *pvParameters) {
 }
 
 void startStrokeEngine() {
-    // Peaks under 2 KB of stack. Internal RAM is fragmented: a smaller stack
-    // still finds a free block (12x failed to start beside the OSSM HAT).
-    int stackSize = 4 * configMINIMAL_STACK_SIZE;
-
-    Tasks::startOperation(startStrokeEngineTask, "startStrokeEngineTask",
-                          stackSize, &Tasks::runStrokeEngineTaskH);
+    // Keep the current low-stack allocation and retry policy. The captured
+    // revision stays fixed while task creation retries, so stop cannot be undone.
+    const uint32_t stackSize = 4 * configMINIMAL_STACK_SIZE;
+    auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
+    if (!revision) return;
+    if (!Tasks::startOperation(startStrokeEngineTask, "startStrokeEngineTask",
+                               stackSize, &Tasks::runStrokeEngineTaskH, revision)) {
+        delete revision;
+        return;
+    }
 
     if (xTaskCreatePinnedToCore(publishStateTask, "publishStateTask",
                                 5 * configMINIMAL_STACK_SIZE, nullptr,

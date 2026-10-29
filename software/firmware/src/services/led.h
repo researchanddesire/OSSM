@@ -62,7 +62,7 @@ void showBLEDisconnected(); // Off
 void pulseForCommunication();  // Brief brightness increase for BLE communication
 
 // Machine status functions
-void setHomingActive(bool active);
+void setHomingActive(bool active, bool logChange = true);
 bool isHomingActive();
 void updateLEDForMachineStatus();
 void showHomingBreathing();  // Breathing deep purple
