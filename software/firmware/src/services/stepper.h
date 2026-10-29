@@ -2,11 +2,12 @@
 #define SOFTWARE_STEPPER_H
 
 #include "FastAccelStepper.h"
+#include "MotionAxis.h"
 #include "StrokeEngine.h"
 #include "constants/Pins.h"
 
 extern FastAccelStepperEngine stepperEngine;
-extern FastAccelStepper *stepper;
+extern MotionAxis *stepper;
 extern class StrokeEngine Stroker;
 
 // ── Shared-counter coordinate frame ─────────────────────────────────────
@@ -29,5 +30,28 @@ extern StepperFrame stepperFrame;
 void stepperTranslateFrame(StepperFrame to);
 
 void initStepper();
+bool enableMotorOutputs();
+
+// Unset callbacks keep serial motion fail-closed. Serial output/mode changes
+// remain owned by the safety service and the sole UART task.
+void registerMotorSerialMotionAuthorization(uint64_t (*session)(),
+                                           bool (*canMove)(uint64_t));
+bool motorMotionUsesSerial();
+int32_t motorMotionCommandedTarget();
+bool mirrorMotorMotionFrame(int32_t keepoutSteps);
+
+struct MotorMotionStatus {
+    bool serial = false;
+    bool frameReady = false;
+    bool moving = false;
+    bool pending = false;
+    uint32_t requestedStepsPerSecond = 0;
+    uint32_t requestedAcceleration = 0;
+    uint16_t maximumSpeedRpm = 0;
+    uint16_t accelerationRpmPerSecond = 0;
+    int32_t commandTarget = 0;
+    float followingLimitMm = 1.0f;
+};
+MotorMotionStatus getMotorMotionStatus();
 
 #endif  // SOFTWARE_STEPPER_H

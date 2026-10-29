@@ -17,6 +17,7 @@
 #include "ossm/state/network.h"
 #include "ossm/state/state.h"
 #include "services/communication/mqtt.h"
+#include "services/motorSafety.h"
 #include "utils/tls_session.hpp"
 
 #ifndef FIRMWARE_BUILD_SHA
@@ -231,6 +232,7 @@ void ossmStartUpdate() {
 }
 
 void ossmStartInstall() {
+    disarmMotorSafety();
     pauseMqttForTls();
     if (xTaskCreatePinnedToCore(installTask, "installTask",
                                 20 * configMINIMAL_STACK_SIZE, nullptr, 1,

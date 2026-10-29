@@ -1,10 +1,16 @@
 #ifndef OSSM_STATE_ACTIONS_H
 #define OSSM_STATE_ACTIONS_H
 
+#include "ossm/Events.h"
+
 // Forward declarations for action implementations (defined in actions.cpp)
 void ossmDrawHello();
 void ossmDrawMenu();
 void ossmStartHoming();
+void ossmStartSecondHoming(const HomingPassDone &event);
+void ossmSetHomingError(const HomingFailed &event);
+bool ossmHomingStartupFailed();
+bool ossmHomingTicketCurrent(homing_session::Ticket ticket);
 void ossmDrawPlayControls();
 void ossmStartStreaming();
 void ossmDrawPatternControls();
@@ -27,7 +33,7 @@ void ossmStartUpdate();
 void ossmStartInstall();
 void ossmDrawUpdateAvailable();
 void ossmDrawError();
-void ossmSetHomed();
+void ossmSetHomed(const HomingPassDone &event);
 void ossmSetNotHomed();
 void ossmCheckPairing();
 void ossmDrawPairingSuccess();
@@ -44,6 +50,12 @@ namespace actions {
     constexpr auto drawMenu = []() { ossmDrawMenu(); };
 
     constexpr auto startHoming = []() { ossmStartHoming(); };
+    constexpr auto homingStartupFailed = [] { return ossmHomingStartupFailed(); };
+    constexpr auto startSecondHoming = [](const HomingPassDone &event) { ossmStartSecondHoming(event); };
+    constexpr auto forwardHomeDone = [](const HomingPassDone &event) { return event.pass == 1 && ossmHomingTicketCurrent(event.ticket); };
+    constexpr auto backwardHomeDone = [](const HomingPassDone &event) { return event.pass == 2 && ossmHomingTicketCurrent(event.ticket); };
+    constexpr auto setHomingError = [](const HomingFailed &event) { ossmSetHomingError(event); };
+    constexpr auto currentHomeFailure = [](const HomingFailed &event) { return ossmHomingTicketCurrent(event.ticket); };
 
     constexpr auto drawPlayControls = []() { ossmDrawPlayControls(); };
 
@@ -110,7 +122,7 @@ namespace actions {
         return [code]() { ossmSetNetworkError(code); };
     };
 
-    constexpr auto setHomed = []() { ossmSetHomed(); };
+    constexpr auto setHomed = [](const HomingPassDone &event) { ossmSetHomed(event); };
 
     constexpr auto setNotHomed = []() { ossmSetNotHomed(); };
 

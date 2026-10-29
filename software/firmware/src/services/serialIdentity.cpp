@@ -4,6 +4,10 @@
 #include <atomic>
 #include "constants/Version.h"
 #include "serialIdentityProtocol.h"
+#include "services/ossmHat.h"
+#include "services/motorFeedback.h"
+#include "services/motorSafety.h"
+#include <ArduinoJson.h>
 #include <serialIdentityBuild.h>
 #if ARDUINO_USB_CDC_ON_BOOT && !ARDUINO_USB_MODE
 #include <USB.h>
@@ -36,6 +40,35 @@ void announce() {
     if (size) Serial.write(reinterpret_cast<const uint8_t*>(frame), size);
 }
 
+void announceHat() {
+    const auto status = getOssmHatStatus();
+    JsonDocument doc;
+    doc["detected"] = status.detected;
+    doc["fresh"] = status.fresh;
+    doc["passive"] = status.passive;
+    doc["baudRate"] = status.baudRate;
+    doc["ageMs"] = status.ageMs;
+    doc["sampleRateHz"] = status.sampleRateHz;
+    doc["positionSource"] = motorPositionUsesRs485() ? "rs485" : "stepper";
+    OssmHatTelemetry sample;
+    if (readOssmHatTelemetry(sample)) {
+        doc["encoderCounts"] = sample.positionCounts;
+        doc["currentAmps"] = sample.currentAmps;
+        doc["voltageVolts"] = sample.voltageVolts;
+        doc["alarm"] = sample.alarm;
+    }
+    const auto safety = getMotorSafetyStatus();
+    doc["guardReady"] = safety.ready;
+    doc["guardArmed"] = safety.armed;
+    doc["guardLatched"] = safety.latched;
+    doc["guardFault"] = safety.fault;
+    doc["outputDisabled"] = safety.outputDisableVerified;
+    char frame[640] = "RAD_HAT ";
+    const size_t size = serializeJson(doc, frame + 8, sizeof(frame) - 10);
+    frame[size + 8] = '\n';
+    Serial.write(reinterpret_cast<const uint8_t *>(frame), size + 9);
+}
+
 void console(void*) {
     // Never wait for a USB host or block application setup on a serial cable.
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -53,6 +86,7 @@ void console(void*) {
                     lastAnnouncement = millis();
                 }
             }
+            else if (strcmp(command, "hat") == 0) announceHat();
 #ifdef VERSIONDEV
             else if (const auto handler = developmentCommand.load()) handler(command);
 #endif
