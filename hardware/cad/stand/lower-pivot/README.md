@@ -2,7 +2,7 @@
 
 Designed by **Alex - R+D** for OSSM stands using 3030 extrusion.
 
-Compare both configurations in the [FreeCAD model](lower-pivot-frames.FCStd).
+Both configurations are included in the [OSSM assembly](../../ossm-assembly.FCStd).
 
 ## Single hinge: active + passive
 
