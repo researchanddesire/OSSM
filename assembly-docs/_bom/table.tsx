@@ -20,7 +20,8 @@ export function OssmBomTable() {
     "mfg_part_number",
     "vendor",
     "vendor_part_number",
-    "source",
+    "design_source",
+    "purchase_source",
     "notes",
   ];
 
@@ -57,7 +58,9 @@ export function OssmBomTable() {
                   const value = raw;
                   const sourceUrl = value.startsWith("https://")
                     ? value
-                    : `https://github.com/researchanddesire/${bom.repo}/blob/${bom.commit}/hardware/${value}`;
+                    : column === 10
+                      ? `https://github.com/researchanddesire/${bom.repo}/blob/${bom.commit}/hardware/${value}`
+                      : undefined;
                   return (
                     <td key={column} className={`bom-col-${fields[column]}`}>
                       {column === 2 && categories[value] ? (
@@ -79,8 +82,12 @@ export function OssmBomTable() {
                         value
                       ) : (
                         <span className="bom-clamp" title={value}>
-                          {column === 10 && value !== "–" ? (
-                            <a href={sourceUrl}>Source</a>
+                          {[10, 11].includes(column) &&
+                          value !== "–" &&
+                          sourceUrl ? (
+                            <a href={sourceUrl}>
+                              {column === 10 ? "Design" : "Purchase"}
+                            </a>
                           ) : (
                             value
                           )}
