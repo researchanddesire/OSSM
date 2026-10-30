@@ -8,12 +8,13 @@ Compare both configurations in the [FreeCAD model](lower-pivot-frames.FCStd).
 
 - [Complete frame assembly](active-passive-assembly.step)
 - [Active lower clamp](active-lower.step)
-- [Passive pivot](passive-pivot.step), including its print supports
+- [Passive pivot](passive-pivot.step), including its blue inlays
 - **2 × 18 mm steel washers** for the passive pivot
 
-All other Pitclamp parts are standard: [upper](double-arm/upper.step),
-[handle](../pitclamp-handle.step), [hex dogbone](../pitclamp-dogbone-hex.step)
-and [round dogbone](../pitclamp-dogbone-round.step).
+The other Pitclamp parts use standard geometry with the same blue trim:
+[upper](double-arm/upper.step), [handle](double-arm/handle.step),
+[hex dogbone](double-arm/dogbone-nuts.step) and
+[round dogbone](double-arm/dogbone-bolts.step).
 
 ## Double hinge: two arms in series
 
@@ -39,10 +40,18 @@ M4 nut** for each handle pivot (four on the double-hinge frame).
 
 ## Printing and frame parts
 
-The [Bambu Studio print project](lower-pitclamp-stand.3mf) keeps **8 wall loops**
-and solid-infill reinforcement near the end of the lower clamp latch. Keep
-those settings for the mirrored lower too. The double-hinge frame needs
-**four lowers and four mounting rings**; adjust the project quantities accordingly.
+The circular and semicircular accents are **blue, flush and 0.6 mm deep**.
+The STEP files keep the base and blue inlays as separate bodies.
+
+- [Lower clamps and mounting rings](lower-pitclamp-stand.3mf)
+- [Upper clamps](pitclamp-uppers.3mf)
+- [Handles and dogbones](pitclamp-latch-parts.3mf)
+- [Passive pivot](passive-pivot.3mf)
+
+The print projects keep **8 wall loops**. The lower-clamp project retains its
+solid-infill reinforcement near the end of the latch. For the double-hinge
+frame, print **four lowers and four mounting rings**, plus the quantities in
+the table above; adjust the project quantities accordingly.
 
 Both frames use one **495.3 mm base rail** and two **304.8 mm crossfeet**.
 Each arm is **457.2 mm** long: one for the single hinge, two for the double hinge.
