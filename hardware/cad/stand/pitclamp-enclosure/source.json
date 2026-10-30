@@ -1,0 +1,412 @@
+{
+  "snapshot_added_date": "2026-10-30",
+  "native_geometry_saved_date": "2026-10-15",
+  "recorded_print_validation_date": "2026-10-16",
+  "units": "millimeter",
+  "development_status": "work in progress; not a released BOM replacement",
+  "license": "CERN-OHL-S-2.0",
+  "native_metadata_normalization": {
+    "properties_changed": [
+      "License",
+      "LicenseURL"
+    ],
+    "all_other_document_xml_content_identical": true,
+    "all_other_archive_member_payloads_identical": true,
+    "original_workspace_document_unchanged": true
+  },
+  "artifacts": [
+    {
+      "path": "pitclamp-enclosure.FCStd",
+      "role": "native CAD",
+      "original_workspace_filename": "OSSM-PitClamp-Latest.FCStd",
+      "source_sha256": "c4c33bfcb871e83053dd05ea7515b710255139bdf36047adc8ef404108bc7e9b",
+      "sha256": "a5bbebcd7b9f7f620eb6e92abce38ceb88f04b6ad1e5dd1d485f54a8e354abb7",
+      "size_bytes": 7855794,
+      "byte_identical_to_workspace": false
+    },
+    {
+      "path": "pitclamp-enclosure.step",
+      "role": "CAD interchange; fine tessellation limitation",
+      "original_workspace_filename": "OSSM-PitClamp-Latest.step",
+      "source_sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
+      "sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
+      "size_bytes": 3382395,
+      "byte_identical_to_workspace": true
+    },
+    {
+      "path": "print/pitclamp-enclosure.3mf",
+      "role": "verified generic print package",
+      "original_workspace_filename": "OSSM-PitClamp-Latest.3mf",
+      "source_sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
+      "sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
+      "size_bytes": 726707,
+      "byte_identical_to_workspace": true
+    },
+    {
+      "path": "print/body.stl",
+      "role": "accepted body print mesh",
+      "original_workspace_filename": "Latest-Body.stl",
+      "source_sha256": "7ccdc0d7ea2787c324924109d4b866b734074bff0b46167e404579218db662df",
+      "sha256": "7ccdc0d7ea2787c324924109d4b866b734074bff0b46167e404579218db662df",
+      "size_bytes": 2272884,
+      "byte_identical_to_workspace": true
+    },
+    {
+      "path": "print/cover.stl",
+      "role": "accepted cover print mesh",
+      "original_workspace_filename": "Latest-Cover.stl",
+      "source_sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
+      "sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
+      "size_bytes": 194884,
+      "byte_identical_to_workspace": true
+    }
+  ],
+  "source_references": [
+    {
+      "repository": "KinkyMakers/OSSM-hardware",
+      "commit": "b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7",
+      "path": "Printed Parts/Mounting/STEP/OSSM - Base - PitClamp Mini - Lower V1.1.stp",
+      "git_blob_sha": "78a24d5c75c6644f92007073080a5a79f10744b2",
+      "use": "inherited Standard PitClamp Mini lower source"
+    },
+    {
+      "repository": "KinkyMakers/OSSM-hardware",
+      "commit": "b7f01bf6df1be6f3ebf17dc0e31ed64ddf4c15b7",
+      "path": "Printed Parts/Mounting/STEP/OSSM - PCB - Box.stp",
+      "git_blob_sha": "7fd25d1141c3bae089513ca3dc47433878652d46",
+      "use": "initial PCB mounting measurements"
+    }
+  ],
+  "native_model": {
+    "roots": [
+      "Enclosure",
+      "Cover",
+      "ElectronicsReferences"
+    ],
+    "hidden_colored_references": 23,
+    "reference_groups": {
+      "PCBComponents": 11,
+      "ConnectorsAndHarness": 11,
+      "MotorReference": 1
+    },
+    "enclosure_tip": "SurfaceContinuity",
+    "cover_tip": "CoverGeometry",
+    "sketches": 0,
+    "final_surface_stage": "stored solid; dimensions descriptive; not a complete parametric rebuild history"
+  },
+  "recorded_print_validation": {
+    "body_triangles": 45456,
+    "cover_triangles": 3896,
+    "closed_components_per_object": 1,
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "nonmanifold_vertex_links": 0,
+    "orientation_defects": 0,
+    "degenerate_triangles": 0,
+    "reported_self_intersections": 0,
+    "three_mf_units": "millimeter",
+    "three_mf_printer_settings_embedded": false,
+    "three_mf_layout_gap_mm": 10,
+    "maximum_rigid_geometry_error_mm": 0,
+    "bambu_studio_version": "02.07.01.57",
+    "diagnostic_profile": "P2S 0.4 mm nozzle, 0.20 Standard, PLA; diagnostic only",
+    "slice_return_code": 0,
+    "slice_result": "Success",
+    "remaining_warning": "It seems object Body has floating cantilever. Please re-orient the object or enable support generation.",
+    "physical_fit_and_loaded_strength_validated": false
+  },
+  "known_step_limitation": {
+    "valid_cad_solids": 2,
+    "fine_slicer_tessellation_repaired": false,
+    "investigated_slicer_settings": {
+      "linear_deflection_mm": 0.001,
+      "angular_deflection_rad": 0.05
+    },
+    "print_route": "print/pitclamp-enclosure.3mf or print/*.stl"
+  },
+  "representative_stand_assembly": {
+    "repository_path": "hardware/cad/ossm-assembly.FCStd",
+    "integration_date": "2026-10-30",
+    "scope": "representative motor-clamp and PCB enclosure context in both stand alternatives; actuator absent",
+    "configurations": [
+      "SingleFrame",
+      "DoubleFrame"
+    ],
+    "source_enclosure_native_sha256": "a5bbebcd7b9f7f620eb6e92abce38ceb88f04b6ad1e5dd1d485f54a8e354abb7",
+    "enclosure_and_cover_geometry_modified": false,
+    "existing_lower_pivot_and_frame_geometry_modified": false,
+    "handle_pose": "raised; not locked",
+    "hidden_colored_references_per_configuration": 23,
+    "actuator_included": false,
+    "component_sources": [
+      {
+        "repository_path": "hardware/cad/stand/pitclamp-upper-v1.1.step",
+        "sha256": "71f07cbba7048bb061ca5058883170b41212d969db9a8b527c4ac31d37518f3b",
+        "role": "standard Mini upper",
+        "geometry_modified": false,
+        "source_to_enclosure_matrix": [
+          [
+            0.9999998798497245,
+            -0.0004902045864063852,
+            -8.008589234559776e-20,
+            -0.018844984077506417
+          ],
+          [
+            8.008589234559776e-20,
+            1.1102230246251565e-16,
+            -1.0000000000000002,
+            22.000000000000295
+          ],
+          [
+            0.0004902045864063852,
+            0.9999998798497247,
+            1.1102230246251565e-16,
+            39.25901582110742
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "rigidly_placed_brep_sha256": "375c2658cca1cc5ffb163b69f50c114c59d7b9eb24faf1df32bf12ba242b9089"
+      },
+      {
+        "repository_path": "hardware/cad/stand/pitclamp-handle.step",
+        "sha256": "f8e8ce495c775a0a4ed1e75fd8d8cc0248f0f88e5206a101f330e375b873ea11",
+        "role": "raised handle; not locked",
+        "geometry_modified": false,
+        "source_to_enclosure_matrix": [
+          [
+            0.509238470823506,
+            0.8606254585087157,
+            3.017575453689413e-17,
+            0.2928942345854537
+          ],
+          [
+            -1.5388294746184784e-16,
+            1.1102230246251565e-16,
+            -1.0,
+            45.98081727994327
+          ],
+          [
+            -0.8606254585087157,
+            0.5092384708235062,
+            1.1102230246251565e-16,
+            116.23428288668786
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "rigidly_placed_brep_sha256": "dfce85242716ca843794f26a9c96bd2bdc0aebe9ae9b8eb438795eb3da892171"
+      },
+      {
+        "repository_path": "hardware/cad/stand/pitclamp-dogbone-hex.step",
+        "sha256": "25763bbd16fdf98d39ac3890e36f1f5fd77fdbec2817b43e51ac214afd091cfc",
+        "role": "hex dogbone",
+        "geometry_modified": false,
+        "source_to_enclosure_matrix": [
+          [
+            0.9231280869568963,
+            -0.3844925682913793,
+            -1.8560490232208626e-18,
+            -3.7803720113296
+          ],
+          [
+            -6.810219475446343e-17,
+            -2.220446049250313e-16,
+            1.0,
+            -5.33009767773515
+          ],
+          [
+            -0.3844925682913793,
+            -0.9231280869568963,
+            -2.220446049250313e-16,
+            84.71236713082071
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "rigidly_placed_brep_sha256": "fb8f196e2d4d0a69511a42cb2c5ec0c6fac3e61dc6bf9ee6682cbe3f032d8446"
+      },
+      {
+        "repository_path": "hardware/cad/stand/pitclamp-dogbone-round.step",
+        "sha256": "284c98b4454862f1ae2672ab0118d11cc60fa78a778d6718531927e09900dd3a",
+        "role": "round dogbone",
+        "geometry_modified": false,
+        "source_to_enclosure_matrix": [
+          [
+            0.9231280869568959,
+            0.3844925682913804,
+            -1.030049733262017e-18,
+            14.00232143293974
+          ],
+          [
+            -6.521609599798054e-17,
+            1.1102230246251565e-16,
+            -1.0,
+            27.330404703897898
+          ],
+          [
+            -0.3844925682913804,
+            0.9231280869568959,
+            2.220446049250313e-16,
+            127.40781278564131
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "rigidly_placed_brep_sha256": "b03b7af7cc6b10b9a439a6de8ec3c1bef018bbf0b1d80c2525da8f05bbbdc59a"
+      },
+      {
+        "repository_path": "hardware/cad/stand/57aim-ring-v1.1.step",
+        "sha256": "75b68790420623422da383f298e706931c4639ab96b30d39c8a52b76c57b37f4",
+        "role": "nominal reference ring; unresolved collar fit",
+        "geometry_modified": false,
+        "source_to_enclosure_matrix": [
+          [
+            0.9993893604068743,
+            0.03494146971062699,
+            -4.0245104432390797e-19,
+            0.0
+          ],
+          [
+            5.519890829864721e-18,
+            -2.220446049250313e-16,
+            1.0,
+            -5.55
+          ],
+          [
+            0.03494146971062699,
+            -0.9993893604068744,
+            -2.220446049250313e-16,
+            53.408401615741
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ],
+        "rigidly_placed_brep_sha256": "1c20e0c0a086944783e865f39873212138451811ff2a8d688b43fc2672cd3bd8"
+      }
+    ],
+    "enclosure_native_to_assembly_matrices": {
+      "SingleFrame": [
+        [
+          0.006981260297949276,
+          0,
+          0.9999756307053949,
+          -94.16436938027162
+        ],
+        [
+          0.0,
+          1,
+          0,
+          -13.785124354037507
+        ],
+        [
+          -0.9999756307053949,
+          0,
+          0.006981260297949276,
+          437.0284101067501
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "DoubleFrame": [
+        [
+          0.5120428648705727,
+          0,
+          0.8589598969306638,
+          -338.8524903139738
+        ],
+        [
+          0.0,
+          1,
+          0,
+          -13.785124354037478
+        ],
+        [
+          -0.8589598969306638,
+          0,
+          0.5120428648705727,
+          750.7865724152467
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ]
+      ]
+    },
+    "recorded_placement_checks": {
+      "mount_station_free_end_distances_mm": [
+        33.782104042877926,
+        103.78210404287813,
+        166.38790876864223
+      ],
+      "conservative_body_free_end_clearance_mm": 5.0,
+      "body_tip_cap_clearance_mm": 7.85368526107,
+      "maximum_mount_axis_center_or_support_plane_error_mm": 3e-14,
+      "no_body_or_cover_overlap_above_mm3_against_other_existing_frame_parts": 1e-06,
+      "coincident_mounting_rail_boolean_used": false,
+      "native_min_vertex_z_mm": -0.000500000000051
+    },
+    "physical_fit_and_loaded_strength_validated": false,
+    "full_mechanism_and_locked_latch_validation_complete": false,
+    "known_nominal_ring_interferences_mm3": {
+      "upper_collar": 22.156358595
+    },
+    "nominal_ring_role": "visible source reference only; resolve upper-collar fit before fabrication of assembled motor-clamp variant",
+    "baseline_revision": "d611d423ca4cedb4c8780cf9068fbbae6b5d58eb",
+    "baseline_assembly_git_blob": "0da669c49d53041e7d1abb3bb50aca96d75dbae8",
+    "baseline_object_count": 511,
+    "new_clamp_and_enclosure_fasteners_modeled": false,
+    "recorded_static_common_volumes_mm3": {
+      "ring_57aim__body": 0.0,
+      "ring_57aim__cover": 0.0,
+      "upper__cover": 0.0,
+      "handle__cover": 0.0,
+      "dogbone_round__cover": 0.0,
+      "dogbone_hex__cover": 0.0
+    },
+    "static_pose_limits": "Representative seated-linkage pose with raised handle; not a locked latch or validated complete motion. Full actuator absent.",
+    "sha256": "2a8bb3474970899ef0ac5d646ccf83966145815c24fb16851c9b6414e3c1d5f3",
+    "size_bytes": 35627585,
+    "saved_validation": {
+      "reopened_in_freecad": true,
+      "original_objects_preserved": 511,
+      "object_count": 679,
+      "original_geometry_placement_and_appearance_preserved": true,
+      "original_brep_members": 322,
+      "original_brep_members_byte_identical": 256,
+      "maximum_brep_numeric_serialization_delta": 3.3306690738754696e-16,
+      "brep_serialization_note": "OpenCascade normalized last-bit analytic-axis decimal values on save; all BRep structure and numeric values otherwise preserved.",
+      "new_valid_single_solids_per_configuration": 7,
+      "hidden_colored_references_per_configuration": 23,
+      "external_links": 0,
+      "default_single_visible_double_hidden": true,
+      "full_and_close_views_inspected": true
+    }
+  }
+}
