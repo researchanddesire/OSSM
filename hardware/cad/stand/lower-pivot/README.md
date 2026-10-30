@@ -2,33 +2,30 @@
 
 Designed by **Alex - R+D** for OSSM stands using 3030 extrusion.
 
-Compare both frames in the [FreeCAD model](lower-pivot-frames.FCStd).
+Compare both configurations in the [FreeCAD model](lower-pivot-frames.FCStd).
 
-## Active + passive
+## Single hinge: active + passive
 
 - [Complete frame assembly](active-passive-assembly.step)
 - [Active lower clamp](active-lower.step)
-- [Passive pivot](passive-pivot.step)
-- [Bambu Studio print project for active lowers and mounting rings](lower-pitclamp-stand.3mf)
-- **2 × 18 mm steel washers** for the passive pivot.
+- [Passive pivot](passive-pivot.step), including its print supports
+- **2 × 18 mm steel washers** for the passive pivot
 
-Print the passive pivot from its STEP file, including its three bodies.
-
-All other Pitclamp parts are standard: [upper](../pitclamp-upper-v1.1.step),
+All other Pitclamp parts are standard: [upper](double-arm/upper.step),
 [handle](../pitclamp-handle.step), [hex dogbone](../pitclamp-dogbone-hex.step)
 and [round dogbone](../pitclamp-dogbone-round.step).
 
-The supplied 3MF keeps **8 wall loops** and solid-infill reinforcement near
-the end of the lower clamp latch. Select the quantities needed for your build.
+## Double hinge: two arms in series
 
-## Double arm
+The [complete frame assembly](double-arm-assembly.step) has one base rail,
+a first hinged arm, and a second hinged arm. **Each joint uses two active
+Pitclamps**, one on each side of the extrusion: four clamps total. The second
+pair mounts at the far end of the first arm, facing toward the first pair.
 
-Use an active Pitclamp on each side, with the opposite side mirrored.
-The [complete frame assembly](double-arm-assembly.step) shows both latches engaged.
+Print **two of each component in both columns**: one normal and one mirrored
+set per joint.
 
-Print one of each component in the two columns:
-
-| Part | Active side | Mirrored side |
+| Part | Normal | Mirrored |
 | --- | --- | --- |
 | Lower clamp | [STEP](double-arm/active-lower.step) | [STEP](double-arm/mirrored-active-lower.step) |
 | Upper | [STEP](double-arm/upper.step) | [STEP](double-arm/mirrored-upper.step) |
@@ -37,33 +34,33 @@ Print one of each component in the two columns:
 | Dogbone nuts | [STEP](double-arm/dogbone-nuts.step) | [STEP](double-arm/mirrored-dogbone-nuts.step) |
 | Dogbone bolts | [STEP](double-arm/dogbone-bolts.step) | [STEP](double-arm/mirrored-dogbone-bolts.step) |
 
-Use standard Pitclamp hardware on each active side, including an **M4 × 16
-socket-head screw and M4 nut** for each handle pivot. Keep **8 wall loops** and
-the solid latch-end reinforcement when preparing the mirrored lower clamp.
+Use standard Pitclamp hardware, including an **M4 × 16 socket-head screw and
+M4 nut** for each handle pivot (four on the double-hinge frame).
 
-The single frame has one 495.3 mm base rail, one 457.2 mm arm and two
-304.8 mm crossfeet. The double frame uses two base rails and two arms.
+## Printing and frame parts
+
+The [Bambu Studio print project](lower-pitclamp-stand.3mf) keeps **8 wall loops**
+and solid-infill reinforcement near the end of the lower clamp latch. Keep
+those settings for the mirrored lower too. The double-hinge frame needs
+**four lowers and four mounting rings**; adjust the project quantities accordingly.
+
+Both frames use one **495.3 mm base rail** and two **304.8 mm crossfeet**.
+Each arm is **457.2 mm** long: one for the single hinge, two for the double hinge.
 
 Active lowers use **M6 × 25 countersunk screws**; mounting rings use
-**M6 × 25 socket-head screws**. The passive plate uses **M6 × 20 socket-head
-screws**, with its two 18 mm washers under the base bolts.
-
-Check that the clamps and pivots are secure before use.
+**M6 × 25 socket-head screws**. The single frame's passive plate uses
+**M6 × 20 socket-head screws**, with its two 18 mm washers under the base bolts.
 
 ## CAD source
 
-The active/passive STEP and 3MF files come from the
-[published lower Pitclamp project](https://github.com/researchanddesire/community-mods/tree/main/mods/ossm/lower-pitclamp).
-The double-arm pivot is based on the October 1, 2026 Onshape export
-`OSSM - Dual Stand Pivot Clamp.step`; its individual components are exported
-from that assembly, with modeled metal fasteners omitted from the print parts.
-The raised Pitclamp lettering has been removed from both upper clamps.
-The mirrored OSSM lettering reads normally in the STEP and print files, and
-the assembly includes both latch mechanisms with the lower bolts seated in
-their hooks.
+The [lower Pitclamp project](https://github.com/researchanddesire/community-mods/tree/main/mods/ossm/lower-pitclamp)
+and October 1, 2026 Onshape export `OSSM - Dual Stand Pivot Clamp.step` supply
+the pivot parts. The upper clamps have their raised Pitclamp lettering removed,
+and the mirrored OSSM lettering reads normally. The latches are seated on their
+lower bolts.
 
-Frame components come from the [OSSM - Extrusion Base Onshape assembly](https://cad.onshape.com/documents/d520ea9a8cadb4ae8681f59b/w/00b211a6fa3b76c59ef28f4e/e/a97eb2dc016eb5c9594d0915),
-exported on October 30, 2026. The double frame duplicates its base rail and
-arm; the modeled extrusion lengths above are measured from the source geometry.
+Frame parts come from the [OSSM - Extrusion Base Onshape assembly](https://cad.onshape.com/documents/d520ea9a8cadb4ae8681f59b/w/00b211a6fa3b76c59ef28f4e/e/a97eb2dc016eb5c9594d0915),
+exported October 30, 2026. Extrusion lengths above are measured from its geometry.
+The assemblies are CAD references; physical fit and loading are untested.
 
 Hardware and supporting files use the repository's **CERN-OHL-S v2** license.
