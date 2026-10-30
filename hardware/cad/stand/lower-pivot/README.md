@@ -21,7 +21,7 @@ the end of the lower clamp latch. Select the quantities needed for your build.
 ## Double arm
 
 Use an active Pitclamp on each side, with the opposite side mirrored.
-The [complete STEP assembly](double-arm-assembly.step) shows how they fit.
+The [complete STEP assembly](double-arm-assembly.step) shows both latches engaged.
 
 Print one of each component in the two columns:
 
@@ -34,7 +34,8 @@ Print one of each component in the two columns:
 | Dogbone nuts | [STEP](double-arm/dogbone-nuts.step) | [STEP](double-arm/mirrored-dogbone-nuts.step) |
 | Dogbone bolts | [STEP](double-arm/dogbone-bolts.step) | [STEP](double-arm/mirrored-dogbone-bolts.step) |
 
-Use standard Pitclamp hardware on each active side. Keep **8 wall loops** and
+Use standard Pitclamp hardware on each active side, including an **M4 × 16
+socket-head screw and M4 nut** for each handle pivot. Keep **8 wall loops** and
 the solid latch-end reinforcement when preparing the mirrored lower clamp.
 
 Check that the clamps and pivots are secure before use.
@@ -48,6 +49,7 @@ The double-arm assembly is the October 1, 2026 Onshape export
 from that assembly, with modeled metal fasteners omitted from the print parts.
 The raised Pitclamp lettering has been removed from both upper clamps.
 The mirrored OSSM lettering reads normally in the STEP and print files, and
-the assembly includes aligned standard fasteners on both sides.
+the assembly includes both latch mechanisms with the lower bolts seated in
+their hooks.
 
 Hardware and supporting files use the repository's **CERN-OHL-S v2** license.
