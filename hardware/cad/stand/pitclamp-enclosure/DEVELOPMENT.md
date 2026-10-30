@@ -54,51 +54,38 @@ not claim that all geometry or physical checks were rerun on import.
 
 ## Stand assembly integration — 2026-10-30
 
-The [OSSM assembly](../../ossm-assembly.FCStd) now includes one representative
-motor-clamp/enclosure set on the final moving arm of each stand alternative.
-The existing lower-pivot clamps, frame, and hardware are retained. The source
-enclosure, cover, standard Mini upper, handle, dogbones, and nominal 57AIM ring
-are placed without geometry changes. This assembly update does not alter the
-standalone native enclosure, STEP, 3MF, or STLs recorded above.
+The [OSSM assembly](../../ossm-assembly.FCStd) includes the visible Onshape
+actuator on the final moving arm of both stand alternatives. The PCB enclosure
+and cover, lower-pivot clamps, frame hardware, blue inlays and stand placements
+are retained. The primary arm is seated at 30.4°; the double-arm final rail is
+at 60.8°. The single-arm enclosure still extends toward the lower pivot.
 
-The single-arm enclosure matches the supplied assembly reference: its housing
-extends toward the lower pivot, with its ring on the opposite side of the rail.
-Both primary arms are shown approximately 30° above the
-base, at the seated 30.4° tooth index. The double-arm model retains its 30.4°
-inter-arm bend, placing its second arm at 60.8° above the base. The upper clamp,
-enclosure and hidden references move rigidly with their mounting rail.
-The three mounting
-stations align to the rail slot at these distances from the free end:
+The current source upper jaw, one-piece lever with integral pivot loop,
+dogbones and 57AIM motor adapter replace the earlier nominal clamp context.
+The actuator uses the community one-piece curved front in place of the stock
+front/middle bodies and their two joining M3 screws/nuts. Four exactly
+coincident source motor bolts are omitted, leaving one bolt at each station.
+The two hidden electronics groups retain 23 references each.
 
-| Configuration | Mounting station distances (mm) |
-| --- | --- |
-| Single arm | 33.782, 103.782, 166.388 |
-| Double arm | 33.782, 103.782, 166.388 |
+Registration matches the upper collar and hinge axes to the existing clamp;
+the source motor axis is 0.0263 mm from the previous nominal motor axis.
+The curved front clears the checked motor and adapter parts; its overlap with
+the lower body is below 0.0002 mm³ numerical residue. Source rigid-body contacts
+remain: adapter/upper jaw 118.239 mm³, adapter/motor 0.356 mm³ and
+upper jaw/lever 0.342 mm³. The retained lower/adapter contact is 63.906 mm³;
+the source M6 hinge screw intersects the enclosure lower by 94.085 mm³. Its
+axis aligns, but the retained 5.2 mm passage and source M6 screw require a
+separate fit decision. A tested M5 substitution did not seat its nut cleanly,
+so the source hardware layout is retained without assuming threaded engagement. The adapter and jaw cylinder axes are about 0.299 mm
+eccentric in the source closed-clamp pose. The adapter/upper contacts are inherited from Onshape; the enclosure interfaces
+are recorded separately. They do not establish operating clearance. The earlier
+22.156 mm³ nominal-ring check is superseded by this source configuration.
 
-The conservative body outline stays 5 mm inside that end. The body and cover
-were checked against the surrounding frame and end caps in both
-placements, excluding the intentionally contacting mounting rail. These local
-placement checks do not establish a complete interference-free mechanism.
-
-The handle is raised rather than locked. Static checks found no positive
-overlap among the enclosure, upper, handle, and dogbones, or between the cover
-and those added parts. Correctly phased ring ribs clear the enclosure and cover;
-the visible nominal 57AIM ring still overlaps the upper collar by 22.156 mm³.
-It is a source reference only; that interface fit remains unresolved. Both
-alternatives retain 23 hidden colored electronics and motor references for
-packaging review. The actuator and new clamp/enclosure fasteners remain absent.
-Full latch closure, hardware/tool access, mechanism travel, physical fit, and
-load capacity remain open checks.
-
-During the initial integration, the saved assembly was reopened and checked:
-each alternative contains seven
-valid single-solid parts in the added set, plus 23 hidden colored references.
-All 511 original objects retained their geometry, placements, and appearance
-at that stage. The working-angle update changes only the moving assemblies'
-placements and grouping; the base and first-joint fixed parts stay fixed.
-The document has no external links, opens with the single-arm alternative
-visible, and was inspected in full-frame and close views for both alternatives.
-These are digital assembly checks; the physical checks below remain open.
+The assembly-derived lever and adapter may need a tolerance-only BRep fix on
+import; original individual STEP exports are retained. Deep Boolean checks
+also flag curve/surface warnings in the source lever, including the historical
+version. No new print package or physical-fit result is established by this
+integration. The standalone enclosure and print artifacts above are unchanged.
 
 ## Work to track
 
@@ -114,7 +101,7 @@ These are digital assembly checks; the physical checks below remain open.
 - [ ] Check the actual PCB, motor, connectors, barrel jack, and cable bundle
       against the housing and strain relief. Reference envelopes are not
       physical-fit proof.
-- [ ] Resolve the nominal 57AIM ring's interference with the upper collar
+- [ ] Check the source closed-clamp adapter/jaw contacts and operating clearance
       before fabricating the assembled motor-clamp variant.
 - [ ] Verify complete upper-clamp/dogbone travel and extrusion mounting with
       real hardware, including fastener length and tool access.

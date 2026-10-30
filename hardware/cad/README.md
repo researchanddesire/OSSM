@@ -1,26 +1,23 @@
 # OSSM CAD
 
-[Open the editable OSSM assembly](ossm-assembly.FCStd). It provides the stand and
-lower-pivot foundation, with the single-arm frame shown by default. To view the
-double-arm alternative, hide the single-arm group and show the double-arm group
-in FreeCAD's model tree. Both configurations share the same origin.
-The primary arm is shown approximately 30° above the base rail, seated at the
-nearest tooth index of 30.4°. The double-arm model retains its second-joint bend.
+[Open the editable OSSM assembly](ossm-assembly.FCStd). It includes the actuator
+on both stand configurations. The single-arm stand is shown by default; hide
+its group and show the double-arm group in FreeCAD to switch configurations.
+Both use the same origin.
 
-Both configurations also include a representative
-[PitClamp PCB enclosure and motor-clamp assembly](stand/pitclamp-enclosure/README.md)
-near the free end of the final moving arm. Its handle is raised, not locked;
-see the development notes for the nominal ring's known fit limitation. Colored
-electronics and motor references are embedded and hidden in each configuration.
-The actuator itself is not included yet.
+The primary arm is seated at 30.4° above the base. The double-arm stand retains
+its second-joint bend, placing the final arm at 60.8°.
+
+The actuator uses the [curved one-piece front body](actuator/README.md), replacing
+the stock front and middle covers. The motor clamp uses the current Onshape
+parts, including the one-piece lever with its integral pivot loop. The
+[integrated PitClamp PCB enclosure](stand/pitclamp-enclosure/README.md) remains
+mounted on the final arm of each stand.
 
 See the [lower-pivot parts and print files](stand/lower-pivot/README.md).
 
-STEP component exports for the parts in [the hardware BOM](../bom.csv).
+- `actuator/`: actuator components, curved-front native source and export manifest.
+- `stand/`: PitClamp parts, PCB enclosure, lower pivots, feet and end caps.
 
-- `actuator/`: body, belt clamps, tensioner and jam nut.
-- `stand/`: PCB enclosure, PitClamp components, pivot plates, handle spacer, feet and extrusion end caps.
-
-Most STEP files use millimetres; the PCB mount base and lid use metres.
-Pivot plate 1 is the right plate; plate 2 is the left plate.
-The upper-and-handle BOM entry links to both component files.
+STEP exports use millimetres unless noted otherwise. The original PCB mount
+base and lid use metres. Pivot plate 1 is the right plate; plate 2 is the left.
