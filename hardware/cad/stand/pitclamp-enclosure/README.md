@@ -38,8 +38,9 @@ included in this snapshot.
 
 The [OSSM assembly](../../ossm-assembly.FCStd) includes this enclosure and cover
 on the final moving arm of both the single-hinge and double-hinge stands. The
-enclosure extends toward the arm pivot, with all three M6 mounting stations
-aligned to the rail's T-slot. The standard Mini upper, raised handle, and both
+single-arm housing sits above the jaw, toward the rail's free end. The
+double-arm housing extends toward its arm pivot. All three M6 mounting stations
+align to the rail's T-slot. The standard Mini upper, raised handle, and both
 dogbones are included as assembly context. The handle is not in a locked pose.
 
 Each configuration retains its own 23 hidden colored electronics and motor

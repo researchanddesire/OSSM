@@ -61,10 +61,17 @@ enclosure, cover, standard Mini upper, handle, dogbones, and nominal 57AIM ring
 are placed without geometry changes. This assembly update does not alter the
 standalone native enclosure, STEP, 3MF, or STLs recorded above.
 
-The three enclosure mounting stations align to the rail slot and remain
-33.782, 103.782, and 166.388 mm from its free end. The conservative body outline
-stays 5 mm inside that end; the modeled body-to-tip-cap gap is 7.854 mm. The
-body and cover were checked against the surrounding frame and end caps in both
+The single-arm enclosure is oriented with its housing above the jaw, toward
+the rail's free end. The double-arm placement is unchanged. The three mounting
+stations align to the rail slot at these distances from the free end:
+
+| Configuration | Mounting station distances (mm) |
+| --- | --- |
+| Single arm | 16.000, 78.606, 148.606 |
+| Double arm | 33.782, 103.782, 166.388 |
+
+The conservative body outline stays 5 mm inside that end. The body and cover
+were checked against the surrounding frame and end caps in both
 placements, excluding the intentionally contacting mounting rail. These local
 placement checks do not establish a complete interference-free mechanism.
 

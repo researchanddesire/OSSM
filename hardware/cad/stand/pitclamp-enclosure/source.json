@@ -308,28 +308,28 @@
     "enclosure_native_to_assembly_matrices": {
       "SingleFrame": [
         [
-          0.006981260297949276,
-          0,
+          -0.006981260297949321,
+          -8.549578077898016e-19,
           0.9999756307053949,
-          -94.16436938027162
+          -93.56668908673373
+        ],
+        [
+          1.2246467991473532e-16,
+          -1.0,
+          8.444525349047253e-33,
+          14.214875645962493
+        ],
+        [
+          0.9999756307053949,
+          1.2246169553687175e-16,
+          0.00698126029794921,
+          351.4184051816653
         ],
         [
           0.0,
-          1,
-          0,
-          -13.785124354037507
-        ],
-        [
-          -0.9999756307053949,
-          0,
-          0.006981260297949276,
-          437.0284101067501
-        ],
-        [
-          0,
-          0,
-          0,
-          1
+          0.0,
+          0.0,
+          1.0
         ]
       ],
       "DoubleFrame": [
@@ -360,17 +360,32 @@
       ]
     },
     "recorded_placement_checks": {
-      "mount_station_free_end_distances_mm": [
-        33.782104042877926,
-        103.78210404287813,
-        166.38790876864223
-      ],
-      "conservative_body_free_end_clearance_mm": 5.0,
-      "body_tip_cap_clearance_mm": 7.85368526107,
-      "maximum_mount_axis_center_or_support_plane_error_mm": 3e-14,
-      "no_body_or_cover_overlap_above_mm3_against_other_existing_frame_parts": 1e-06,
-      "coincident_mounting_rail_boolean_used": false,
-      "native_min_vertex_z_mm": -0.000500000000051
+      "SingleFrame": {
+        "mount_station_free_end_distances_mm": [
+          148.60580472576424,
+          78.60580472576407,
+          15.999999999999943
+        ],
+        "conservative_body_free_end_clearance_mm": 5.0,
+        "maximum_mount_axis_center_or_support_plane_error_mm": 3.82804898890754e-13,
+        "frame_clearance_method": "All seven added visible component bounding boxes are disjoint from all pre-existing single-frame parts except the intentionally contacting mounting rail.",
+        "frame_interferences": 0,
+        "coincident_mounting_rail_boolean_used": false,
+        "native_min_vertex_z_mm": -0.000500000000051
+      },
+      "DoubleFrame": {
+        "mount_station_free_end_distances_mm": [
+          33.782104042877926,
+          103.78210404287813,
+          166.38790876864223
+        ],
+        "conservative_body_free_end_clearance_mm": 5.0,
+        "body_tip_cap_clearance_mm": 7.85368526107,
+        "maximum_mount_axis_center_or_support_plane_error_mm": 3e-14,
+        "no_body_or_cover_overlap_above_mm3_against_other_existing_frame_parts": 1e-06,
+        "coincident_mounting_rail_boolean_used": false,
+        "native_min_vertex_z_mm": -0.000500000000051
+      }
     },
     "physical_fit_and_loaded_strength_validated": false,
     "full_mechanism_and_locked_latch_validation_complete": false,
@@ -391,15 +406,15 @@
       "dogbone_hex__cover": 0.0
     },
     "static_pose_limits": "Representative seated-linkage pose with raised handle; not a locked latch or validated complete motion. Full actuator absent.",
-    "sha256": "2a8bb3474970899ef0ac5d646ccf83966145815c24fb16851c9b6414e3c1d5f3",
-    "size_bytes": 35627585,
+    "sha256": "d1792566807675d77cd7864a93f752973b7762d25412d03b7c577fe86807189f",
+    "size_bytes": 35628406,
     "saved_validation": {
       "reopened_in_freecad": true,
       "original_objects_preserved": 511,
       "object_count": 679,
       "original_geometry_placement_and_appearance_preserved": true,
       "original_brep_members": 322,
-      "original_brep_members_byte_identical": 256,
+      "original_brep_members_byte_identical": 226,
       "maximum_brep_numeric_serialization_delta": 3.3306690738754696e-16,
       "brep_serialization_note": "OpenCascade normalized last-bit analytic-axis decimal values on save; all BRep structure and numeric values otherwise preserved.",
       "new_valid_single_solids_per_configuration": 7,
@@ -407,6 +422,16 @@
       "external_links": 0,
       "default_single_visible_double_hidden": true,
       "full_and_close_views_inspected": true
+    },
+    "single_arm_orientation_correction": {
+      "date": "2026-10-30",
+      "previous_assembly_sha256": "2a8bb3474970899ef0ac5d646ccf83966145815c24fb16851c9b6414e3c1d5f3",
+      "change": "Rotate complete single-arm enclosure/clamp group 180 degrees in mounting plane; housing above jaw, toward free end; retain longitudinal footprint and mounting centerline.",
+      "only_changed_placement": "Single_MotorPitClampEnclosure",
+      "double_arm_world_placements_unchanged": true,
+      "all_shapes_materials_references_and_visibility_preserved": true,
+      "reopened_in_freecad": true,
+      "corrected_full_and_close_views_inspected": true
     }
   }
 }
