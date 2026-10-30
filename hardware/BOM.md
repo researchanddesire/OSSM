@@ -2,7 +2,7 @@
 
 Edit `hardware/bom.csv` using the canonical 13-column RAD BOM format. This CSV is
 the source of truth for OHAI’s BOM. Assembly documentation reaches OHAI through
-reviewed sync PRs on the matching staging or main branch.
+reviewed sync PRs from `main` to `main`.
 
 Keep harnesses as top-level assemblies; detailed cable parts stay WireViz-owned.
 Rows are sorted by Category and numbered sequentially. Preserve quantities
