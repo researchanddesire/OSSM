@@ -37,23 +37,19 @@ included in this snapshot.
 ## Representative stand assembly
 
 The [OSSM assembly](../../ossm-assembly.FCStd) includes this enclosure and cover
-on the final moving arm of both the single-hinge and double-hinge stands. The
-single-arm housing extends toward the lower pivot, with the ring on the
-opposite side of the rail, matching the supplied assembly reference. The
-double-arm housing extends toward its arm pivot. All three M6 mounting stations
-align to the rail's T-slot. The standard Mini upper, raised handle, and both
-dogbones are included as assembly context. The handle is not in a locked pose.
-The primary arm is shown at approximately 30° above the base (30.4° at the
-nearest tooth index). The complete upper clamp moves with its mounting rail.
+on the final moving arm of both stand configurations, together with the
+actuator. The single-arm housing extends toward the lower pivot, with the motor
+ring on the opposite side of the rail. The double-arm housing extends toward
+its arm pivot. All three M6 mounting stations align to the rail slot.
 
-Each configuration retains its own 23 hidden colored electronics and motor
-references. The nominal 57AIM ring is shown for context only. It clears the
-enclosure and cover at this pose, but overlaps the upper collar by 22.156 mm³;
-that source-interface fit remains unresolved. New clamp and enclosure fasteners
-are not modeled, and the actuator is not included. These are representative
-CAD placements, not proof of a complete
-mechanism, physical fit, or load capacity. The standalone enclosure geometry
-and print files are unchanged; see [the development notes](DEVELOPMENT.md).
+The actuator uses the curved one-piece front housing and motor-clamp parts
+from the current Onshape source. The primary arm remains seated at 30.4°; the
+complete upper assembly moves with its rail. Each configuration retains its
+23 hidden electronics references for packaging review.
+
+The standalone enclosure, cover and print files are unchanged. See the
+[development notes](DEVELOPMENT.md) for the source clamp contacts and remaining
+work.
 
 ## Printing
 
