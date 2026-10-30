@@ -1,6 +1,6 @@
 {
   "repo": "OSSM",
-  "commit": "892cd23165650714c1cbf03036ef396359c0267c",
+  "commit": "60711578fbc94eb8d286cd327bba25449d082fe1",
   "columns": [
     "#",
     "Part Name",
@@ -12,7 +12,8 @@
     "MFG PN",
     "Vendor",
     "Vendor PN",
-    "Source",
+    "Design Source",
+    "Purchase Source",
     "Notes"
   ],
   "rows": [
@@ -28,6 +29,7 @@
       "R+D",
       "–",
       "cad/remote/README.md",
+      "https://www.researchanddesire.com/products/ossm-reference-board",
       "Electronics."
     ],
     [
@@ -41,6 +43,7 @@
       "–",
       "AliExpress",
       "20T W10 B8",
+      "–",
       "https://www.aliexpress.com/item/32781681772.html",
       "Actuator."
     ],
@@ -55,6 +58,7 @@
       "–",
       "AliExpress",
       "10M-10MM-2GT",
+      "–",
       "https://www.aliexpress.com/item/32952396111.html",
       "Actuator."
     ],
@@ -70,6 +74,7 @@
       "R+D",
       "–",
       "–",
+      "https://www.researchanddesire.com/products/ossm-remote-pcb-only",
       "Electronics. Included with wired remote."
     ],
     [
@@ -84,6 +89,7 @@
       "R+D",
       "–",
       "cables/OSSM-Motor-Control-Harness.yml",
+      "–",
       "Electronics."
     ],
     [
@@ -97,6 +103,7 @@
       "–",
       "Fazstore",
       "30QE3030",
+      "–",
       "https://www.fazstore.ca/product/30qe3030-black/",
       "Extrusion stand."
     ],
@@ -111,6 +118,7 @@
       "–",
       "Fazstore",
       "30QE3030",
+      "–",
       "https://www.fazstore.ca/product/30qe3030-black/",
       "Extrusion stand."
     ],
@@ -125,6 +133,7 @@
       "–",
       "Fazstore",
       "30QE3030",
+      "–",
       "https://www.fazstore.ca/product/30qe3030-black/",
       "Extrusion stand."
     ],
@@ -139,6 +148,7 @@
       "–",
       "AliExpress",
       "3030",
+      "–",
       "https://www.aliexpress.com/item/1005004878958579.html",
       "Extrusion stand. Bag 3."
     ],
@@ -153,6 +163,7 @@
       "–",
       "Amazon",
       "CB150",
+      "–",
       "https://www.amazon.ca/dp/B08C2WMP7G",
       "Extrusion stand. Bag 3."
     ],
@@ -168,6 +179,7 @@
       "R+D",
       "–",
       "cad/actuator/body-middle.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -182,6 +194,7 @@
       "R+D",
       "–",
       "cad/actuator/body-lower.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -196,6 +209,7 @@
       "R+D",
       "–",
       "cad/actuator/belt-tensioner.step",
+      "–",
       "Actuator."
     ],
     [
@@ -210,6 +224,7 @@
       "R+D",
       "–",
       "cad/actuator/belt-clamp-top.step",
+      "–",
       "Actuator."
     ],
     [
@@ -224,6 +239,7 @@
       "R+D",
       "–",
       "cad/actuator/belt-clamp-bottom.step",
+      "–",
       "Actuator."
     ],
     [
@@ -238,6 +254,7 @@
       "R+D",
       "–",
       "cad/actuator/body-cover.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -252,6 +269,7 @@
       "R+D",
       "–",
       "cad/actuator/24mm-jam-nut.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -266,6 +284,7 @@
       "R+D",
       "–",
       "cad/stand/pcb-mount-base.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -280,6 +299,7 @@
       "R+D",
       "–",
       "cad/stand/pcb-mount-lid.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -294,6 +314,7 @@
       "R+D",
       "–",
       "cad/stand/57aim-ring-v1.1.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -308,6 +329,7 @@
       "R+D",
       "–",
       "cad/stand/pitclamp-lower-v1.1.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -322,6 +344,7 @@
       "R+D",
       "–",
       "cad/stand/README.md",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -336,6 +359,7 @@
       "R+D",
       "–",
       "cad/stand/pitclamp-dogbone-hex.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -350,6 +374,7 @@
       "R+D",
       "–",
       "cad/stand/pitclamp-dogbone-round.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator."
     ],
     [
@@ -364,6 +389,7 @@
       "R+D",
       "–",
       "cad/stand/pivot-plate-1.step",
+      "–",
       "Extrusion stand."
     ],
     [
@@ -378,6 +404,7 @@
       "R+D",
       "–",
       "cad/stand/pivot-plate-2.step",
+      "–",
       "Extrusion stand."
     ],
     [
@@ -392,6 +419,7 @@
       "R+D",
       "–",
       "cad/stand/handle-spacer.step",
+      "–",
       "Extrusion stand."
     ],
     [
@@ -406,10 +434,26 @@
       "R+D",
       "–",
       "cad/stand/foot.step",
+      "–",
       "Extrusion stand."
     ],
     [
       "29",
+      "OSSM T Nut Support",
+      "FDM",
+      "FDM-printed OSSM T Nut Support",
+      "2",
+      "each",
+      "R+D",
+      "–",
+      "R+D",
+      "–",
+      "–",
+      "–",
+      "Optional. Used in Ready-to-Play builds."
+    ],
+    [
+      "30",
       "End caps",
       "FDM",
       "FDM-printed extrusion end cap",
@@ -420,10 +464,11 @@
       "R+D",
       "–",
       "cad/stand/end-cap.step",
+      "–",
       "Extrusion stand. Bag 3."
     ],
     [
-      "30",
+      "31",
       "OSSM - 24mm Rail Adapter",
       "FDM",
       "Rail-to-24 mm thread end effector",
@@ -434,10 +479,11 @@
       "R+D",
       "–",
       "cad/actuator/24mm-rail-adapter.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator. Included in the printed parts kit."
     ],
     [
-      "31",
+      "32",
       "OSSM - Double Double",
       "FDM",
       "24 mm threaded Double Double toy mount",
@@ -448,10 +494,11 @@
       "R+D",
       "–",
       "–",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator. Included in the printed parts kit."
     ],
     [
-      "32",
+      "33",
       "OSSM - Flange Base",
       "FDM",
       "24 mm threaded flange base",
@@ -462,10 +509,11 @@
       "R+D",
       "–",
       "cad/end-effectors/flange-base.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator. Included in the printed parts kit."
     ],
     [
-      "33",
+      "34",
       "OSSM - Flange Ring 50mm",
       "FDM",
       "2 in (50 mm) flange ring",
@@ -476,10 +524,11 @@
       "R+D",
       "–",
       "cad/end-effectors/flange-ring-50mm.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator. Included in the printed parts kit."
     ],
     [
-      "34",
+      "35",
       "OSSM - Flange Ring 63mm",
       "FDM",
       "2.5 in (63 mm) flange ring",
@@ -490,10 +539,11 @@
       "R+D",
       "–",
       "cad/end-effectors/flange-ring-63mm.step",
+      "https://www.researchanddesire.com/products/ossm-3d-printed-part-kit",
       "Actuator. Included in the printed parts kit."
     ],
     [
-      "35",
+      "36",
       "M3x8mm",
       "FST",
       "ISO 4762 — M3x8 hexagon socket head cap screw",
@@ -503,11 +553,12 @@
       "–",
       "Bolt Depot",
       "13635",
+      "–",
       "https://boltdepot.com/Product-Details?product=13635",
       "Actuator. Includes 2 spares. Black oxide. Screw property class 12.9."
     ],
     [
-      "36",
+      "37",
       "M3x20mm",
       "FST",
       "ISO 4762 — M3x20 hexagon socket head cap screw",
@@ -517,11 +568,12 @@
       "–",
       "Bolt Depot",
       "13639",
+      "–",
       "https://boltdepot.com/Product-Details?product=13639",
       "Actuator. Includes 1 spare. Black oxide. Screw property class 12.9."
     ],
     [
-      "37",
+      "38",
       "M3 Nuts",
       "FST",
       "ISO 4032 — M3 hexagon regular nut (style 1)",
@@ -531,11 +583,12 @@
       "–",
       "Bolt Depot",
       "4773",
+      "–",
       "https://boltdepot.com/Product-Details?product=4773",
       "Actuator. Black oxide."
     ],
     [
-      "38",
+      "39",
       "M4x25mm",
       "FST",
       "ISO 4762 — M4x25 hexagon socket head cap screw",
@@ -545,11 +598,12 @@
       "–",
       "Bolt Depot",
       "6511",
+      "–",
       "https://boltdepot.com/Product-Details?product=6511",
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "39",
+      "40",
       "M4 Nuts",
       "FST",
       "ISO 4032 — M4 hexagon regular nut (style 1)",
@@ -559,11 +613,12 @@
       "–",
       "Bolt Depot",
       "4774",
+      "–",
       "https://boltdepot.com/Product-Details?product=4774",
       "Actuator. Black oxide."
     ],
     [
-      "40",
+      "41",
       "M5x20mm Caphead screws",
       "FST",
       "ISO 4762 — M5x20 hexagon socket head cap screw",
@@ -573,11 +628,12 @@
       "–",
       "Bolt Depot",
       "6523",
+      "–",
       "https://boltdepot.com/Product-Details?product=6523",
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "41",
+      "42",
       "M5x35mm",
       "FST",
       "ISO 4762 — M5x35 hexagon socket head cap screw",
@@ -587,11 +643,12 @@
       "–",
       "Bolt Depot",
       "6526",
+      "–",
       "https://boltdepot.com/Product-Details?product=6526",
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "42",
+      "43",
       "M5 Nuts",
       "FST",
       "ISO 4032 — M5 hexagon regular nut (style 1)",
@@ -601,11 +658,12 @@
       "–",
       "Bolt Depot",
       "4775",
+      "–",
       "https://boltdepot.com/Product-Details?product=4775",
       "Actuator. Includes 2 spares. Black oxide."
     ],
     [
-      "43",
+      "44",
       "M6x16mm",
       "FST",
       "ISO 4762 — M6x16 hexagon socket head cap screw",
@@ -615,11 +673,12 @@
       "–",
       "Bolt Depot",
       "6539",
+      "–",
       "https://boltdepot.com/Product-Details?product=6539",
       "Actuator. Black oxide. Screw property class 12.9."
     ],
     [
-      "44",
+      "45",
       "M6 T nut",
       "FST",
       "ISO 299 — M6 T-nut for 3030 extrusion",
@@ -629,11 +688,12 @@
       "–",
       "AliExpress",
       "30S-M6",
+      "–",
       "https://www.aliexpress.com/item/1005001714123635.html",
       "Actuator. Black oxide. Property class 12.9."
     ],
     [
-      "45",
+      "46",
       "M6x12 Screw",
       "FST",
       "ISO 4762 — M6x12 hexagon socket head cap screw",
@@ -643,11 +703,12 @@
       "–",
       "Bolt Depot",
       "6537",
+      "–",
       "https://boltdepot.com/Product-Details?product=6537",
       "Extrusion stand. Bag 1. Black oxide. Screw property class 12.9."
     ],
     [
-      "46",
+      "47",
       "M6x25 Screw",
       "FST",
       "ISO 4762 — M6x25 hexagon socket head cap screw",
@@ -657,11 +718,12 @@
       "–",
       "Bolt Depot",
       "6541",
+      "–",
       "https://boltdepot.com/Product-Details?product=6541",
       "Extrusion stand. Bag 1. Black oxide. Screw property class 12.9."
     ],
     [
-      "47",
+      "48",
       "M6 Washer",
       "FST",
       "ISO 7089 — M6 plain washer, normal series, product grade A",
@@ -671,11 +733,12 @@
       "–",
       "Bolt Depot",
       "4516",
+      "–",
       "https://boltdepot.com/Product-Details?product=4516",
       "Extrusion stand. Bag 1. Black oxide."
     ],
     [
-      "48",
+      "49",
       "M6 T-Nuts",
       "FST",
       "ISO 299 — M6 T-nut for 3030 extrusion",
@@ -685,11 +748,12 @@
       "–",
       "AliExpress",
       "30S-M6",
+      "–",
       "https://www.aliexpress.com/item/1005001714123635.html",
       "Extrusion stand. Bag 1. Black oxide. Property class 12.9."
     ],
     [
-      "49",
+      "50",
       "M6x25mm Handle",
       "FST",
       "M6x25mm Handle",
@@ -699,11 +763,12 @@
       "–",
       "AliExpress",
       "M6x50x25",
+      "–",
       "https://www.aliexpress.com/item/1005005417338944.html",
       "Extrusion stand. Bag 2."
     ],
     [
-      "50",
+      "51",
       "Rubber Washer",
       "FST",
       "Rubber washer",
@@ -713,11 +778,12 @@
       "–",
       "McMaster",
       "90131A603",
+      "–",
       "https://www.mcmaster.com/catalog/130/3689/90131A603",
       "Extrusion stand. Bag 3."
     ],
     [
-      "51",
+      "52",
       "M4x8mm Buttonhead Screws",
       "FST",
       "M4x8 buttonhead screws for the wired remote",
@@ -728,10 +794,11 @@
       "R+D",
       "–",
       "–",
+      "https://www.researchanddesire.com/products/ossm-remote-pcb-only",
       "Electronics. Included with wired remote."
     ],
     [
-      "52",
+      "53",
       "5x11x4mm Bearings",
       "LNM",
       "5 x 11 x 4 mm sealed bearing",
@@ -741,11 +808,12 @@
       "MR115-2RS",
       "AliExpress",
       "MR115-2RS",
+      "–",
       "https://www.aliexpress.com/item/1005004734688651.html",
       "Actuator."
     ],
     [
-      "53",
+      "54",
       "350mm Linear Rail",
       "LNM",
       "350 mm MGN12 linear rail with one carriage",
@@ -755,11 +823,12 @@
       "–",
       "Robotdigg",
       "GS_MGN12-1H-350CH",
+      "–",
       "https://www.robotdigg.com/product/1820/",
       "Actuator."
     ],
     [
-      "54",
+      "55",
       "Gold Motor",
       "MTR",
       "NEMA 23 integrated servo motor, gold finish",
@@ -769,11 +838,12 @@
       "57AIM30",
       "Robotdigg",
       "57AIM30",
+      "–",
       "https://www.robotdigg.com/product/1690/BLDC-Servo-Motor-with-CANBus-or-RS485-driver-NEMA23",
       "Actuator."
     ],
     [
-      "55",
+      "56",
       "OSSM Controller PCBA",
       "PCA",
       "Assembled ESP32 controller board, revision 2.3, 24 V input",
@@ -784,10 +854,11 @@
       "R+D",
       "–",
       "pcb/controller/OSSM_rev2_3.dip",
+      "https://www.researchanddesire.com/products/ossm-reference-board",
       "Electronics."
     ],
     [
-      "56",
+      "57",
       "3x3\" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",
       "PKG",
       "3x3\" bags (M6 Bolts, M6 Washers + T-Nuts, M6 Handles, M5 Fasteners, Rubber Washers + Feet)",
@@ -797,11 +868,12 @@
       "–",
       "Uline",
       "S-1692",
+      "–",
       "https://www.uline.ca/Product/Detail/S-1692/Reclosable-Poly-Bags/3-x-3-2-Mil-Reclosable-Bags",
       "Extrusion stand."
     ],
     [
-      "57",
+      "58",
       "6x8\" bag (3x3\" bags + End caps + Base brackets)",
       "PKG",
       "6x8\" bag (3x3\" bags + End caps + Base brackets)",
@@ -811,11 +883,12 @@
       "–",
       "Uline",
       "S-5065",
+      "–",
       "https://www.uline.ca/Product/Detail/S-5065/Resealable-Bags/6-x-8-15-Mil-Resealable-Bags",
       "Extrusion stand."
     ],
     [
-      "58",
+      "59",
       "6x12\" bags (All printed parts)",
       "PKG",
       "6x12\" bags (All printed parts)",
@@ -825,11 +898,12 @@
       "–",
       "Uline",
       "S-20313",
+      "–",
       "https://www.uline.ca/Product/Detail/S-20313/Resealable-Bags/6-x-12-15-Mil-Resealable-Bags",
       "Extrusion stand."
     ],
     [
-      "59",
+      "60",
       "20x6x6\" Cardboard box",
       "PKG",
       "20x6x6\" Cardboard box",
@@ -839,11 +913,12 @@
       "–",
       "Uline",
       "S-4639",
+      "–",
       "https://www.uline.ca/Product/Detail/S-4639/Corrugated-Boxes-200-Test/20-x-6-x-6-Long-Corrugated-Boxes",
       "Extrusion stand."
     ],
     [
-      "60",
+      "61",
       "24V Power Supply",
       "PSU",
       "24 V DC power supply, 5 A continuous output",
@@ -852,6 +927,7 @@
       "Generic Factory",
       "–",
       "R+D",
+      "–",
       "–",
       "https://www.researchanddesire.com/products/ossm-24v-power-supply",
       "Electronics."
