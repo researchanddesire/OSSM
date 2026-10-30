@@ -47,5 +47,7 @@ The double-arm assembly is the October 1, 2026 Onshape export
 `OSSM - Dual Stand Pivot Clamp.step`; its individual components are exported
 from that assembly, with modeled metal fasteners omitted from the print parts.
 The raised Pitclamp lettering has been removed from both upper clamps.
+The mirrored OSSM lettering reads normally in the STEP and print files, and
+the assembly includes aligned standard fasteners on both sides.
 
 Hardware and supporting files use the repository's **CERN-OHL-S v2** license.
