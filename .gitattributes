@@ -8,3 +8,9 @@
 *.jpg binary
 *.jpeg binary
 *.FCStd binary
+
+# Preserve the native PCB source bytes.
+*.dip binary
+*.dch binary
+hardware/pcb/remote/*.brd -text -whitespace
+hardware/pcb/remote/*.sch -text -whitespace
