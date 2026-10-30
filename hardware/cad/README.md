@@ -4,6 +4,8 @@
 lower-pivot foundation, with the single-arm frame shown by default. To view the
 double-arm alternative, hide the single-arm group and show the double-arm group
 in FreeCAD's model tree. Both configurations share the same origin.
+The primary arm is shown approximately 30° above the base rail, seated at the
+nearest tooth index of 30.4°. The double-arm model retains its second-joint bend.
 
 Both configurations also include a representative
 [PitClamp PCB enclosure and motor-clamp assembly](stand/pitclamp-enclosure/README.md)

@@ -61,13 +61,18 @@ enclosure, cover, standard Mini upper, handle, dogbones, and nominal 57AIM ring
 are placed without geometry changes. This assembly update does not alter the
 standalone native enclosure, STEP, 3MF, or STLs recorded above.
 
-The single-arm enclosure is oriented with its housing above the jaw, toward
-the rail's free end. The double-arm placement is unchanged. The three mounting
+The single-arm enclosure matches the supplied assembly reference: its housing
+extends toward the lower pivot, with its ring on the opposite side of the rail.
+Both primary arms are shown approximately 30° above the
+base, at the seated 30.4° tooth index. The double-arm model retains its 30.4°
+inter-arm bend, placing its second arm at 60.8° above the base. The upper clamp,
+enclosure and hidden references move rigidly with their mounting rail.
+The three mounting
 stations align to the rail slot at these distances from the free end:
 
 | Configuration | Mounting station distances (mm) |
 | --- | --- |
-| Single arm | 16.000, 78.606, 148.606 |
+| Single arm | 33.782, 103.782, 166.388 |
 | Double arm | 33.782, 103.782, 166.388 |
 
 The conservative body outline stays 5 mm inside that end. The body and cover
@@ -85,9 +90,12 @@ packaging review. The actuator and new clamp/enclosure fasteners remain absent.
 Full latch closure, hardware/tool access, mechanism travel, physical fit, and
 load capacity remain open checks.
 
-The saved assembly was reopened and checked: each alternative contains seven
+During the initial integration, the saved assembly was reopened and checked:
+each alternative contains seven
 valid single-solid parts in the added set, plus 23 hidden colored references.
-All 511 original objects retain their geometry, placements, and appearance.
+All 511 original objects retained their geometry, placements, and appearance
+at that stage. The working-angle update changes only the moving assemblies'
+placements and grouping; the base and first-joint fixed parts stay fixed.
 The document has no external links, opens with the single-arm alternative
 visible, and was inspected in full-frame and close views for both alternatives.
 These are digital assembly checks; the physical checks below remain open.

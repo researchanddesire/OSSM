@@ -308,22 +308,22 @@
     "enclosure_native_to_assembly_matrices": {
       "SingleFrame": [
         [
-          -0.006981260297949321,
-          -8.549578077898016e-19,
-          0.9999756307053949,
-          -93.56668908673373
+          -0.8625136692072513,
+          -6.197126294914702e-17,
+          -0.5060337641211746,
+          203.9257329632063
         ],
         [
-          1.2246467991473532e-16,
+          -1.5163740643440559e-30,
           -1.0,
-          8.444525349047253e-33,
-          14.214875645962493
+          1.2246467991473535e-16,
+          14.214875645963712
         ],
         [
-          0.9999756307053949,
-          1.2246169553687175e-16,
-          0.00698126029794921,
-          351.4184051816653
+          -0.5060337641211746,
+          1.0562746042155069e-16,
+          0.8625136692072511,
+          267.6896634787422
         ],
         [
           0.0,
@@ -334,32 +334,174 @@
       ],
       "DoubleFrame": [
         [
-          0.5120428648705727,
-          0,
-          0.8589598969306638,
-          -338.8524903139738
+          -0.48785965913873164,
+          0.0,
+          0.8729220772698105,
+          368.48522462387336
         ],
         [
           0.0,
-          1,
-          0,
+          1.0,
+          0.0,
           -13.785124354037478
         ],
         [
-          -0.8589598969306638,
-          0,
-          0.5120428648705727,
-          750.7865724152467
+          -0.8729220772698105,
+          0.0,
+          -0.48785965913873164,
+          610.5994632896308
         ],
         [
-          0,
-          0,
-          0,
-          1
+          0.0,
+          0.0,
+          0.0,
+          1.0
         ]
       ]
     },
     "recorded_placement_checks": {
+      "SingleFrame": {
+        "mount_station_free_end_distances_mm": [
+          33.78210404287794,
+          103.78210404287815,
+          166.38790876864226
+        ],
+        "conservative_body_free_end_clearance_mm": 5.0,
+        "actual_body_free_end_clearance_mm": 5.133341186932729,
+        "body_tip_cap_clearance_mm": 8.011897621040486,
+        "cover_tip_cap_clearance_mm": 71.60265406429248,
+        "cover_to_rail_clearance_mm": 7.024411338142558,
+        "maximum_mount_axis_center_or_support_plane_error_mm": 8.515637429626182e-12,
+        "coincident_mounting_rail_boolean_used": false,
+        "native_min_vertex_z_mm": -0.0005000000000592308
+      },
+      "DoubleFrame": {
+        "mount_station_free_end_distances_mm": [
+          33.78210404287747,
+          103.7821040428777,
+          166.38790876864184
+        ],
+        "conservative_body_free_end_clearance_mm": 5.0,
+        "actual_body_free_end_clearance_mm": 5.133341186931979,
+        "body_tip_cap_clearance_mm": 7.853685261068569,
+        "cover_tip_cap_clearance_mm": 70.402146002904,
+        "cover_to_rail_clearance_mm": 7.024411338142416,
+        "maximum_mount_axis_center_or_support_plane_error_mm": 6.096896864240928e-13,
+        "coincident_mounting_rail_boolean_used": false,
+        "native_min_vertex_z_mm": -0.0005000000000556781
+      }
+    },
+    "physical_fit_and_loaded_strength_validated": false,
+    "full_mechanism_and_locked_latch_validation_complete": false,
+    "known_nominal_ring_interferences_mm3": {
+      "upper_collar": 22.156358595
+    },
+    "nominal_ring_role": "visible source reference only; resolve upper-collar fit before fabrication of assembled motor-clamp variant",
+    "baseline_revision": "d611d423ca4cedb4c8780cf9068fbbae6b5d58eb",
+    "baseline_assembly_git_blob": "0da669c49d53041e7d1abb3bb50aca96d75dbae8",
+    "baseline_object_count": 511,
+    "new_clamp_and_enclosure_fasteners_modeled": false,
+    "recorded_static_common_volumes_mm3": {
+      "ring_57aim__body": 0.0,
+      "ring_57aim__cover": 0.0,
+      "upper__cover": 0.0,
+      "handle__cover": 0.0,
+      "dogbone_round__cover": 0.0,
+      "dogbone_hex__cover": 0.0
+    },
+    "static_pose_limits": "Representative seated-linkage pose with raised handle; not a locked latch or validated complete motion. Full actuator absent.",
+    "sha256": "028883aea3e8e17d634acb2cc9c6e6c22b9aa7bcccdbde5308338ba02f8888e0",
+    "size_bytes": 35641481,
+    "saved_validation": {
+      "reopened_in_freecad": true,
+      "original_objects_preserved": 511,
+      "object_count": 679,
+      "original_geometry_placement_and_appearance_preserved": true,
+      "original_brep_members": 322,
+      "original_brep_members_byte_identical": 226,
+      "maximum_brep_numeric_serialization_delta": 3.3306690738754696e-16,
+      "brep_serialization_note": "OpenCascade normalized last-bit analytic-axis decimal values on save; all BRep structure and numeric values otherwise preserved.",
+      "new_valid_single_solids_per_configuration": 7,
+      "hidden_colored_references_per_configuration": 23,
+      "external_links": 0,
+      "default_single_visible_double_hidden": true,
+      "full_and_close_views_inspected": true,
+      "scope": "Initial enclosure integration, before the working-angle pose correction."
+    },
+    "single_arm_orientation_correction": {
+      "date": "2026-10-30",
+      "previous_assembly_sha256": "2a8bb3474970899ef0ac5d646ccf83966145815c24fb16851c9b6414e3c1d5f3",
+      "change": "Rotate complete single-arm enclosure/clamp group 180 degrees in mounting plane; housing above jaw, toward free end; retain longitudinal footprint and mounting centerline.",
+      "only_changed_placement": "Single_MotorPitClampEnclosure",
+      "double_arm_world_placements_unchanged": true,
+      "all_shapes_materials_references_and_visibility_preserved": true,
+      "reopened_in_freecad": true,
+      "corrected_full_and_close_views_inspected": true
+    },
+    "recorded_placement_checks_scope": "Current approximately 30-degree working pose and screenshot-matching single upper clamp. Initial placement checks are retained separately as historical records.",
+    "working_pose_correction": {
+      "date": "2026-10-30",
+      "baseline_revision": "e2f9926f94d297277190c39f626abff9f2cd145c",
+      "baseline_assembly_sha256": "d1792566807675d77cd7864a93f752973b7762d25412d03b7c577fe86807189f",
+      "nominal_primary_arm_angle_deg": 30,
+      "indexed_primary_arm_angle_deg": 30.4,
+      "double_secondary_arm_angle_deg": 60.8,
+      "double_inter_arm_bend_deg": 30.4,
+      "tooth_pitch_deg": 4,
+      "reason_for_indexed_pose": "Exact 30 degrees adds 1.05743386 mm3 of tooth interference; the nearest seated 30.4-degree pose keeps ring/lower-jaw overlap at zero.",
+      "pivot_mm": [
+        -106.58923063093496,
+        0.2148756459631,
+        68.12058766142735
+      ],
+      "rotation_axis": "global Y",
+      "rotation_from_previous_deg": 60,
+      "moving_groups": [
+        "Single_WorkingArm",
+        "Double_WorkingArm"
+      ],
+      "single_moving_geometry_features": 43,
+      "double_moving_geometry_features": 136,
+      "single_fixed_geometry_features": 92,
+      "double_fixed_geometry_features": 111,
+      "upper_clamp_and_hidden_references_move_with_rail": true,
+      "single_upper_clamp_orientation": "Matches supplied assembly reference: housing toward lower pivot, ring on opposite side of rail.",
+      "single_upper_group_local_placement": {
+        "position_mm": [
+          -124.16363830144162,
+          14.214875645963712,
+          436.81897229781123
+        ],
+        "quaternion_xyzw": [
+          -0.7095707365365252,
+          4.314640149008228e-17,
+          0.7046342099635904,
+          4.3448676563403745e-17
+        ]
+      },
+      "all_part_geometry_appearance_and_visibility_preserved": true,
+      "standalone_enclosure_and_print_files_unchanged": true,
+      "new_pose_clearances_mm": {
+        "arm_rail_to_base": 10.679,
+        "arm_root_cap_to_base": 9.667
+      },
+      "single_upper_mount_station_free_end_distances_mm": [
+        33.782104042877926,
+        103.78210404287813,
+        166.38790876864223
+      ],
+      "single_upper_mount_maximum_axis_center_or_support_plane_error_mm": 8.52e-12,
+      "known_existing_fit_limits_unchanged": true,
+      "reopened_in_freecad": true,
+      "geometry_features": 382,
+      "blue_inlays_preserved": 113,
+      "external_links": 0,
+      "default_single_visible_double_hidden": true,
+      "full_and_side_views_inspected": true,
+      "maximum_geometry_serialization_delta": 9.992007221626409e-16,
+      "maximum_world_placement_error_mm": 1.7053025658242404e-13
+    },
+    "initial_recorded_placement_checks": {
       "SingleFrame": {
         "mount_station_free_end_distances_mm": [
           148.60580472576424,
@@ -386,52 +528,6 @@
         "coincident_mounting_rail_boolean_used": false,
         "native_min_vertex_z_mm": -0.000500000000051
       }
-    },
-    "physical_fit_and_loaded_strength_validated": false,
-    "full_mechanism_and_locked_latch_validation_complete": false,
-    "known_nominal_ring_interferences_mm3": {
-      "upper_collar": 22.156358595
-    },
-    "nominal_ring_role": "visible source reference only; resolve upper-collar fit before fabrication of assembled motor-clamp variant",
-    "baseline_revision": "d611d423ca4cedb4c8780cf9068fbbae6b5d58eb",
-    "baseline_assembly_git_blob": "0da669c49d53041e7d1abb3bb50aca96d75dbae8",
-    "baseline_object_count": 511,
-    "new_clamp_and_enclosure_fasteners_modeled": false,
-    "recorded_static_common_volumes_mm3": {
-      "ring_57aim__body": 0.0,
-      "ring_57aim__cover": 0.0,
-      "upper__cover": 0.0,
-      "handle__cover": 0.0,
-      "dogbone_round__cover": 0.0,
-      "dogbone_hex__cover": 0.0
-    },
-    "static_pose_limits": "Representative seated-linkage pose with raised handle; not a locked latch or validated complete motion. Full actuator absent.",
-    "sha256": "d1792566807675d77cd7864a93f752973b7762d25412d03b7c577fe86807189f",
-    "size_bytes": 35628406,
-    "saved_validation": {
-      "reopened_in_freecad": true,
-      "original_objects_preserved": 511,
-      "object_count": 679,
-      "original_geometry_placement_and_appearance_preserved": true,
-      "original_brep_members": 322,
-      "original_brep_members_byte_identical": 226,
-      "maximum_brep_numeric_serialization_delta": 3.3306690738754696e-16,
-      "brep_serialization_note": "OpenCascade normalized last-bit analytic-axis decimal values on save; all BRep structure and numeric values otherwise preserved.",
-      "new_valid_single_solids_per_configuration": 7,
-      "hidden_colored_references_per_configuration": 23,
-      "external_links": 0,
-      "default_single_visible_double_hidden": true,
-      "full_and_close_views_inspected": true
-    },
-    "single_arm_orientation_correction": {
-      "date": "2026-10-30",
-      "previous_assembly_sha256": "2a8bb3474970899ef0ac5d646ccf83966145815c24fb16851c9b6414e3c1d5f3",
-      "change": "Rotate complete single-arm enclosure/clamp group 180 degrees in mounting plane; housing above jaw, toward free end; retain longitudinal footprint and mounting centerline.",
-      "only_changed_placement": "Single_MotorPitClampEnclosure",
-      "double_arm_world_placements_unchanged": true,
-      "all_shapes_materials_references_and_visibility_preserved": true,
-      "reopened_in_freecad": true,
-      "corrected_full_and_close_views_inspected": true
     }
   }
 }

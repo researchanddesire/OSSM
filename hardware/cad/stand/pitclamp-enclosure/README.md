@@ -38,10 +38,13 @@ included in this snapshot.
 
 The [OSSM assembly](../../ossm-assembly.FCStd) includes this enclosure and cover
 on the final moving arm of both the single-hinge and double-hinge stands. The
-single-arm housing sits above the jaw, toward the rail's free end. The
+single-arm housing extends toward the lower pivot, with the ring on the
+opposite side of the rail, matching the supplied assembly reference. The
 double-arm housing extends toward its arm pivot. All three M6 mounting stations
 align to the rail's T-slot. The standard Mini upper, raised handle, and both
 dogbones are included as assembly context. The handle is not in a locked pose.
+The primary arm is shown at approximately 30° above the base (30.4° at the
+nearest tooth index). The complete upper clamp moves with its mounting rail.
 
 Each configuration retains its own 23 hidden colored electronics and motor
 references. The nominal 57AIM ring is shown for context only. It clears the
