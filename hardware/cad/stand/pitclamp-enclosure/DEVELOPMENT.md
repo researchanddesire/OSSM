@@ -1,9 +1,9 @@
 # Development status
 
-Tracking snapshot added on 2026-10-30. The native geometry was saved on
-2026-10-15; the accepted print package and slicer investigation were recorded
-on 2026-10-16. This import records that existing work without changing its
-geometry or treating it as a released replacement for the shipped parts.
+Tracking snapshot added on 2026-10-30. The original native geometry was saved
+on 2026-10-15 and its accepted print package was checked on 2026-10-16.
+The M6 hinge revision below updates that snapshot. This remains a development
+variant rather than a released replacement for the shipped parts.
 
 ## Current design
 
@@ -27,7 +27,7 @@ surface join is tangent or curvature continuous, or that the industrial design
 review is complete. Intentional chamfer creases, mating seams, screw seats, and
 grip texture remain.
 
-## Recorded digital checks
+## Recorded digital checks — original 2026-10-16 snapshot
 
 - The native body and cover were valid single solids; the STEP reimport
   contained the two corresponding solids.
@@ -44,13 +44,13 @@ grip texture remain.
   sampled cover-removal positions were checked during development. Those
   regional checks do not prove full mechanism travel or physical fit.
 
-The print artifacts and STEP are imported byte-for-byte. The PR copy of the
-native document changes only its `License` and `LicenseURL` metadata from the
+At the initial import, the print artifacts and STEP were copied byte-for-byte. The copy of the
+native document changed only its `License` and `LicenseURL` metadata from the
 FreeCAD defaults to the repository's CERN-OHL-S v2 notice. Its geometry,
-appearance, references, and all other document content remain identical; the
+appearance, references, and all other document content were identical; the
 original workspace file is untouched. The [manifest](source.json) records both
-native hashes and binds the recorded checks to this snapshot. This PR does
-not claim that all geometry or physical checks were rerun on import.
+native hashes and binds those historical checks to that snapshot. The M6
+revision has its own native, mesh and slicer checks below.
 
 ## Stand assembly integration — 2026-10-30
 
@@ -73,10 +73,9 @@ The curved front clears the checked motor and adapter parts; its overlap with
 the lower body is below 0.0002 mm³ numerical residue. Source rigid-body contacts
 remain: adapter/upper jaw 118.239 mm³, adapter/motor 0.356 mm³ and
 upper jaw/lever 0.342 mm³. The retained lower/adapter contact is 63.906 mm³;
-the source M6 hinge screw intersects the enclosure lower by 94.085 mm³. Its
-axis aligns, but the retained 5.2 mm passage and source M6 screw require a
-separate fit decision. A tested M5 substitution did not seat its nut cleanly,
-so the source hardware layout is retained without assuming threaded engagement. The adapter and jaw cylinder axes are about 0.299 mm
+the source M6 hinge screw originally intersected the enclosure lower by
+94.085 mm³ at its head seat. The M6 interface revision below replaces that
+earlier fit limitation. The adapter and jaw cylinder axes are about 0.299 mm
 eccentric in the source closed-clamp pose. The adapter/upper contacts are inherited from Onshape; the enclosure interfaces
 are recorded separately. They do not establish operating clearance. The earlier
 22.156 mm³ nominal-ring check is superseded by this source configuration.
@@ -85,7 +84,41 @@ The assembly-derived lever and adapter may need a tolerance-only BRep fix on
 import; original individual STEP exports are retained. Deep Boolean checks
 also flag curve/surface warnings in the source lever, including the historical
 version. No new print package or physical-fit result is established by this
-integration. The standalone enclosure and print artifacts above are unchanged.
+integration. The M6 revision updates the standalone enclosure and its body
+print artifacts separately.
+
+## M6 hinge revision — 2026-10-30
+
+- Enlarge the inherited 5.2 mm passage to 6.0 mm on the existing hinge axis.
+- Use a 10.4 mm head counterbore through the near lower ear, ending at native
+  Y7.9. It braces the 10 mm bolt head with 0.2 mm radial clearance. The head
+  bears directly on the moving upper arm at Y8; the near lower ear retains
+  its 0.1 mm axial gap.
+- Resize the nut trap to 10.2 mm across flats. Keep its floor at Y24 so the
+  original 1.9 mm supporting wall remains; move the source M6 nut outward
+  by 1 mm instead of cutting a deeper recess.
+- Use an ISO 4762 M6 × 25 screw. Its end reaches native Y33; the old M6 × 20
+  source STEP remains available with the actuator source parts.
+
+Three sketches and native Pocket features follow the saved surface stage in
+the FreeCAD body. The body remains one valid solid. The body STEP and native
+document are updated together; the cover and the 23 hidden references are
+retained. The screw STEP is generated standard hardware geometry from the
+FreeCAD Fasteners workbench, not an Onshape export; the manifest records its
+generator revision and dimensions.
+
+The updated STEP reimports as two valid closed solids. It uses the previous
+accepted STEP surface representation with the same three local interface
+cuts. Interior samples cover every face in both directions; the largest
+sampled separation is 0.00224 mm. This is a sampled comparison, not a global
+error bound. Default CAD volume integration differs between representations;
+the manifest records the measured values and comparison limits.
+
+The print body keeps the accepted mesh and applies only the three local
+interface cuts. Zero-area triangles created where a cut meets a coplanar
+surface are removed after STL serialization. The cover mesh and 3MF bed layout
+are retained. Fresh mesh and Bambu Studio 02.08.02.61 checks apply to the new
+checksummed package; the body cantilever warning remains.
 
 ## Work to track
 

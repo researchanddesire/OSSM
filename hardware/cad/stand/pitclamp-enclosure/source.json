@@ -1,7 +1,7 @@
 {
   "snapshot_added_date": "2026-10-30",
-  "native_geometry_saved_date": "2026-10-15",
-  "recorded_print_validation_date": "2026-10-16",
+  "native_geometry_saved_date": "2026-10-30",
+  "recorded_print_validation_date": "2026-10-30",
   "units": "millimeter",
   "development_status": "work in progress; not a released BOM replacement",
   "license": "CERN-OHL-S-2.0",
@@ -12,7 +12,8 @@
     ],
     "all_other_document_xml_content_identical": true,
     "all_other_archive_member_payloads_identical": true,
-    "original_workspace_document_unchanged": true
+    "original_workspace_document_unchanged": true,
+    "scope": "Historical initial import before the M6 geometry revision; current geometry changes are recorded separately below."
   },
   "artifacts": [
     {
@@ -20,36 +21,44 @@
       "role": "native CAD",
       "original_workspace_filename": "OSSM-PitClamp-Latest.FCStd",
       "source_sha256": "c4c33bfcb871e83053dd05ea7515b710255139bdf36047adc8ef404108bc7e9b",
-      "sha256": "a5bbebcd7b9f7f620eb6e92abce38ceb88f04b6ad1e5dd1d485f54a8e354abb7",
-      "size_bytes": 7855794,
-      "byte_identical_to_workspace": false
+      "sha256": "4efcc8f4c5126954354c8e5cd322bb7d014ebe0e89f3d18f782142aa756ac879",
+      "size_bytes": 11183047,
+      "byte_identical_to_workspace": false,
+      "previous_sha256": "a5bbebcd7b9f7f620eb6e92abce38ceb88f04b6ad1e5dd1d485f54a8e354abb7",
+      "revision": "M6 hinge interfaces, 2026-10-30"
     },
     {
       "path": "pitclamp-enclosure.step",
-      "role": "CAD interchange; fine tessellation limitation",
+      "role": "Revised body and unchanged cover; valid CAD interchange, fine slicer tessellation not requalified",
       "original_workspace_filename": "OSSM-PitClamp-Latest.step",
       "source_sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
-      "sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
-      "size_bytes": 3382395,
-      "byte_identical_to_workspace": true
+      "sha256": "dea042ed370464e5caccb48de1e080ef935c0d1c9a929e1aae9cad23340153a5",
+      "size_bytes": 3281577,
+      "byte_identical_to_workspace": false,
+      "previous_sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
+      "revision": "M6 hinge interfaces, 2026-10-30"
     },
     {
       "path": "print/pitclamp-enclosure.3mf",
-      "role": "verified generic print package",
+      "role": "Revised generic print package, checked in Bambu Studio 02.08.02.61",
       "original_workspace_filename": "OSSM-PitClamp-Latest.3mf",
       "source_sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
-      "sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
-      "size_bytes": 726707,
-      "byte_identical_to_workspace": true
+      "sha256": "0735574e5381a1c0f5f4502cabc8fa5c00eac822c704d50f7e569a68652c2afc",
+      "size_bytes": 771567,
+      "byte_identical_to_workspace": false,
+      "previous_sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
+      "revision": "M6 hinge interfaces, 2026-10-30"
     },
     {
       "path": "print/body.stl",
-      "role": "accepted body print mesh",
+      "role": "Revised accepted body mesh with three local M6 interface cuts",
       "original_workspace_filename": "Latest-Body.stl",
       "source_sha256": "7ccdc0d7ea2787c324924109d4b866b734074bff0b46167e404579218db662df",
-      "sha256": "7ccdc0d7ea2787c324924109d4b866b734074bff0b46167e404579218db662df",
-      "size_bytes": 2272884,
-      "byte_identical_to_workspace": true
+      "sha256": "115c7670752b8399a6125fc6c7e8ba47c792dd1a2aeaf0d7206f9e65348f7258",
+      "size_bytes": 2375284,
+      "byte_identical_to_workspace": false,
+      "previous_sha256": "7ccdc0d7ea2787c324924109d4b866b734074bff0b46167e404579218db662df",
+      "revision": "M6 hinge interfaces, 2026-10-30"
     },
     {
       "path": "print/cover.stl",
@@ -58,7 +67,17 @@
       "source_sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
       "sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
       "size_bytes": 194884,
-      "byte_identical_to_workspace": true
+      "byte_identical_to_workspace": true,
+      "previous_sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
+      "revision": "unchanged accepted cover mesh"
+    },
+    {
+      "path": "m6x25-hinge-screw.step",
+      "role": "ISO 4762 M6 x25 hinge screw; generated standard hardware model",
+      "sha256": "765765b0e5cc7e4814a0e0038842dfbe2d14366aee18f5b7f423d721c94019f9",
+      "size_bytes": 905192,
+      "onshape_export": false,
+      "generation_reference": "m6_hinge_revision.screw_generation"
     }
   ],
   "source_references": [
@@ -89,12 +108,21 @@
       "ConnectorsAndHarness": 11,
       "MotorReference": 1
     },
-    "enclosure_tip": "SurfaceContinuity",
+    "enclosure_tip": "M6NutTrap",
     "cover_tip": "CoverGeometry",
-    "sketches": 0,
-    "final_surface_stage": "stored solid; dimensions descriptive; not a complete parametric rebuild history"
+    "sketches": 3,
+    "final_surface_stage": "Original stored SurfaceContinuity solid followed by three editable native sketch/Pocket operations for M6 hinge interfaces; original feature history and references retained."
   },
-  "recorded_print_validation": {
+  "known_step_limitation": {
+    "valid_cad_solids": 2,
+    "fine_slicer_tessellation_repaired": false,
+    "investigated_slicer_settings": {
+      "linear_deflection_mm": 0.001,
+      "angular_deflection_rad": 0.05
+    },
+    "print_route": "print/pitclamp-enclosure.3mf or print/*.stl"
+  },
+  "historical_print_validation_2026_10_16": {
     "body_triangles": 45456,
     "cover_triangles": 3896,
     "closed_components_per_object": 1,
@@ -115,16 +143,36 @@
     "remaining_warning": "It seems object Body has floating cantilever. Please re-orient the object or enable support generation.",
     "physical_fit_and_loaded_strength_validated": false
   },
-  "known_step_limitation": {
-    "valid_cad_solids": 2,
-    "fine_slicer_tessellation_repaired": false,
-    "investigated_slicer_settings": {
-      "linear_deflection_mm": 0.001,
-      "angular_deflection_rad": 0.05
-    },
-    "print_route": "print/pitclamp-enclosure.3mf or print/*.stl"
+  "recorded_print_validation": {
+    "body_triangles": 47504,
+    "cover_triangles": 3896,
+    "closed_components_per_object": 1,
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "winding_consistent": true,
+    "manifold_boolean_status": "NoError",
+    "cover_mesh_unchanged": true,
+    "three_mf_units": "millimeter",
+    "three_mf_printer_settings_embedded": false,
+    "three_mf_layout_preserved": true,
+    "three_mf_layout_gap_mm": 10,
+    "bambu_studio_version": "02.08.02.61",
+    "bambu_import_manifold_objects": 2,
+    "bambu_import_parts_per_object": 1,
+    "diagnostic_profile": "P2S 0.4 mm nozzle, 0.20 Standard, Bambu PLA Basic; diagnostic only",
+    "diagnostic_plate_arranged_for_slice": true,
+    "print_package_layout_modified_by_diagnostic": false,
+    "slice_return_code": 0,
+    "slice_result": "Success.",
+    "remaining_warning": "It seems object Body has floating cantilever. Please re-orient the object or enable support generation.",
+    "physical_fit_and_loaded_strength_validated": false,
+    "mesh_revision_method": "subtract only the \u00d86 bore, \u00d810.4 head counterbore and AF10.2 nut trap from accepted body mesh; unchanged cover mesh retained",
+    "maximum_cutter_chord_radial_error_mm": 5.647415219667273e-05,
+    "float32_zero_area_cleanup_removed_faces": 252,
+    "vertex_merge_rounding_decimal_places": 6,
+    "added_volume_mm3": 1.181006561597963e-14
   },
-  "representative_stand_assembly": {
+  "initial_representative_stand_assembly_2026_10_30": {
     "repository_path": "hardware/cad/ossm-assembly.FCStd",
     "integration_date": "2026-10-30",
     "scope": "representative motor-clamp and PCB enclosure context in both stand alternatives; actuator absent",
@@ -529,5 +577,576 @@
         "native_min_vertex_z_mm": -0.000500000000051
       }
     }
+  },
+  "representative_stand_assembly": {
+    "repository_path": "hardware/cad/ossm-assembly.FCStd",
+    "configurations": [
+      "SingleFrame",
+      "DoubleFrame"
+    ],
+    "actuator_included": true,
+    "enclosure_geometry_revision": "M6 hinge interfaces, 2026-10-30",
+    "source_enclosure_native_sha256": "4efcc8f4c5126954354c8e5cd322bb7d014ebe0e89f3d18f782142aa756ac879",
+    "cover_geometry_modified": false,
+    "lower_pivot_and_frame_geometry_modified": false,
+    "hidden_colored_references_per_configuration": 23,
+    "hinge_screw": "m6x25-hinge-screw.step",
+    "hinge_nut": "original source M6 nut, translated +1 mm along enclosure-native Y",
+    "existing_working_arm_placements_preserved": true,
+    "physical_fit_and_loaded_strength_validated": false
+  },
+  "m6_hinge_revision": {
+    "date": "2026-10-30",
+    "requested_pivot_inside_diameter_mm": 6.0,
+    "axis_center_native_xz_mm": [
+      -34.6494229150323,
+      12.648782015346896
+    ],
+    "axis": "enclosure-native +Y",
+    "native_sketches_and_pockets": [
+      "PivotBore6mmSketch",
+      "PivotBore6mm",
+      "M6HeadCounterboreSketch",
+      "M6HeadCounterbore",
+      "M6NutTrapSketch",
+      "M6NutTrap"
+    ],
+    "bore_diameter_mm": 6.0,
+    "head_counterbore_diameter_mm": 10.4,
+    "counterbore_end_and_near_lower_inner_face_y_mm": 7.9,
+    "upper_arm_head_bearing_plane_y_mm": 8.0,
+    "near_lower_axial_gap_mm": 0.1,
+    "bolt_head_radial_brace_clearance_per_side_mm": 0.2,
+    "intended_load_path": "Ordinary M6 bolt head bears directly on the moving upper arm. The near lower counterbore provides radial head bracing and opens through to its inner face.",
+    "nut_trap_across_flats_mm": 10.2,
+    "nut_trap_floor_y_mm": 24.0,
+    "nut_trap_front_wall_y_mm": 22.1,
+    "supporting_wall_thickness_mm": 1.9,
+    "source_nut_translation_native_mm": [
+      0.0,
+      1.0,
+      0.0
+    ],
+    "actual_nut_bearing_plane_y_mm": 23.99999905620284,
+    "screw_nominal_length_mm": 25.0,
+    "screw_under_head_plane_y_mm": 7.99999943929438,
+    "screw_actual_tip_y_mm": 32.99999943929438,
+    "body_valid": true,
+    "body_solids": 1,
+    "body_faces": 429,
+    "body_volume_mm3": 102882.28069516458,
+    "cover_unchanged": true,
+    "source_reference_geometry_unchanged": true,
+    "contacts": {
+      "body__bolt": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 6.362849697178172e-12
+      },
+      "body__nut": {
+        "common_volume_mm3": 6.334842083129995e-05,
+        "minimum_distance_mm": 1.7763568394002505e-15
+      },
+      "upper__bolt": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 2.8532515735351556e-14
+      },
+      "upper__nut": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 1.9999990562025616
+      },
+      "lever__bolt": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 76.58069768532903
+      },
+      "lever__nut": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 75.93468406255015
+      },
+      "adapter__bolt": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 8.497000834748029
+      },
+      "adapter__nut": {
+        "common_volume_mm3": 0.0,
+        "minimum_distance_mm": 8.166139283461106
+      }
+    },
+    "nut_contact_interpretation": "Approximately 0.00006335 mm3 numerical residue from the source nut bearing plane being 0.000000944 mm below Y24; radial nut clearance is preserved.",
+    "screw_generation": {
+      "software": "FreeCAD Fasteners workbench",
+      "repository": "https://github.com/shaise/FreeCAD_FastenersWB",
+      "commit": "5f025c3e9976a201aeb2003a06d13fb7883cced9",
+      "generator_function": "ScrewMaker.Instance.createFastener",
+      "standard": "ISO4762",
+      "diameter": "M6",
+      "length_mm": 25.0,
+      "thread": true,
+      "left_handed": false,
+      "onshape_export": false,
+      "canonical_frame": "axis Z, under-head plane Z0, head toward +Z, tip Z-25",
+      "installed_frame": "under-head center native(-34.64942287558529,7.99999943929438,12.64878206175436), local +Z maps native -Y",
+      "valid_single_solid": true,
+      "faces": 118,
+      "native_volume_mm3": 961.3841686366834
+    },
+    "master_screw_roundtrip_maximum_vertex_error_mm": 7.530160812843662e-14,
+    "physical_validation_complete": false,
+    "native_and_step_validation": {
+      "representation": "Previous accepted solid STEP body with the same M6 interface cuts; unchanged cover. Export head cutter overruns its nominal Y7.9 end by0.0001 mm only into the pre-existing empty fork gap to clear numerical wafer.",
+      "native_body_geometry_changed_for_step_export": false,
+      "head_tool_export_overrun_mm": 0.0001,
+      "solid_count": 2,
+      "closed": true,
+      "valid": true,
+      "solids": [
+        {
+          "faces": 429,
+          "valid": true,
+          "closed": true,
+          "volume_mm3": 102876.59644523861
+        },
+        {
+          "faces": 81,
+          "valid": true,
+          "closed": true,
+          "volume_mm3": 20679.892042945878
+        }
+      ],
+      "all_native_and_step_basis_vertices_on_opposite_surfaces_within_mm": 3.978225667280688e-06,
+      "step_sha256": "dea042ed370464e5caccb48de1e080ef935c0d1c9a929e1aae9cad23340153a5",
+      "step_size_bytes": 3281577
+    },
+    "step_representation_comparison": {
+      "method": "Use the prior accepted solid STEP representation with the same three local M6 cutters; compare all vertices to actual opposite surfaces rather than requiring matching seam vertices.",
+      "checks": {
+        "native_to_step_basis": {
+          "vertices": 768,
+          "matching_vertices_within_1e7_mm": 764,
+          "surface_tests": 4,
+          "maximum_vertex_to_opposite_surface_distance_mm": 3.978225667280688e-06,
+          "tested_nonmatching_vertices": [
+            {
+              "point": [
+                -29.4494229150323,
+                0.0,
+                12.6487820153469
+              ],
+              "nearest_other_vertex_mm": 2.6597361757987423,
+              "opposite_surface_distance_mm": 2.5217872234861716e-10
+            },
+            {
+              "point": [
+                -29.4494229150323,
+                7.9,
+                12.6487820153469
+              ],
+              "nearest_other_vertex_mm": 0.8000000000022993,
+              "opposite_surface_distance_mm": 3.978225667280688e-06
+            },
+            {
+              "point": [
+                -31.6494229150323,
+                22.1,
+                12.6487820153469
+              ],
+              "nearest_other_vertex_mm": 2.6273334147179384,
+              "opposite_surface_distance_mm": 2.1012880327636786e-10
+            },
+            {
+              "point": [
+                -31.6494229150323,
+                23.9999996169084,
+                12.6487820153469
+              ],
+              "nearest_other_vertex_mm": 1.8146300801658954,
+              "opposite_surface_distance_mm": 5.875227137297666e-12
+            }
+          ]
+        },
+        "step_basis_to_native": {
+          "vertices": 772,
+          "matching_vertices_within_1e7_mm": 764,
+          "surface_tests": 8,
+          "maximum_vertex_to_opposite_surface_distance_mm": 3.5557107000983024e-06,
+          "tested_nonmatching_vertices": [
+            {
+              "point": [
+                -34.6494229150323,
+                0.0,
+                17.8487820153469
+              ],
+              "nearest_other_vertex_mm": 2.3000000000000007,
+              "opposite_surface_distance_mm": 3.735632398049854e-15
+            },
+            {
+              "point": [
+                -30.129634119345,
+                0.0,
+                15.2200675386562
+              ],
+              "nearest_other_vertex_mm": 2.306777456537871,
+              "opposite_surface_distance_mm": 4.0550118360535673e-14
+            },
+            {
+              "point": [
+                -38.7540544453936,
+                7.89998916284177,
+                9.456290825075
+              ],
+              "nearest_other_vertex_mm": 4.088434199820903,
+              "opposite_surface_distance_mm": 1.1374233532693354e-14
+            },
+            {
+              "point": [
+                -34.6494229150323,
+                7.9000035557107,
+                17.8487820153469
+              ],
+              "nearest_other_vertex_mm": 6.8311222884886815,
+              "opposite_surface_distance_mm": 3.5557107000983024e-06
+            },
+            {
+              "point": [
+                -34.6494229150323,
+                22.1,
+                15.6487820153469
+              ],
+              "nearest_other_vertex_mm": 2.0461295655996494,
+              "opposite_surface_distance_mm": 1.0805156823142815e-14
+            },
+            {
+              "point": [
+                -37.1585138241209,
+                22.1,
+                14.2933071169884
+              ],
+              "nearest_other_vertex_mm": 2.0466564761822235,
+              "opposite_surface_distance_mm": 1.3873790429220374e-14
+            },
+            {
+              "point": [
+                -34.6494229150323,
+                23.999999616908,
+                15.6487820153469
+              ],
+              "nearest_other_vertex_mm": 0.7593731987428488,
+              "opposite_surface_distance_mm": 3.97919792038498e-13
+            },
+            {
+              "point": [
+                -36.3349113376637,
+                23.999999616908,
+                15.1305412254992
+              ],
+              "nearest_other_vertex_mm": 1.6010168805631062,
+              "opposite_surface_distance_mm": 3.9990128550684155e-13
+            }
+          ]
+        }
+      },
+      "native_hinge_cylinders": [
+        {
+          "face": 200,
+          "radius_mm": 5.2,
+          "center_mm": [
+            -34.6494229150323,
+            -1.0,
+            12.648782015346896
+          ],
+          "axis": [
+            0.0,
+            -1.0,
+            -2.220446049250313e-16
+          ],
+          "y_bounds_mm": [
+            -1.1546319456101628e-15,
+            7.900000000000001
+          ]
+        },
+        {
+          "face": 205,
+          "radius_mm": 8.67,
+          "center_mm": [
+            -34.6494229150321,
+            -1.202e-14,
+            12.648782015347003
+          ],
+          "axis": [
+            -2.3e-16,
+            1.0,
+            -2.7e-16
+          ],
+          "y_bounds_mm": [
+            8.199999999999969,
+            21.79999999999991
+          ]
+        },
+        {
+          "face": 263,
+          "radius_mm": 8.5,
+          "center_mm": [
+            -34.6494229150322,
+            -1.202e-14,
+            12.648782015346896
+          ],
+          "axis": [
+            2.9e-16,
+            1.0,
+            -2e-17
+          ],
+          "y_bounds_mm": [
+            0.9999999999999972,
+            6.800000000000032
+          ]
+        },
+        {
+          "face": 288,
+          "radius_mm": 3.0,
+          "center_mm": [
+            -34.6494229150323,
+            -5.0,
+            12.648782015346896
+          ],
+          "axis": [
+            0.0,
+            -1.0,
+            -2.220446049250313e-16
+          ],
+          "y_bounds_mm": [
+            22.09999999999999,
+            23.9999996169084
+          ]
+        }
+      ],
+      "step_basis_hinge_cylinders": [
+        {
+          "face": 194,
+          "radius_mm": 5.2,
+          "center_mm": [
+            -34.6494229150323,
+            -1.0,
+            12.648782015346896
+          ],
+          "axis": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "y_bounds_mm": [
+            -3.9968028886505635e-15,
+            7.900003646658636
+          ]
+        },
+        {
+          "face": 287,
+          "radius_mm": 3.0,
+          "center_mm": [
+            -34.6494229150323,
+            -5.0,
+            12.648782015346896
+          ],
+          "axis": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "y_bounds_mm": [
+            22.099999999999998,
+            23.999999616908
+          ]
+        }
+      ]
+    },
+    "trimmed_surface_comparison": {
+      "method": "Bidirectional interior UV samples explicitly inside trimmed face domains; measure against candidate opposite CAD faces, not opposite vertices.",
+      "sample_limit_per_face": 5,
+      "native_body_brep_sha256": "06c4f4fd1a3eb9127a902d948a561c586ebebbbcc0477d807916ff30d8c7b587",
+      "step_sha256": "dea042ed370464e5caccb48de1e080ef935c0d1c9a929e1aae9cad23340153a5",
+      "directions": {
+        "native_to_step": {
+          "faces": 429,
+          "samples": 2121,
+          "maximum_distance_mm": 5.341802811742999e-05,
+          "worst": {
+            "face": 226,
+            "opposite_face": 234,
+            "surface_type": "SurfaceOfExtrusion",
+            "point": [
+              99.7704290083525,
+              29.240000000000002,
+              73.48628346750074
+            ],
+            "uv": [
+              0.7435601874988207,
+              -26.240000000000002
+            ],
+            "distance_mm": 5.341802811742999e-05
+          },
+          "unsampled_faces": [],
+          "by_surface_type": {
+            "Cylinder": {
+              "faces": 128,
+              "samples": 639,
+              "maximum_distance_mm": 6.85785282463819e-12
+            },
+            "BSplineSurface": {
+              "faces": 63,
+              "samples": 315,
+              "maximum_distance_mm": 8.79938948085178e-06
+            },
+            "Cone": {
+              "faces": 72,
+              "samples": 360,
+              "maximum_distance_mm": 5.498757284855398e-12
+            },
+            "Plane": {
+              "faces": 147,
+              "samples": 712,
+              "maximum_distance_mm": 6.2743269702872256e-12
+            },
+            "SurfaceOfExtrusion": {
+              "faces": 12,
+              "samples": 60,
+              "maximum_distance_mm": 5.341802811742999e-05
+            },
+            "Toroid": {
+              "faces": 4,
+              "samples": 20,
+              "maximum_distance_mm": 5.5920675395284725e-12
+            },
+            "SurfaceOfRevolution": {
+              "faces": 3,
+              "samples": 15,
+              "maximum_distance_mm": 2.0248379863116235e-12
+            }
+          }
+        },
+        "step_to_native": {
+          "faces": 429,
+          "samples": 2121,
+          "maximum_distance_mm": 0.002236387770713911,
+          "worst": {
+            "face": 201,
+            "opposite_face": 203,
+            "surface_type": "BSplineSurface",
+            "point": [
+              -24.73891465799946,
+              7.8000060898799,
+              15.811764342351916
+            ],
+            "uv": [
+              7.100783409315516,
+              4.088359694310439
+            ],
+            "distance_mm": 0.002236387770713911
+          },
+          "unsampled_faces": [],
+          "by_surface_type": {
+            "BSplineSurface": {
+              "faces": 420,
+              "samples": 2077,
+              "maximum_distance_mm": 0.002236387770713911
+            },
+            "Plane": {
+              "faces": 7,
+              "samples": 34,
+              "maximum_distance_mm": 2.3021584638627246e-12
+            },
+            "Cylinder": {
+              "faces": 2,
+              "samples": 10,
+              "maximum_distance_mm": 2.2149830712821613e-12
+            }
+          }
+        }
+      },
+      "interpretation": "Every face was sampled in both directions. Maximum sampled interior distance is 0.002236388 mm (2.237 micrometers). This is a finite sampling comparison, not a certified global surface-error bound; the tighter vertex result does not bound all surface interiors."
+    },
+    "default_mass_property_comparison": {
+      "method": "FreeCAD Shape.Volume with default OCCT integration settings; these are numerical mass properties, not an independent dimensional comparison.",
+      "original_native_volume_mm3": 103200.29315512931,
+      "original_accepted_step_volume_mm3": 103187.76568414045,
+      "original_native_minus_step_mm3": 12.527470988862799,
+      "revised_native_volume_mm3": 102882.28069516458,
+      "revised_step_volume_mm3": 102876.59644523861,
+      "revised_native_minus_step_mm3": 5.68424992596556,
+      "native_removed_volume_mm3": 318.01245996472915,
+      "step_removed_volume_mm3": 311.16923890184285,
+      "interpretation": "Default mass integration depends on the native versus STEP surface representation and on numerical integration settings. The discrepancy changes after the interface cuts and is not treated as a constant offset, evidence of equivalent removed volume, or a measured physical geometry difference. Surface and interface comparisons are recorded separately."
+    },
+    "adaptive_mass_property_comparison": {
+      "api": "pythonocc bundled with FreeCAD, BRepGProp.VolumeProperties adaptive Eps overload",
+      "step_sha256": "dea042ed370464e5caccb48de1e080ef935c0d1c9a929e1aae9cad23340153a5",
+      "records": {
+        "native_before": {
+          "faces": 460,
+          "default_volume_mm3": 103200.29315512931,
+          "adaptive": {
+            "1e-06": {
+              "volume_mm3": 103246.32491559393,
+              "reported_relative_error": 4.198671016920937e-06
+            },
+            "1e-08": {
+              "volume_mm3": 103246.35658875298,
+              "reported_relative_error": 4.1986710169209374e-06
+            }
+          }
+        },
+        "step_before": {
+          "faces": 460,
+          "default_volume_mm3": 103187.76568414045,
+          "adaptive": {
+            "1e-06": {
+              "volume_mm3": 103237.31170874902,
+              "reported_relative_error": 4.2093856508114424e-06
+            },
+            "1e-08": {
+              "volume_mm3": 103237.4768607819,
+              "reported_relative_error": 4.209385650803604e-06
+            }
+          }
+        },
+        "native_after": {
+          "faces": 429,
+          "default_volume_mm3": 102882.28069516458,
+          "adaptive": {
+            "1e-06": {
+              "volume_mm3": 102927.39668218132,
+              "reported_relative_error": 3.969223387239096e-06
+            },
+            "1e-08": {
+              "volume_mm3": 102927.42968884048,
+              "reported_relative_error": 3.969223387231413e-06
+            }
+          }
+        },
+        "step_after": {
+          "faces": 429,
+          "default_volume_mm3": 102876.59644523861,
+          "adaptive": {
+            "1e-06": {
+              "volume_mm3": 102918.26231305739,
+              "reported_relative_error": 4.021390381668006e-06
+            },
+            "1e-08": {
+              "volume_mm3": 102918.43188386894,
+              "reported_relative_error": 4.021390381664129e-06
+            }
+          }
+        }
+      },
+      "native_step_deltas_mm3": {
+        "1e-06": {
+          "before": 9.013206844902015,
+          "after": 9.13436912393081
+        },
+        "1e-08": {
+          "before": 8.87972797108523,
+          "after": 8.997804971542791
+        }
+      },
+      "interpretation": "Unresolved numerical mass-property uncertainty: changing integration settings changes both individual volumes and their difference, and reported relative error remains above the requested tolerance. No exact mass or volume equality is claimed. The finite surface sample comparison and hinge-interface dimensions are independent geometry evidence; they do not prove a global surface bound or explain the entire mass discrepancy."
+    },
+    "body_volume_method": "FreeCAD default Shape.Volume; see the separate default and adaptive mass-property comparisons for numerical uncertainty."
   }
 }

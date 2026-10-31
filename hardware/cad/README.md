@@ -5,6 +5,10 @@ on both stand configurations. The single-arm stand is shown by default; hide
 its group and show the double-arm group in FreeCAD to switch configurations.
 Both use the same origin.
 
+The actuator tree groups linear motion, belt drive, body, PitClamp, end fittings
+and fasteners into folders. The motor, carriage and belt each use one multibody
+model; the linear rail remains separate.
+
 The primary arm is seated at 30.4° above the base. The double-arm stand retains
 its second-joint bend, placing the final arm at 60.8°.
 
