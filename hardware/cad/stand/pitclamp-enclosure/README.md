@@ -13,11 +13,14 @@ variant; the shipped PitClamp and PCB enclosure files remain the BOM references.
 | [print/pitclamp-enclosure.3mf](print/pitclamp-enclosure.3mf) | Verified print mesh package, with body and cover as separate objects. |
 | [print/body.stl](print/body.stl), [print/cover.stl](print/cover.stl) | The same accepted print meshes as individual files. |
 | [pitclamp-enclosure.step](pitclamp-enclosure.step) | Body and cover in assembly position for CAD interchange; see the STEP limitation below. |
+| [m6x25-hinge-screw.step](m6x25-hinge-screw.step) | Standard ISO 4762 M6 × 25 screw used by the revised hinge. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Current design scope, digital checks, and remaining development work. |
 | [source.json](source.json), [SHA256SUMS](SHA256SUMS) | Provenance, snapshot identities, and artifact checksums. |
 
-All exported dimensions use millimeters. The native model and exports were
-copied without geometry changes from the current development workspace.
+All exported dimensions use millimeters. The current revision has a 6 mm
+hinge passage, a 10.4 mm head counterbore, and a 10.2 mm across-flats M6 nut
+trap. The original 1.9 mm supporting wall is retained. The assembly uses an
+M6 × 25 screw and moves the M6 nut outward by 1 mm.
 
 ## Editing
 
@@ -27,12 +30,14 @@ embedded and hidden. Select a reference and press **Space** in FreeCAD to show
 it when checking packaging. Hidden construction tools are not print parts.
 The STEP and print exports contain only the enclosure and cover.
 
-The enclosure's final `SurfaceContinuity` feature stores an edited solid. Its
-dimension properties are descriptive metadata, and the current snapshot has no
+The enclosure's original `SurfaceContinuity` feature stores an edited solid. Its
+dimension properties are descriptive metadata, and the original snapshot had no
 Sketcher objects. A native chamfer and Boolean return features remain, but this
-is not a fully constrained, end-to-end regenerating feature history. Continue
-editing the saved native geometry; a complete portable rebuild script is not
-included in this snapshot.
+is not a fully constrained, end-to-end regenerating feature history. Three
+new sketches and native pockets follow it: the 6 mm passage, head counterbore,
+and M6 nut trap. `M6NutTrap` is the current body tip. The circle profiles are
+dimensioned; the hexagon profile records six fixed segments. Earlier geometry
+and the hidden references remain available in the native document.
 
 ## Representative stand assembly
 
@@ -47,9 +52,9 @@ from the current Onshape source. The primary arm remains seated at 30.4°; the
 complete upper assembly moves with its rail. Each configuration retains its
 23 hidden electronics references for packaging review.
 
-The standalone enclosure, cover and print files are unchanged. See the
-[development notes](DEVELOPMENT.md) for the source clamp contacts and remaining
-work.
+The standalone enclosure and body print mesh include the same M6 revision;
+the cover is unchanged. See the [development notes](DEVELOPMENT.md) for the
+remaining source clamp contacts and development work.
 
 ## Printing
 
@@ -62,7 +67,7 @@ The cover counterbores use two orthogonal 0.2 mm bridge transitions. Preserve
 that layer relationship when choosing the cover's layer height and inspecting
 its toolpaths. This does not establish that the complete body needs no support.
 
-The exact packaged meshes passed the recorded Bambu Studio 02.07.01.57 check:
+The revised packaged meshes passed a Bambu Studio 02.08.02.61 check:
 both objects were manifold, each had one connected part, and a diagnostic
 P2S/0.4 mm/0.20 Standard/PLA slice completed successfully. Bambu still flagged
 a body cantilever for support or orientation review. No physical print or
@@ -70,12 +75,13 @@ loaded-fit result is established by those digital checks.
 
 ### STEP limitation
 
-The STEP reimports as two valid CAD solids, but fine slicer tessellation can
-create open seams and intersecting triangles. In the investigated setup,
+The STEP reimports as two valid CAD solids. Earlier fine slicer tessellation
+created open seams and intersecting triangles. In the investigated setup,
 Bambu's STEP import settings were 0.001 mm linear and 0.05 rad angular
 deflection. Attempts to heal only the STEP representation remained sensitive
 to mesh resolution and were not adopted. A valid BRep is not proof of a clean
-slicer mesh: use the supplied 3MF/STLs for printing until this is resolved.
+slicer mesh: use the supplied 3MF/STLs for printing until this route is
+requalified for the revised STEP.
 
 ## Snapshot checks
 

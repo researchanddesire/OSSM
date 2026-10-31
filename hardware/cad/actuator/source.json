@@ -10,7 +10,7 @@
     "assembly_step_sha256": "76731b8f563c07a07b2467a92149a872e40921388d6e09212740b399ed30b892",
     "original_part_file_count": 86,
     "unique_step_data_payloads": 51,
-    "deduplication": "Identical STEP DATA sections only. Original file headers/filenames can differ. Ambiguous motor/carriage subcomponents are retained separately."
+    "deduplication": "Identical STEP DATA sections identify the 51 unique original payloads. Original file headers/filenames can differ. Motor, carriage and belt source solids are subsequently packaged into three derived multibody STEP models; source_components retains each original export hash and former canonical path."
   },
   "comparison_note": "Different geometry establishes a revision difference, not chronology by timestamp alone. This is a fresh snapshot of the user-selected source. STEP volume/area/topology and known source roles were compared with the prior canonical files.",
   "stock_body_note": "Stock front cover and middle body source exports are retained as source parts; the installed assemblies use the one-piece curved community cover instead.",
@@ -79,306 +79,6 @@
       "retained_mini_reference_path": "hardware/cad/stand/57aim-ring-v1.1.step",
       "retained_mini_reference_sha256": "75b68790420623422da383f298e706931c4639ab96b30d39c8a52b76c57b37f4",
       "variant_note": "Current actuator-source clamp variant. The earlier Mini/BOM reference is retained separately because hinge bores differ."
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-02.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (1).step",
-      "source_sha256": "8a42d82bf668abc5e0ddb205040e4c7cde7313b69722fb582c39e95920af15c1",
-      "source_data_sha256": "ea08117e459b30e2f06debe475222baf5ccd47925a12ac8b175fe12afce4d28f",
-      "canonical_sha256": "8a42d82bf668abc5e0ddb205040e4c7cde7313b69722fb582c39e95920af15c1",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 45.86310551938625,
-        "area_mm2": 87.07469412335848,
-        "solids": 1,
-        "faces": 21,
-        "edges": 56,
-        "unplaced_bbox_mm": [
-          12.794019499269016,
-          22.294019499269016,
-          -18.0,
-          18.205980500730984,
-          27.705980500730984,
-          -15.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature073"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-03.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (2).step",
-      "source_sha256": "778bc3d132ce508c2b52327f8819bd097afe043b601c14f910b3e05c17480454",
-      "source_data_sha256": "edefa87cdfc65c3300f24089735884066f2d96e768254e49829d08e1d4648466",
-      "canonical_sha256": "778bc3d132ce508c2b52327f8819bd097afe043b601c14f910b3e05c17480454",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 18555.46847827297,
-        "area_mm2": 7044.7400758301565,
-        "solids": 1,
-        "faces": 74,
-        "edges": 168,
-        "unplaced_bbox_mm": [
-          -28.50000000000002,
-          -28.50000000000002,
-          31.0,
-          28.500000000000036,
-          28.50000000000002,
-          37.5
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature063"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 3.552713678800501e-15
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-04.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (3).step",
-      "source_sha256": "f175c8a7615d5be080087e59d859bea2d1540479cebd31dabd711bf26d79a862",
-      "source_data_sha256": "59ffecdfe20cc09cbbaee13323dbae19661b5802c4b9d6ba8f84403bd532f769",
-      "canonical_sha256": "f175c8a7615d5be080087e59d859bea2d1540479cebd31dabd711bf26d79a862",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 826.9448717638979,
-        "area_mm2": 1978.2077495079984,
-        "solids": 1,
-        "faces": 268,
-        "edges": 678,
-        "unplaced_bbox_mm": [
-          19.25,
-          -12.150000000000002,
-          37.6999999999996,
-          28.550000000152906,
-          11.060000000000002,
-          44.95
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature059"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-05.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (4).step",
-      "source_sha256": "a87452abc66c1946ac645285a0b68dcb18f6de390b364a655fb4dd99b100d318",
-      "source_data_sha256": "d429a0e9ef5e6642504fa7b20be04c37550d9f545ef4ddfe4475dbf78b991187",
-      "canonical_sha256": "a87452abc66c1946ac645285a0b68dcb18f6de390b364a655fb4dd99b100d318",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 45635.184168391665,
-        "area_mm2": 9243.778992735375,
-        "solids": 1,
-        "faces": 83,
-        "edges": 190,
-        "unplaced_bbox_mm": [
-          -28.500000000000004,
-          -28.500000000000004,
-          37.5,
-          28.500000000000004,
-          28.500000000000004,
-          54.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature053"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-06.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (5).step",
-      "source_sha256": "5e6a74e8427203523d07186902240adc104812ea6f7abecbf66fb254bdab3a4d",
-      "source_data_sha256": "f370884aab31703ed8e18ab1e44617a2a09f170d4d4b14d913a7629d02bfa561",
-      "canonical_sha256": "5e6a74e8427203523d07186902240adc104812ea6f7abecbf66fb254bdab3a4d",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 138732.37249262477,
-        "area_mm2": 19854.005819313847,
-        "solids": 1,
-        "faces": 120,
-        "edges": 345,
-        "unplaced_bbox_mm": [
-          -28.5,
-          -28.500000317891505,
-          -19.6,
-          28.5,
-          28.500000000004,
-          31.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature049"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 3.552713678800501e-15
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-07.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (6).step",
-      "source_sha256": "87d0d882a9d1928a36c653299fd3f78d245447a050815284243c4620980a4cc4",
-      "source_data_sha256": "7a165adaec31a6393f05e7f001a327199de2e125b6943b8eb5355a4ed8a6f02c",
-      "canonical_sha256": "87d0d882a9d1928a36c653299fd3f78d245447a050815284243c4620980a4cc4",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 45.86310551941574,
-        "area_mm2": 87.07469412344946,
-        "solids": 1,
-        "faces": 21,
-        "edges": 56,
-        "unplaced_bbox_mm": [
-          22.294019499269016,
-          -18.205980500730984,
-          -18.0,
-          27.705980500730984,
-          -12.794019499269016,
-          -15.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature028"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-08.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (7).step",
-      "source_sha256": "c109db43d641e7c18d24ff955e0a42ee75e4b76a83d914f780ac9fd33ba494f5",
-      "source_data_sha256": "03e076f97487e944832db890713d2c1b6b71c5ce655da6887fbe8a024dc57d14",
-      "canonical_sha256": "c109db43d641e7c18d24ff955e0a42ee75e4b76a83d914f780ac9fd33ba494f5",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 2375.700197607085,
-        "area_mm2": 2309.7224472959824,
-        "solids": 1,
-        "faces": 849,
-        "edges": 2337,
-        "unplaced_bbox_mm": [
-          22.30406564408857,
-          -11.8251292404981,
-          34.930274900800185,
-          37.90407805682853,
-          11.824909100642085,
-          46.0303667612435
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature026"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-09.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (8).step",
-      "source_sha256": "81fcda21b942ecd2ef1a98d941e433fb333bdf527c7f7829b19b7ee2fd9cc1c9",
-      "source_data_sha256": "4063c80af51212ed9189a99d8032520f6bfd9daad9cfea588bb373b30372dae0",
-      "canonical_sha256": "81fcda21b942ecd2ef1a98d941e433fb333bdf527c7f7829b19b7ee2fd9cc1c9",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 45.86310551941574,
-        "area_mm2": 87.07469412344943,
-        "solids": 1,
-        "faces": 21,
-        "edges": 56,
-        "unplaced_bbox_mm": [
-          -27.705980500730984,
-          12.794019499269016,
-          -18.0,
-          -22.294019499269016,
-          18.205980500730984,
-          -15.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature018"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-10.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (9).step",
-      "source_sha256": "dab76e34d91bc7f74f8da94b6cbee96022f46a8b70c74680a1997043f012bd82",
-      "source_data_sha256": "55b2c4c13488a6234bb8c69e764b02b2f4b567d0179ffc4136c9bc554d76b867",
-      "canonical_sha256": "dab76e34d91bc7f74f8da94b6cbee96022f46a8b70c74680a1997043f012bd82",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 45.863105519415726,
-        "area_mm2": 87.07469412344935,
-        "solids": 1,
-        "faces": 21,
-        "edges": 56,
-        "unplaced_bbox_mm": [
-          -18.205980500730984,
-          -27.705980500730984,
-          -18.0,
-          -12.794019499269016,
-          -22.294019499269016,
-          -15.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature004"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/57aim30-part-01.step",
-      "action": "added",
-      "source_product_label": "57AIM30 v1",
-      "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1.step",
-      "source_sha256": "6f9aa3648b438da88d0e7595852be3c135c81f2b425edb217f6b259f23159c7d",
-      "source_data_sha256": "8b299415b19345fa4aaa0f6c0642121dab9f8bcf43746e2ea93a4e02735c8a13",
-      "canonical_sha256": "6f9aa3648b438da88d0e7595852be3c135c81f2b425edb217f6b259f23159c7d",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 1718.1506093411463,
-        "area_mm2": 1077.21291440395,
-        "solids": 1,
-        "faces": 10,
-        "edges": 20,
-        "unplaced_bbox_mm": [
-          -6.5,
-          -6.5,
-          -44.0000000000098,
-          6.5,
-          6.5,
-          -12.0
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature074"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
     },
     {
       "path": "hardware/cad/actuator/components/5x11x4-bearing-v1.step",
@@ -811,66 +511,6 @@
       ],
       "source_instance_matching": "Native authoring bounds plus volume, area and topology",
       "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-02.step",
-      "action": "added",
-      "source_product_label": "Gates 2GT 9mm Belt (~500mm)",
-      "source_original_filename": "OSSM - Extrusion mount - Gates 2GT 9mm Belt (~500mm) (1).step",
-      "source_sha256": "9938efa6c53c7129feae8983b00dfe7823b69c5a06326c1dfd361c9101e274cd",
-      "source_data_sha256": "b41aa706cbaf2587d7a28a4295658b3467bb8d572b2d4999a27f5b70098917dd",
-      "canonical_sha256": "9938efa6c53c7129feae8983b00dfe7823b69c5a06326c1dfd361c9101e274cd",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 2036.030880537524,
-        "area_mm2": 4511.92282876063,
-        "solids": 1,
-        "faces": 20,
-        "edges": 54,
-        "unplaced_bbox_mm": [
-          -79.9000001399823,
-          -41.1861098296252,
-          14.899999999999949,
-          122.122973812048,
-          7.934694202262764,
-          20.9000000000001
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature040"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-01.step",
-      "action": "added",
-      "source_product_label": "Gates 2GT 9mm Belt (~500mm)",
-      "source_original_filename": "OSSM - Extrusion mount - Gates 2GT 9mm Belt (~500mm).step",
-      "source_sha256": "7b0bf6da2a8ec551091af56025e022d779365a0608a3676b7371e9e0022c1dcc",
-      "source_data_sha256": "9f6c959a442d214b12668843d25f86877fd9bc713148ce44d634fc8209728b3a",
-      "canonical_sha256": "7b0bf6da2a8ec551091af56025e022d779365a0608a3676b7371e9e0022c1dcc",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 568.300677479379,
-        "area_mm2": 1843.5533036223383,
-        "solids": 1,
-        "faces": 12,
-        "edges": 32,
-        "unplaced_bbox_mm": [
-          -165.978588154356,
-          -42.026226330544,
-          14.9,
-          -79.9000000665398,
-          -30.8036312886839,
-          20.9
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature080"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 1.7763568394002505e-15
     },
     {
       "path": "hardware/cad/stand/actuator-pitclamp/one-piece-lever.step",
@@ -1417,276 +1057,6 @@
       "source_instance_best_native_bounds_delta_mm": 0.0
     },
     {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-02.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (1).step",
-      "source_sha256": "f774820c92e27b98bcddc71d6ad7ca250d64e96db7871f393fb60037e3f06e87",
-      "source_data_sha256": "91b17b7e2c9ad004570c5c24036e3f4ed816fb7207f66f21266ccc972fc06ea3",
-      "canonical_sha256": "f774820c92e27b98bcddc71d6ad7ca250d64e96db7871f393fb60037e3f06e87",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 252.8438695671444,
-        "area_mm2": 501.0678176710638,
-        "solids": 1,
-        "faces": 42,
-        "edges": 120,
-        "unplaced_bbox_mm": [
-          66.2,
-          6.90000000000015,
-          2.80000044703481,
-          67.7,
-          16.5,
-          29.2000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature083"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-03.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (2).step",
-      "source_sha256": "118af88849235ac10cbf679e901ab6d67d865c102bf2e90ed8605789da106594",
-      "source_data_sha256": "86e3b2d5445a3a0de1f1cdc6e6ca1dde56403c2ee50098c6698d84e027dca690",
-      "canonical_sha256": "118af88849235ac10cbf679e901ab6d67d865c102bf2e90ed8605789da106594",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 6667.699979266073,
-        "area_mm2": 3349.024295451446,
-        "solids": 1,
-        "faces": 71,
-        "edges": 191,
-        "unplaced_bbox_mm": [
-          28.8,
-          6.49999999999997,
-          2.50000044703481,
-          61.2,
-          16.5,
-          29.5000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature072"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-04.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (3).step",
-      "source_sha256": "ead6cae86eb3ff98783261d661b69dbed4aeb9cad10e4c402961d06873b9e759",
-      "source_data_sha256": "dff240b9b1ca97c4be862ac2863c78439de3da579a8b7a30bb16679f5cd9a723",
-      "canonical_sha256": "ead6cae86eb3ff98783261d661b69dbed4aeb9cad10e4c402961d06873b9e759",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 13.24759275379543,
-        "area_mm2": 44.573844081638406,
-        "solids": 1,
-        "faces": 16,
-        "edges": 39,
-        "unplaced_bbox_mm": [
-          66.1,
-          7.500000000000149,
-          7.100000447034811,
-          67.69999999999999,
-          11.50000000000015,
-          11.10000044703481
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature052"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-05.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (4).step",
-      "source_sha256": "ae7406b9b5cb54e71cbf839258ba30c922bed7528b94708aecb3a04005664c64",
-      "source_data_sha256": "d8454736ed575d1b60760b01207da6698897f0279e892af68f0d4e0673619781",
-      "canonical_sha256": "ae7406b9b5cb54e71cbf839258ba30c922bed7528b94708aecb3a04005664c64",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 252.84386956714903,
-        "area_mm2": 501.0678176710529,
-        "solids": 1,
-        "faces": 42,
-        "edges": 120,
-        "unplaced_bbox_mm": [
-          22.299999999999997,
-          6.90000000000015,
-          2.8000004470348094,
-          23.800000000000004,
-          16.5,
-          29.2000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature045"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-06.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (5).step",
-      "source_sha256": "e3c26db636db26c79a7a9a7a9ea2d80c81aaadf2ba0f935ec6910cac4001f0d4",
-      "source_data_sha256": "7c86ac48d969ba8b1aca8eb59bd5144e68bf10c429f03669f30bd119e600b620",
-      "canonical_sha256": "e3c26db636db26c79a7a9a7a9ea2d80c81aaadf2ba0f935ec6910cac4001f0d4",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 13.247592753795264,
-        "area_mm2": 44.57384408163854,
-        "solids": 1,
-        "faces": 16,
-        "edges": 39,
-        "unplaced_bbox_mm": [
-          22.300000000000022,
-          7.500000000000149,
-          20.9000004470348,
-          23.9,
-          11.50000000000015,
-          24.9000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature035"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-07.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (6).step",
-      "source_sha256": "4c66842f89cdf8b2d0d280f488f97e36beddb047cdf02a3a1b1539b81d838e93",
-      "source_data_sha256": "61839da4faa6089422f6c2f33759f26be66ba07ac6bfa109ee357466b789598c",
-      "canonical_sha256": "4c66842f89cdf8b2d0d280f488f97e36beddb047cdf02a3a1b1539b81d838e93",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 13.247592753795272,
-        "area_mm2": 44.573844081638484,
-        "solids": 1,
-        "faces": 16,
-        "edges": 39,
-        "unplaced_bbox_mm": [
-          22.300000000000022,
-          7.500000000000149,
-          7.100000447034811,
-          23.9,
-          11.50000000000015,
-          11.10000044703481
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature034"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-08.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (7).step",
-      "source_sha256": "8c285cc25bbc27b915736eafa69fa376eab6abd74204c0e0bf35d565145e2027",
-      "source_data_sha256": "d36b38f30468f2aa740a0f0e85a1c3a6c1a65e915532c2c4a37e3a40eaca3c69",
-      "canonical_sha256": "8c285cc25bbc27b915736eafa69fa376eab6abd74204c0e0bf35d565145e2027",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 13.247592753795429,
-        "area_mm2": 44.57384408163846,
-        "solids": 1,
-        "faces": 16,
-        "edges": 39,
-        "unplaced_bbox_mm": [
-          66.1,
-          7.500000000000149,
-          20.9000004470348,
-          67.69999999999999,
-          11.50000000000015,
-          24.9000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature021"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-09.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (8).step",
-      "source_sha256": "c4e05240938e75dc00611ad0a8d7053e55d3c9a0163233da3c671c0ee1bf50ca",
-      "source_data_sha256": "5eb95958ef76b44304930b26f28e4b159fccf18641dcc60ec9326e442e0a65a2",
-      "canonical_sha256": "c4e05240938e75dc00611ad0a8d7053e55d3c9a0163233da3c671c0ee1bf50ca",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 978.2862498601332,
-        "area_mm2": 809.6404277051827,
-        "solids": 1,
-        "faces": 44,
-        "edges": 120,
-        "unplaced_bbox_mm": [
-          61.2,
-          6.90000000000015,
-          2.8000004470348094,
-          66.2,
-          16.5,
-          29.2000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature012"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
-      "path": "hardware/cad/actuator/components/mgn12h-carriage-part-01.step",
-      "action": "added",
-      "source_product_label": "MGN12H Bearing",
-      "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing.step",
-      "source_sha256": "370420e852c4dff115dcb3bb4ce65dc0be5a54e368be88e7f79b3678dfe3ab1b",
-      "source_data_sha256": "e1684b7cef499bbd333dd060366de1fc066265b5c94a963f301ee84d247dd283",
-      "canonical_sha256": "370420e852c4dff115dcb3bb4ce65dc0be5a54e368be88e7f79b3678dfe3ab1b",
-      "previous_canonical_sha256": null,
-      "source_geometry": {
-        "volume_mm3": 978.2862498601412,
-        "area_mm2": 809.6404277051417,
-        "solids": 1,
-        "faces": 44,
-        "edges": 120,
-        "unplaced_bbox_mm": [
-          23.799999999999997,
-          6.90000000000015,
-          2.800000447034809,
-          28.800000000000004,
-          16.5,
-          29.2000004470348
-        ]
-      },
-      "source_instance_candidates": [
-        "Part__Feature085"
-      ],
-      "source_instance_matching": "Native authoring bounds plus volume, area and topology",
-      "source_instance_best_native_bounds_delta_mm": 0.0
-    },
-    {
       "path": "hardware/cad/actuator/belt-tensioner.step",
       "action": "retained",
       "source_product_label": "Open Back",
@@ -1803,6 +1173,774 @@
       "retained_mini_reference_path": "hardware/cad/stand/pitclamp-upper-v1.1.step",
       "retained_mini_reference_sha256": "71f07cbba7048bb061ca5058883170b41212d969db9a8b527c4ac31d37518f3b",
       "variant_note": "Current actuator-source clamp variant. The earlier Mini/BOM reference is retained separately because hinge bores differ."
+    },
+    {
+      "path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "added",
+      "source_product_label": "57AIM30 motor",
+      "derived_export": true,
+      "derived_export_format": "STEP AP214",
+      "canonical_sha256": "8919ede0201d6c6708e3ad4a965cddb6dcbbc1768e6b6185140ff6356c85a6f8",
+      "native_model_path": "hardware/cad/actuator/57aim30-motor.FCStd",
+      "native_model_sha256": "cab8209b7aab0df7ca9d24175fec09b6bbc2aef3374e47abcb216272fe18c81b",
+      "source_geometry": {
+        "volume_mm3": 208027.2732400792,
+        "area_mm2": 41855.96677558098,
+        "solids": 10,
+        "faces": 1488,
+        "edges": 3962,
+        "unplaced_bbox_mm": [
+          -28.50000000000006,
+          -28.500000317891534,
+          -44.00000000000979,
+          37.9040780568285,
+          28.500000000004018,
+          54.00000000000004
+        ],
+        "valid_solid": true
+      },
+      "source_instance_candidates": [
+        "Part__Feature004",
+        "Part__Feature018",
+        "Part__Feature026",
+        "Part__Feature028",
+        "Part__Feature049",
+        "Part__Feature053",
+        "Part__Feature059",
+        "Part__Feature063",
+        "Part__Feature073",
+        "Part__Feature074"
+      ],
+      "source_instance_matching": "Explicit source feature IDs; source_components records the one-based body order.",
+      "packaging": "One multibody compound; separate source solids retained without fusion or geometry edits.",
+      "source_components": [
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (9).step",
+          "source_sha256": "dab76e34d91bc7f74f8da94b6cbee96022f46a8b70c74680a1997043f012bd82",
+          "source_data_sha256": "55b2c4c13488a6234bb8c69e764b02b2f4b567d0179ffc4136c9bc554d76b867",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 45.863105519415726,
+            "area_mm2": 87.07469412344935,
+            "solids": 1,
+            "faces": 21,
+            "edges": 56,
+            "unplaced_bbox_mm": [
+              -18.205980500730984,
+              -27.705980500730984,
+              -18.0,
+              -12.794019499269016,
+              -22.294019499269016,
+              -15.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature004"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-10.step",
+          "former_canonical_sha256": "dab76e34d91bc7f74f8da94b6cbee96022f46a8b70c74680a1997043f012bd82",
+          "former_action": "added",
+          "multibody_body_index": 1
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (8).step",
+          "source_sha256": "81fcda21b942ecd2ef1a98d941e433fb333bdf527c7f7829b19b7ee2fd9cc1c9",
+          "source_data_sha256": "4063c80af51212ed9189a99d8032520f6bfd9daad9cfea588bb373b30372dae0",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 45.86310551941574,
+            "area_mm2": 87.07469412344943,
+            "solids": 1,
+            "faces": 21,
+            "edges": 56,
+            "unplaced_bbox_mm": [
+              -27.705980500730984,
+              12.794019499269016,
+              -18.0,
+              -22.294019499269016,
+              18.205980500730984,
+              -15.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature018"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-09.step",
+          "former_canonical_sha256": "81fcda21b942ecd2ef1a98d941e433fb333bdf527c7f7829b19b7ee2fd9cc1c9",
+          "former_action": "added",
+          "multibody_body_index": 2
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (7).step",
+          "source_sha256": "c109db43d641e7c18d24ff955e0a42ee75e4b76a83d914f780ac9fd33ba494f5",
+          "source_data_sha256": "03e076f97487e944832db890713d2c1b6b71c5ce655da6887fbe8a024dc57d14",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 2375.700197607085,
+            "area_mm2": 2309.7224472959824,
+            "solids": 1,
+            "faces": 849,
+            "edges": 2337,
+            "unplaced_bbox_mm": [
+              22.30406564408857,
+              -11.8251292404981,
+              34.930274900800185,
+              37.90407805682853,
+              11.824909100642085,
+              46.0303667612435
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature026"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-08.step",
+          "former_canonical_sha256": "c109db43d641e7c18d24ff955e0a42ee75e4b76a83d914f780ac9fd33ba494f5",
+          "former_action": "added",
+          "multibody_body_index": 3
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (6).step",
+          "source_sha256": "87d0d882a9d1928a36c653299fd3f78d245447a050815284243c4620980a4cc4",
+          "source_data_sha256": "7a165adaec31a6393f05e7f001a327199de2e125b6943b8eb5355a4ed8a6f02c",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 45.86310551941574,
+            "area_mm2": 87.07469412344946,
+            "solids": 1,
+            "faces": 21,
+            "edges": 56,
+            "unplaced_bbox_mm": [
+              22.294019499269016,
+              -18.205980500730984,
+              -18.0,
+              27.705980500730984,
+              -12.794019499269016,
+              -15.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature028"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-07.step",
+          "former_canonical_sha256": "87d0d882a9d1928a36c653299fd3f78d245447a050815284243c4620980a4cc4",
+          "former_action": "added",
+          "multibody_body_index": 4
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (5).step",
+          "source_sha256": "5e6a74e8427203523d07186902240adc104812ea6f7abecbf66fb254bdab3a4d",
+          "source_data_sha256": "f370884aab31703ed8e18ab1e44617a2a09f170d4d4b14d913a7629d02bfa561",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 138732.37249262477,
+            "area_mm2": 19854.005819313847,
+            "solids": 1,
+            "faces": 120,
+            "edges": 345,
+            "unplaced_bbox_mm": [
+              -28.5,
+              -28.500000317891505,
+              -19.6,
+              28.5,
+              28.500000000004,
+              31.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature049"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 3.552713678800501e-15,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-06.step",
+          "former_canonical_sha256": "5e6a74e8427203523d07186902240adc104812ea6f7abecbf66fb254bdab3a4d",
+          "former_action": "added",
+          "multibody_body_index": 5
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (4).step",
+          "source_sha256": "a87452abc66c1946ac645285a0b68dcb18f6de390b364a655fb4dd99b100d318",
+          "source_data_sha256": "d429a0e9ef5e6642504fa7b20be04c37550d9f545ef4ddfe4475dbf78b991187",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 45635.184168391665,
+            "area_mm2": 9243.778992735375,
+            "solids": 1,
+            "faces": 83,
+            "edges": 190,
+            "unplaced_bbox_mm": [
+              -28.500000000000004,
+              -28.500000000000004,
+              37.5,
+              28.500000000000004,
+              28.500000000000004,
+              54.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature053"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-05.step",
+          "former_canonical_sha256": "a87452abc66c1946ac645285a0b68dcb18f6de390b364a655fb4dd99b100d318",
+          "former_action": "added",
+          "multibody_body_index": 6
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (3).step",
+          "source_sha256": "f175c8a7615d5be080087e59d859bea2d1540479cebd31dabd711bf26d79a862",
+          "source_data_sha256": "59ffecdfe20cc09cbbaee13323dbae19661b5802c4b9d6ba8f84403bd532f769",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 826.9448717638979,
+            "area_mm2": 1978.2077495079984,
+            "solids": 1,
+            "faces": 268,
+            "edges": 678,
+            "unplaced_bbox_mm": [
+              19.25,
+              -12.150000000000002,
+              37.6999999999996,
+              28.550000000152906,
+              11.060000000000002,
+              44.95
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature059"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-04.step",
+          "former_canonical_sha256": "f175c8a7615d5be080087e59d859bea2d1540479cebd31dabd711bf26d79a862",
+          "former_action": "added",
+          "multibody_body_index": 7
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (2).step",
+          "source_sha256": "778bc3d132ce508c2b52327f8819bd097afe043b601c14f910b3e05c17480454",
+          "source_data_sha256": "edefa87cdfc65c3300f24089735884066f2d96e768254e49829d08e1d4648466",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 18555.46847827297,
+            "area_mm2": 7044.7400758301565,
+            "solids": 1,
+            "faces": 74,
+            "edges": 168,
+            "unplaced_bbox_mm": [
+              -28.50000000000002,
+              -28.50000000000002,
+              31.0,
+              28.500000000000036,
+              28.50000000000002,
+              37.5
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature063"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 3.552713678800501e-15,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-03.step",
+          "former_canonical_sha256": "778bc3d132ce508c2b52327f8819bd097afe043b601c14f910b3e05c17480454",
+          "former_action": "added",
+          "multibody_body_index": 8
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (1).step",
+          "source_sha256": "8a42d82bf668abc5e0ddb205040e4c7cde7313b69722fb582c39e95920af15c1",
+          "source_data_sha256": "ea08117e459b30e2f06debe475222baf5ccd47925a12ac8b175fe12afce4d28f",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 45.86310551938625,
+            "area_mm2": 87.07469412335848,
+            "solids": 1,
+            "faces": 21,
+            "edges": 56,
+            "unplaced_bbox_mm": [
+              12.794019499269016,
+              22.294019499269016,
+              -18.0,
+              18.205980500730984,
+              27.705980500730984,
+              -15.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature073"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-02.step",
+          "former_canonical_sha256": "8a42d82bf668abc5e0ddb205040e4c7cde7313b69722fb582c39e95920af15c1",
+          "former_action": "added",
+          "multibody_body_index": 9
+        },
+        {
+          "source_product_label": "57AIM30 v1",
+          "source_original_filename": "OSSM - Extrusion mount - 57AIM30 v1.step",
+          "source_sha256": "6f9aa3648b438da88d0e7595852be3c135c81f2b425edb217f6b259f23159c7d",
+          "source_data_sha256": "8b299415b19345fa4aaa0f6c0642121dab9f8bcf43746e2ea93a4e02735c8a13",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 1718.1506093411463,
+            "area_mm2": 1077.21291440395,
+            "solids": 1,
+            "faces": 10,
+            "edges": 20,
+            "unplaced_bbox_mm": [
+              -6.5,
+              -6.5,
+              -44.0000000000098,
+              6.5,
+              6.5,
+              -12.0
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature074"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-01.step",
+          "former_canonical_sha256": "6f9aa3648b438da88d0e7595852be3c135c81f2b425edb217f6b259f23159c7d",
+          "former_action": "added",
+          "multibody_body_index": 10
+        }
+      ]
+    },
+    {
+      "path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "added",
+      "source_product_label": "MGN12H carriage",
+      "derived_export": true,
+      "derived_export_format": "STEP AP214",
+      "canonical_sha256": "74f4350312ad26146e5a28a967d4d006efc0dd22c376d3260a644b1e23f6c295",
+      "native_model_path": "hardware/cad/actuator/mgn12h-carriage.FCStd",
+      "native_model_sha256": "3e6a4df84e3143fa993457f23bbdd58d4e2741c8ef6d05a8f9e2b0c6e2764d61",
+      "source_geometry": {
+        "volume_mm3": 9182.95058913582,
+        "area_mm2": 6148.736162530439,
+        "solids": 9,
+        "faces": 307,
+        "edges": 827,
+        "unplaced_bbox_mm": [
+          22.300000000000004,
+          6.499999999999946,
+          2.500000447034805,
+          67.7,
+          16.5,
+          29.500000447034797
+        ],
+        "valid_solid": true
+      },
+      "source_instance_candidates": [
+        "Part__Feature012",
+        "Part__Feature021",
+        "Part__Feature034",
+        "Part__Feature035",
+        "Part__Feature045",
+        "Part__Feature052",
+        "Part__Feature072",
+        "Part__Feature083",
+        "Part__Feature085"
+      ],
+      "source_instance_matching": "Explicit source feature IDs; source_components records the one-based body order.",
+      "packaging": "One multibody compound; separate source solids retained without fusion or geometry edits.",
+      "source_components": [
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (8).step",
+          "source_sha256": "c4e05240938e75dc00611ad0a8d7053e55d3c9a0163233da3c671c0ee1bf50ca",
+          "source_data_sha256": "5eb95958ef76b44304930b26f28e4b159fccf18641dcc60ec9326e442e0a65a2",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 978.2862498601332,
+            "area_mm2": 809.6404277051827,
+            "solids": 1,
+            "faces": 44,
+            "edges": 120,
+            "unplaced_bbox_mm": [
+              61.2,
+              6.90000000000015,
+              2.8000004470348094,
+              66.2,
+              16.5,
+              29.2000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature012"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-09.step",
+          "former_canonical_sha256": "c4e05240938e75dc00611ad0a8d7053e55d3c9a0163233da3c671c0ee1bf50ca",
+          "former_action": "added",
+          "multibody_body_index": 1
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (7).step",
+          "source_sha256": "8c285cc25bbc27b915736eafa69fa376eab6abd74204c0e0bf35d565145e2027",
+          "source_data_sha256": "d36b38f30468f2aa740a0f0e85a1c3a6c1a65e915532c2c4a37e3a40eaca3c69",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 13.247592753795429,
+            "area_mm2": 44.57384408163846,
+            "solids": 1,
+            "faces": 16,
+            "edges": 39,
+            "unplaced_bbox_mm": [
+              66.1,
+              7.500000000000149,
+              20.9000004470348,
+              67.69999999999999,
+              11.50000000000015,
+              24.9000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature021"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-08.step",
+          "former_canonical_sha256": "8c285cc25bbc27b915736eafa69fa376eab6abd74204c0e0bf35d565145e2027",
+          "former_action": "added",
+          "multibody_body_index": 2
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (6).step",
+          "source_sha256": "4c66842f89cdf8b2d0d280f488f97e36beddb047cdf02a3a1b1539b81d838e93",
+          "source_data_sha256": "61839da4faa6089422f6c2f33759f26be66ba07ac6bfa109ee357466b789598c",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 13.247592753795272,
+            "area_mm2": 44.573844081638484,
+            "solids": 1,
+            "faces": 16,
+            "edges": 39,
+            "unplaced_bbox_mm": [
+              22.300000000000022,
+              7.500000000000149,
+              7.100000447034811,
+              23.9,
+              11.50000000000015,
+              11.10000044703481
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature034"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-07.step",
+          "former_canonical_sha256": "4c66842f89cdf8b2d0d280f488f97e36beddb047cdf02a3a1b1539b81d838e93",
+          "former_action": "added",
+          "multibody_body_index": 3
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (5).step",
+          "source_sha256": "e3c26db636db26c79a7a9a7a9ea2d80c81aaadf2ba0f935ec6910cac4001f0d4",
+          "source_data_sha256": "7c86ac48d969ba8b1aca8eb59bd5144e68bf10c429f03669f30bd119e600b620",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 13.247592753795264,
+            "area_mm2": 44.57384408163854,
+            "solids": 1,
+            "faces": 16,
+            "edges": 39,
+            "unplaced_bbox_mm": [
+              22.300000000000022,
+              7.500000000000149,
+              20.9000004470348,
+              23.9,
+              11.50000000000015,
+              24.9000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature035"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-06.step",
+          "former_canonical_sha256": "e3c26db636db26c79a7a9a7a9ea2d80c81aaadf2ba0f935ec6910cac4001f0d4",
+          "former_action": "added",
+          "multibody_body_index": 4
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (4).step",
+          "source_sha256": "ae7406b9b5cb54e71cbf839258ba30c922bed7528b94708aecb3a04005664c64",
+          "source_data_sha256": "d8454736ed575d1b60760b01207da6698897f0279e892af68f0d4e0673619781",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 252.84386956714903,
+            "area_mm2": 501.0678176710529,
+            "solids": 1,
+            "faces": 42,
+            "edges": 120,
+            "unplaced_bbox_mm": [
+              22.299999999999997,
+              6.90000000000015,
+              2.8000004470348094,
+              23.800000000000004,
+              16.5,
+              29.2000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature045"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-05.step",
+          "former_canonical_sha256": "ae7406b9b5cb54e71cbf839258ba30c922bed7528b94708aecb3a04005664c64",
+          "former_action": "added",
+          "multibody_body_index": 5
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (3).step",
+          "source_sha256": "ead6cae86eb3ff98783261d661b69dbed4aeb9cad10e4c402961d06873b9e759",
+          "source_data_sha256": "dff240b9b1ca97c4be862ac2863c78439de3da579a8b7a30bb16679f5cd9a723",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 13.24759275379543,
+            "area_mm2": 44.573844081638406,
+            "solids": 1,
+            "faces": 16,
+            "edges": 39,
+            "unplaced_bbox_mm": [
+              66.1,
+              7.500000000000149,
+              7.100000447034811,
+              67.69999999999999,
+              11.50000000000015,
+              11.10000044703481
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature052"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-04.step",
+          "former_canonical_sha256": "ead6cae86eb3ff98783261d661b69dbed4aeb9cad10e4c402961d06873b9e759",
+          "former_action": "added",
+          "multibody_body_index": 6
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (2).step",
+          "source_sha256": "118af88849235ac10cbf679e901ab6d67d865c102bf2e90ed8605789da106594",
+          "source_data_sha256": "86e3b2d5445a3a0de1f1cdc6e6ca1dde56403c2ee50098c6698d84e027dca690",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 6667.699979266073,
+            "area_mm2": 3349.024295451446,
+            "solids": 1,
+            "faces": 71,
+            "edges": 191,
+            "unplaced_bbox_mm": [
+              28.8,
+              6.49999999999997,
+              2.50000044703481,
+              61.2,
+              16.5,
+              29.5000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature072"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-03.step",
+          "former_canonical_sha256": "118af88849235ac10cbf679e901ab6d67d865c102bf2e90ed8605789da106594",
+          "former_action": "added",
+          "multibody_body_index": 7
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing (1).step",
+          "source_sha256": "f774820c92e27b98bcddc71d6ad7ca250d64e96db7871f393fb60037e3f06e87",
+          "source_data_sha256": "91b17b7e2c9ad004570c5c24036e3f4ed816fb7207f66f21266ccc972fc06ea3",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 252.8438695671444,
+            "area_mm2": 501.0678176710638,
+            "solids": 1,
+            "faces": 42,
+            "edges": 120,
+            "unplaced_bbox_mm": [
+              66.2,
+              6.90000000000015,
+              2.80000044703481,
+              67.7,
+              16.5,
+              29.2000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature083"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-02.step",
+          "former_canonical_sha256": "f774820c92e27b98bcddc71d6ad7ca250d64e96db7871f393fb60037e3f06e87",
+          "former_action": "added",
+          "multibody_body_index": 8
+        },
+        {
+          "source_product_label": "MGN12H Bearing",
+          "source_original_filename": "OSSM - Extrusion mount - MGN12H Bearing.step",
+          "source_sha256": "370420e852c4dff115dcb3bb4ce65dc0be5a54e368be88e7f79b3678dfe3ab1b",
+          "source_data_sha256": "e1684b7cef499bbd333dd060366de1fc066265b5c94a963f301ee84d247dd283",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 978.2862498601412,
+            "area_mm2": 809.6404277051417,
+            "solids": 1,
+            "faces": 44,
+            "edges": 120,
+            "unplaced_bbox_mm": [
+              23.799999999999997,
+              6.90000000000015,
+              2.800000447034809,
+              28.800000000000004,
+              16.5,
+              29.2000004470348
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature085"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-01.step",
+          "former_canonical_sha256": "370420e852c4dff115dcb3bb4ce65dc0be5a54e368be88e7f79b3678dfe3ab1b",
+          "former_action": "added",
+          "multibody_body_index": 9
+        }
+      ]
+    },
+    {
+      "path": "hardware/cad/actuator/gt2-9mm-belt.step",
+      "action": "added",
+      "source_product_label": "GT2 9 mm belt",
+      "derived_export": true,
+      "derived_export_format": "STEP AP214",
+      "canonical_sha256": "0b102a3738e779ede428273df19db3efdea9c098f1a5a47f763c8fc5f7bfa862",
+      "native_model_path": "hardware/cad/actuator/gt2-9mm-belt.FCStd",
+      "native_model_sha256": "b069b19767534c5b84fe9c4a4f03c4048117454e3d56af87531094af91b7a5bf",
+      "source_geometry": {
+        "volume_mm3": 2604.331558016953,
+        "area_mm2": 6355.476132383021,
+        "solids": 2,
+        "faces": 32,
+        "edges": 86,
+        "unplaced_bbox_mm": [
+          -165.97858815435603,
+          -42.02622633054395,
+          14.899999999999947,
+          122.12297381204799,
+          7.934694202262765,
+          20.900000000000123
+        ],
+        "valid_solid": true
+      },
+      "source_instance_candidates": [
+        "Part__Feature040",
+        "Part__Feature080"
+      ],
+      "source_instance_matching": "Explicit source feature IDs; source_components records the one-based body order.",
+      "packaging": "One multibody compound; separate source solids retained without fusion or geometry edits.",
+      "source_components": [
+        {
+          "source_product_label": "Gates 2GT 9mm Belt (~500mm)",
+          "source_original_filename": "OSSM - Extrusion mount - Gates 2GT 9mm Belt (~500mm) (1).step",
+          "source_sha256": "9938efa6c53c7129feae8983b00dfe7823b69c5a06326c1dfd361c9101e274cd",
+          "source_data_sha256": "b41aa706cbaf2587d7a28a4295658b3467bb8d572b2d4999a27f5b70098917dd",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 2036.030880537524,
+            "area_mm2": 4511.92282876063,
+            "solids": 1,
+            "faces": 20,
+            "edges": 54,
+            "unplaced_bbox_mm": [
+              -79.9000001399823,
+              -41.1861098296252,
+              14.899999999999949,
+              122.122973812048,
+              7.934694202262764,
+              20.9000000000001
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature040"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 0.0,
+          "former_canonical_path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-02.step",
+          "former_canonical_sha256": "9938efa6c53c7129feae8983b00dfe7823b69c5a06326c1dfd361c9101e274cd",
+          "former_action": "added",
+          "multibody_body_index": 1
+        },
+        {
+          "source_product_label": "Gates 2GT 9mm Belt (~500mm)",
+          "source_original_filename": "OSSM - Extrusion mount - Gates 2GT 9mm Belt (~500mm).step",
+          "source_sha256": "7b0bf6da2a8ec551091af56025e022d779365a0608a3676b7371e9e0022c1dcc",
+          "source_data_sha256": "9f6c959a442d214b12668843d25f86877fd9bc713148ce44d634fc8209728b3a",
+          "previous_canonical_sha256": null,
+          "source_geometry": {
+            "volume_mm3": 568.300677479379,
+            "area_mm2": 1843.5533036223383,
+            "solids": 1,
+            "faces": 12,
+            "edges": 32,
+            "unplaced_bbox_mm": [
+              -165.978588154356,
+              -42.026226330544,
+              14.9,
+              -79.9000000665398,
+              -30.8036312886839,
+              20.9
+            ]
+          },
+          "source_instance_candidates": [
+            "Part__Feature080"
+          ],
+          "source_instance_matching": "Native authoring bounds plus volume, area and topology",
+          "source_instance_best_native_bounds_delta_mm": 1.7763568394002505e-15,
+          "former_canonical_path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-01.step",
+          "former_canonical_sha256": "7b0bf6da2a8ec551091af56025e022d779365a0608a3676b7371e9e0022c1dcc",
+          "former_action": "added",
+          "multibody_body_index": 2
+        }
+      ]
     }
   ],
   "original_part_exports": [
@@ -1830,8 +1968,10 @@
       "sha256": "8a42d82bf668abc5e0ddb205040e4c7cde7313b69722fb582c39e95920af15c1",
       "data_sha256": "ea08117e459b30e2f06debe475222baf5ccd47925a12ac8b175fe12afce4d28f",
       "size_bytes": 27853,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-02.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-02.step",
+      "multibody_body_index": 9
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (2).step",
@@ -1839,8 +1979,10 @@
       "sha256": "778bc3d132ce508c2b52327f8819bd097afe043b601c14f910b3e05c17480454",
       "data_sha256": "edefa87cdfc65c3300f24089735884066f2d96e768254e49829d08e1d4648466",
       "size_bytes": 83361,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-03.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-03.step",
+      "multibody_body_index": 8
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (3).step",
@@ -1848,8 +1990,10 @@
       "sha256": "f175c8a7615d5be080087e59d859bea2d1540479cebd31dabd711bf26d79a862",
       "data_sha256": "59ffecdfe20cc09cbbaee13323dbae19661b5802c4b9d6ba8f84403bd532f769",
       "size_bytes": 332273,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-04.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-04.step",
+      "multibody_body_index": 7
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (4).step",
@@ -1857,8 +2001,10 @@
       "sha256": "a87452abc66c1946ac645285a0b68dcb18f6de390b364a655fb4dd99b100d318",
       "data_sha256": "d429a0e9ef5e6642504fa7b20be04c37550d9f545ef4ddfe4475dbf78b991187",
       "size_bytes": 93140,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-05.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-05.step",
+      "multibody_body_index": 6
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (5).step",
@@ -1866,8 +2012,10 @@
       "sha256": "5e6a74e8427203523d07186902240adc104812ea6f7abecbf66fb254bdab3a4d",
       "data_sha256": "f370884aab31703ed8e18ab1e44617a2a09f170d4d4b14d913a7629d02bfa561",
       "size_bytes": 155551,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-06.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-06.step",
+      "multibody_body_index": 5
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (6).step",
@@ -1875,8 +2023,10 @@
       "sha256": "87d0d882a9d1928a36c653299fd3f78d245447a050815284243c4620980a4cc4",
       "data_sha256": "7a165adaec31a6393f05e7f001a327199de2e125b6943b8eb5355a4ed8a6f02c",
       "size_bytes": 27994,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-07.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-07.step",
+      "multibody_body_index": 4
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (7).step",
@@ -1884,8 +2034,10 @@
       "sha256": "c109db43d641e7c18d24ff955e0a42ee75e4b76a83d914f780ac9fd33ba494f5",
       "data_sha256": "03e076f97487e944832db890713d2c1b6b71c5ce655da6887fbe8a024dc57d14",
       "size_bytes": 1427357,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-08.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-08.step",
+      "multibody_body_index": 3
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (8).step",
@@ -1893,8 +2045,10 @@
       "sha256": "81fcda21b942ecd2ef1a98d941e433fb333bdf527c7f7829b19b7ee2fd9cc1c9",
       "data_sha256": "4063c80af51212ed9189a99d8032520f6bfd9daad9cfea588bb373b30372dae0",
       "size_bytes": 27983,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-09.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-09.step",
+      "multibody_body_index": 2
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1 (9).step",
@@ -1902,8 +2056,10 @@
       "sha256": "dab76e34d91bc7f74f8da94b6cbee96022f46a8b70c74680a1997043f012bd82",
       "data_sha256": "55b2c4c13488a6234bb8c69e764b02b2f4b567d0179ffc4136c9bc554d76b867",
       "size_bytes": 28140,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-10.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-10.step",
+      "multibody_body_index": 1
     },
     {
       "original_filename": "OSSM - Extrusion mount - 57AIM30 v1.step",
@@ -1911,8 +2067,10 @@
       "sha256": "6f9aa3648b438da88d0e7595852be3c135c81f2b425edb217f6b259f23159c7d",
       "data_sha256": "8b299415b19345fa4aaa0f6c0642121dab9f8bcf43746e2ea93a4e02735c8a13",
       "size_bytes": 10947,
-      "canonical_path": "hardware/cad/actuator/components/57aim30-part-01.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/57aim30-motor.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/57aim30-part-01.step",
+      "multibody_body_index": 10
     },
     {
       "original_filename": "OSSM - Extrusion mount - 5x11x4 Bearing v1 (1).step",
@@ -2037,8 +2195,10 @@
       "sha256": "9938efa6c53c7129feae8983b00dfe7823b69c5a06326c1dfd361c9101e274cd",
       "data_sha256": "b41aa706cbaf2587d7a28a4295658b3467bb8d572b2d4999a27f5b70098917dd",
       "size_bytes": 82223,
-      "canonical_path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-02.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/gt2-9mm-belt.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-02.step",
+      "multibody_body_index": 1
     },
     {
       "original_filename": "OSSM - Extrusion mount - Gates 2GT 9mm Belt (~500mm).step",
@@ -2046,8 +2206,10 @@
       "sha256": "7b0bf6da2a8ec551091af56025e022d779365a0608a3676b7371e9e0022c1dcc",
       "data_sha256": "9f6c959a442d214b12668843d25f86877fd9bc713148ce44d634fc8209728b3a",
       "size_bytes": 48217,
-      "canonical_path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-01.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/gt2-9mm-belt.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/gt2-9mm-belt-segment-01.step",
+      "multibody_body_index": 2
     },
     {
       "original_filename": "OSSM - Extrusion mount - Handle.step",
@@ -2478,8 +2640,10 @@
       "sha256": "f774820c92e27b98bcddc71d6ad7ca250d64e96db7871f393fb60037e3f06e87",
       "data_sha256": "91b17b7e2c9ad004570c5c24036e3f4ed816fb7207f66f21266ccc972fc06ea3",
       "size_bytes": 65487,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-02.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-02.step",
+      "multibody_body_index": 8
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (2).step",
@@ -2487,8 +2651,10 @@
       "sha256": "118af88849235ac10cbf679e901ab6d67d865c102bf2e90ed8605789da106594",
       "data_sha256": "86e3b2d5445a3a0de1f1cdc6e6ca1dde56403c2ee50098c6698d84e027dca690",
       "size_bytes": 96868,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-03.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-03.step",
+      "multibody_body_index": 7
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (3).step",
@@ -2496,8 +2662,10 @@
       "sha256": "ead6cae86eb3ff98783261d661b69dbed4aeb9cad10e4c402961d06873b9e759",
       "data_sha256": "dff240b9b1ca97c4be862ac2863c78439de3da579a8b7a30bb16679f5cd9a723",
       "size_bytes": 24191,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-04.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-04.step",
+      "multibody_body_index": 6
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (4).step",
@@ -2505,8 +2673,10 @@
       "sha256": "ae7406b9b5cb54e71cbf839258ba30c922bed7528b94708aecb3a04005664c64",
       "data_sha256": "d8454736ed575d1b60760b01207da6698897f0279e892af68f0d4e0673619781",
       "size_bytes": 66073,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-05.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-05.step",
+      "multibody_body_index": 5
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (5).step",
@@ -2514,8 +2684,10 @@
       "sha256": "e3c26db636db26c79a7a9a7a9ea2d80c81aaadf2ba0f935ec6910cac4001f0d4",
       "data_sha256": "7c86ac48d969ba8b1aca8eb59bd5144e68bf10c429f03669f30bd119e600b620",
       "size_bytes": 24178,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-06.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-06.step",
+      "multibody_body_index": 4
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (6).step",
@@ -2523,8 +2695,10 @@
       "sha256": "4c66842f89cdf8b2d0d280f488f97e36beddb047cdf02a3a1b1539b81d838e93",
       "data_sha256": "61839da4faa6089422f6c2f33759f26be66ba07ac6bfa109ee357466b789598c",
       "size_bytes": 24178,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-07.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-07.step",
+      "multibody_body_index": 3
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (7).step",
@@ -2532,8 +2706,10 @@
       "sha256": "8c285cc25bbc27b915736eafa69fa376eab6abd74204c0e0bf35d565145e2027",
       "data_sha256": "d36b38f30468f2aa740a0f0e85a1c3a6c1a65e915532c2c4a37e3a40eaca3c69",
       "size_bytes": 24191,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-08.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-08.step",
+      "multibody_body_index": 2
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing (8).step",
@@ -2541,8 +2717,10 @@
       "sha256": "c4e05240938e75dc00611ad0a8d7053e55d3c9a0163233da3c671c0ee1bf50ca",
       "data_sha256": "5eb95958ef76b44304930b26f28e4b159fccf18641dcc60ec9326e442e0a65a2",
       "size_bytes": 66224,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-09.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-09.step",
+      "multibody_body_index": 1
     },
     {
       "original_filename": "OSSM - Extrusion mount - MGN12H Bearing.step",
@@ -2550,8 +2728,10 @@
       "sha256": "370420e852c4dff115dcb3bb4ce65dc0be5a54e368be88e7f79b3678dfe3ab1b",
       "data_sha256": "e1684b7cef499bbd333dd060366de1fc066265b5c94a963f301ee84d247dd283",
       "size_bytes": 66711,
-      "canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-01.step",
-      "action": "added"
+      "canonical_path": "hardware/cad/actuator/mgn12h-carriage.step",
+      "action": "bundled",
+      "former_canonical_path": "hardware/cad/actuator/components/mgn12h-carriage-part-01.step",
+      "multibody_body_index": 9
     },
     {
       "original_filename": "OSSM - Extrusion mount - Open Back.step",
@@ -3089,8 +3269,12 @@
         -15.0
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-10.step"
-      ]
+      ],
+      "multibody_body_index": 1
     },
     {
       "name": "Part__Feature005",
@@ -3906,8 +4090,12 @@
         29.2000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-09.step"
-      ]
+      ],
+      "multibody_body_index": 1
     },
     {
       "name": "Part__Feature013",
@@ -4518,8 +4706,12 @@
         -15.0
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-09.step"
-      ]
+      ],
+      "multibody_body_index": 2
     },
     {
       "name": "Part__Feature019",
@@ -4825,8 +5017,12 @@
         24.9000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-08.step"
-      ]
+      ],
+      "multibody_body_index": 2
     },
     {
       "name": "Part__Feature022",
@@ -5336,8 +5532,12 @@
         46.0303667612435
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-08.step"
-      ]
+      ],
+      "multibody_body_index": 3
     },
     {
       "name": "Part__Feature027",
@@ -5540,8 +5740,12 @@
         -15.0
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-07.step"
-      ]
+      ],
+      "multibody_body_index": 4
     },
     {
       "name": "Part__Feature029",
@@ -6153,8 +6357,12 @@
         11.10000044703481
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-07.step"
-      ]
+      ],
+      "multibody_body_index": 3
     },
     {
       "name": "Part__Feature035",
@@ -6255,8 +6463,12 @@
         24.9000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-06.step"
-      ]
+      ],
+      "multibody_body_index": 4
     },
     {
       "name": "Part__Feature036",
@@ -6765,8 +6977,12 @@
         20.9000000000001
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/gt2-9mm-belt.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/gt2-9mm-belt-segment-02.step"
-      ]
+      ],
+      "multibody_body_index": 1
     },
     {
       "name": "Part__Feature041",
@@ -7276,8 +7492,12 @@
         29.2000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-05.step"
-      ]
+      ],
+      "multibody_body_index": 5
     },
     {
       "name": "Part__Feature046",
@@ -7685,8 +7905,12 @@
         31.000000000000004
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-06.step"
-      ]
+      ],
+      "multibody_body_index": 5
     },
     {
       "name": "Part__Feature050",
@@ -7991,8 +8215,12 @@
         11.10000044703481
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-04.step"
-      ]
+      ],
+      "multibody_body_index": 6
     },
     {
       "name": "Part__Feature053",
@@ -8093,8 +8321,12 @@
         54.0
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-05.step"
-      ]
+      ],
+      "multibody_body_index": 6
     },
     {
       "name": "Part__Feature054",
@@ -8706,8 +8938,12 @@
         44.95
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-04.step"
-      ]
+      ],
+      "multibody_body_index": 7
     },
     {
       "name": "Part__Feature060",
@@ -9114,8 +9350,12 @@
         37.5
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-03.step"
-      ]
+      ],
+      "multibody_body_index": 8
     },
     {
       "name": "Part__Feature064",
@@ -10032,8 +10272,12 @@
         29.5000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-03.step"
-      ]
+      ],
+      "multibody_body_index": 7
     },
     {
       "name": "Part__Feature073",
@@ -10134,8 +10378,12 @@
         -15.0
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-02.step"
-      ]
+      ],
+      "multibody_body_index": 9
     },
     {
       "name": "Part__Feature074",
@@ -10236,8 +10484,12 @@
         -12.0
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/57aim30-motor.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/57aim30-part-01.step"
-      ]
+      ],
+      "multibody_body_index": 10
     },
     {
       "name": "Part__Feature075",
@@ -10849,8 +11101,12 @@
         20.9
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/gt2-9mm-belt.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/gt2-9mm-belt-segment-01.step"
-      ]
+      ],
+      "multibody_body_index": 2
     },
     {
       "name": "Part__Feature081",
@@ -11155,8 +11411,12 @@
         29.2000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-02.step"
-      ]
+      ],
+      "multibody_body_index": 8
     },
     {
       "name": "Part__Feature084",
@@ -11359,8 +11619,12 @@
         29.2000004470348
       ],
       "canonical_candidates": [
+        "hardware/cad/actuator/mgn12h-carriage.step"
+      ],
+      "former_canonical_candidates": [
         "hardware/cad/actuator/components/mgn12h-carriage-part-01.step"
-      ]
+      ],
+      "multibody_body_index": 9
     },
     {
       "name": "OSSM___Extrusion_mount",
@@ -11545,8 +11809,10 @@
     "source_instances": 86,
     "unique_source_payloads": 51,
     "updated_files": 3,
-    "added_files": 45,
-    "retained_source_equivalent_files": 3
+    "added_files": 27,
+    "retained_source_equivalent_files": 3,
+    "count_basis": "Canonical STEP models; native companion files are listed with their corresponding canonical records.",
+    "canonical_step_models": 33
   },
   "curved_front": {
     "source_repository": "researchanddesire/community-mods",
@@ -12144,7 +12410,7 @@
     "internal_instance": {
       "Double_Actuator": "Single_Actuator"
     },
-    "source_geometry_changes": "None; native tolerance repair only where required. Original STEP exports preserved.",
+    "source_geometry_changes": "Motor, carriage and belt source solids repackaged without geometry edits. The integrated lower has an editable 6 mm hinge passage and matching M6 head/nut seats. A generated ISO 4762 M6 x 25 screw replaces source M6 x 20; the M6 nut moves outward 1 mm. Original export filenames and hashes remain recorded.",
     "native_body_lower_repair": {
       "repair_placement_p": [
         0.0,
@@ -12195,23 +12461,149 @@
       "source_adapter_motor": 0.356,
       "source_upper_lever": 0.342,
       "integrated_lower_adapter": 63.90627893704853,
-      "source_M6_hinge_bolt_integrated_lower": 94.085221
+      "original_M6x20_head_interference_before_revision": 94.085221,
+      "revised_M6x25_hinge_screw_integrated_lower": 0.0,
+      "revised_M6_hinge_nut_integrated_lower": 6.334842083129995e-05
     },
-    "contact_note": "Closed-clamp and hinge contacts remain unresolved fit checks; threaded engagement is not inferred from the model."
+    "contact_note": "Source closed-clamp and lower/adapter contacts remain open fit checks. The revised M6 head bears on the pivoting upper jaw, guided radially by the lower counterbore, with no volumetric screw interference. Approximately 0.000063 mm3 at the nut floor is sub-micron source-coordinate roundoff. Physical fit and loaded testing are pending.",
+    "multibody_models": [
+      {
+        "feature": "Single_Actuator_Motor57AIM30",
+        "step": "hardware/cad/actuator/57aim30-motor.step",
+        "native": "hardware/cad/actuator/57aim30-motor.FCStd",
+        "separate_solids": 10,
+        "source_body_order": [
+          "Part__Feature004",
+          "Part__Feature018",
+          "Part__Feature026",
+          "Part__Feature028",
+          "Part__Feature049",
+          "Part__Feature053",
+          "Part__Feature059",
+          "Part__Feature063",
+          "Part__Feature073",
+          "Part__Feature074"
+        ]
+      },
+      {
+        "feature": "Single_Actuator_MGN12HCarriage",
+        "step": "hardware/cad/actuator/mgn12h-carriage.step",
+        "native": "hardware/cad/actuator/mgn12h-carriage.FCStd",
+        "separate_solids": 9,
+        "source_body_order": [
+          "Part__Feature012",
+          "Part__Feature021",
+          "Part__Feature034",
+          "Part__Feature035",
+          "Part__Feature045",
+          "Part__Feature052",
+          "Part__Feature072",
+          "Part__Feature083",
+          "Part__Feature085"
+        ]
+      },
+      {
+        "feature": "Single_Actuator_GT2Belt",
+        "step": "hardware/cad/actuator/gt2-9mm-belt.step",
+        "native": "hardware/cad/actuator/gt2-9mm-belt.FCStd",
+        "separate_solids": 2,
+        "source_body_order": [
+          "Part__Feature040",
+          "Part__Feature080"
+        ]
+      }
+    ],
+    "rail_separate": true,
+    "feature_tree_folders": [
+      "Linear motion",
+      "Belt drive",
+      "Actuator body",
+      "PitClamp",
+      "End fittings",
+      "Fasteners"
+    ],
+    "feature_tree_group_type": "App::Part",
+    "actuator_geometry_features": 62,
+    "actuator_physical_solids": 93,
+    "hinge_revision": {
+      "passage_diameter_mm": 6.0,
+      "head_counterbore_diameter_mm": 10.4,
+      "head_counterbore_end_native_y_mm": 7.9,
+      "head_bearing_component": "pivoting upper jaw",
+      "head_bearing_native_y_mm": 8.0,
+      "head_radial_guidance_clearance_mm": 0.2,
+      "design_intent": "The ordinary M6 bolt head seats against the pivoting arm; the lower counterbore locates and braces its head.",
+      "nut_trap_across_flats_mm": 10.2,
+      "nut_trap_floor_native_y_mm": 24.0,
+      "preserved_support_wall_mm": 1.9,
+      "nut_translation_in_actuator_mm": [
+        0,
+        1,
+        0
+      ],
+      "screw": "ISO 4762 M6 x 25",
+      "screw_step": "hardware/cad/stand/pitclamp-enclosure/m6x25-hinge-screw.step",
+      "screw_generator": "FreeCAD Fasteners workbench",
+      "screw_generator_commit": "5f025c3e9976a201aeb2003a06d13fb7883cced9",
+      "replaces_source_instance": "Part__Feature062",
+      "original_screw": "M6 x 20",
+      "native_body_tip": "M6NutTrap",
+      "native_bolt_frame_independently_verified": true,
+      "physical_fit": "Not tested"
+    }
   },
-  "clamp_variant_note": "Fresh source upper uses a 6 mm hinge bore; the earlier Mini/enclosure reference uses 5.2 mm. Fresh clamp exports are a named actuator variant; existing Mini/BOM component paths are retained unchanged.",
+  "clamp_variant_note": "The source upper and integrated enclosure lower now use a 6 mm hinge passage. The earlier Mini/BOM component files remain unchanged; original raw Onshape hardware exports remain in the source inventory, with the installed M6 x 25 override recorded here.",
   "validation": {
     "date": "2026-10-30",
-    "native_assembly_sha256": "6e64b4038c47786a399382b2553d98aff67756c7cfc183bf49e947fbe7e029f9",
+    "base_pr": 29,
+    "base_commit": "eab788d0c22ddfae1efca1d192427b732052499d",
+    "base_native_assembly_sha256": "6e64b4038c47786a399382b2553d98aff67756c7cfc183bf49e947fbe7e029f9",
+    "native_assembly_sha256": "25c9967c8a5c38896a5a6ba4a0b8dc5aa8a815ace0a3890993ca7d8f1e8a0c20",
     "independent_retained_geometry_audit": "passed",
-    "preserved_existing_geometry_features": 372,
+    "preserved_geometry_features_from_pr29": 428,
+    "declared_geometry_revisions": [
+      "Single_MotorPitClampBody",
+      "Double_MotorPitClampBody",
+      "Single_Actuator_Part__Feature062"
+    ],
     "preserved_blue_inlays": 113,
-    "maximum_existing_world_placement_error_mm": 2.220446049250313e-16,
-    "existing_appearance_properties_verified": 4153,
-    "native_reopen": "passed",
-    "valid_installed_component_features": 80,
+    "maximum_world_matrix_error_against_expected_revision": 1.3766765505351941e-14,
+    "retained_appearance_properties_verified": 3003,
+    "native_reopen": "passed in Linux VM",
+    "freecad_version": [
+      "1",
+      "1",
+      "4",
+      "20260928 (Git shallow)",
+      "Unknown",
+      "2026/09/28 13:46:34",
+      "(HEAD detached at 4fd3bf320)",
+      "4fd3bf320d9566a27e60069fc8387448aaa3a094"
+    ],
+    "master_geometry_features": 434,
+    "actuator_geometry_features": 62,
     "assembled_solids_per_actuator": 93,
-    "maximum_source_placement_error_mm": 4.9965365178650245e-11,
+    "vm_aggregate_solids": {
+      "Single_Actuator": 93,
+      "Double_Actuator": 93
+    },
+    "portable_multibody_models": {
+      "motor": {
+        "solids": 10,
+        "step_sha256": "8919ede0201d6c6708e3ad4a965cddb6dcbbc1768e6b6185140ff6356c85a6f8",
+        "native_round_trip": "passed"
+      },
+      "carriage": {
+        "solids": 9,
+        "step_sha256": "74f4350312ad26146e5a28a967d4d006efc0dd22c376d3260a644b1e23f6c295",
+        "native_round_trip": "passed"
+      },
+      "belt": {
+        "solids": 2,
+        "step_sha256": "0b102a3738e779ede428273df19db3efdea9c098f1a5a47f763c8fc5f7bfa862",
+        "native_round_trip": "passed"
+      }
+    },
     "internal_instances_same_local_geometry": true,
     "external_dependencies": false,
     "physical_fit": "not tested"

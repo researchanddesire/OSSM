@@ -7,6 +7,15 @@ end fittings, body and visible fasteners. The double-arm actuator is an internal
 Both stand configurations retain
 their existing rail positions and blue lower-pivot inlays.
 
+The actuator uses three multibody models, each retaining separate solids:
+
+- 57AIM30 motor (10 solids): [FreeCAD](57aim30-motor.FCStd) · [STEP](57aim30-motor.step).
+- MGN12H carriage (9 solids): [FreeCAD](mgn12h-carriage.FCStd) · [STEP](mgn12h-carriage.step).
+- GT2 9 mm belt (2 solids): [FreeCAD](gt2-9mm-belt.FCStd) · [STEP](gt2-9mm-belt.step).
+
+The rail remains a separate part. The FreeCAD tree groups linear motion,
+belt drive, actuator body, PitClamp, end fittings and fasteners.
+
 The [curved one-piece front](curved-front/) by Lucy Chapar replaces
 `body-cover.step` and `body-middle.step`. Its native FreeCAD source and STEP
 are included. Omit the two cover-to-middle joining screws and side-loaded nuts.
@@ -15,6 +24,8 @@ The separate stock cover exports remain available for other configurations.
 The motor clamp uses the source's one-piece overcenter lever and integral
 pivot loop. The upper jaw, dogbones and motor adapter remain separate parts.
 Current clamp STEP files are in the [actuator variant](../stand/actuator-pitclamp/README.md).
+The integrated lower uses a 6 mm hinge passage and an M6 × 25 screw. Its head
+seats against the pivoting upper jaw; the lower counterbore locates and braces it.
 
 [source.json](source.json) maps the Onshape exports to local files, records
 which existing components were retained, and identifies omitted duplicate
@@ -23,7 +34,7 @@ adapter; `24mm-jam-nut.step` is a separate part.
 
 The source closed-clamp pose contains small rigid-body overlaps, including
 118.239 mm³ between the motor adapter and upper jaw. They are retained from
-Onshape; clamp clearance, the enclosure hinge hardware and physical fit remain open checks. See the
+Onshape; clamp clearance and physical fit remain open checks. See the
 [development notes](../stand/pitclamp-enclosure/DEVELOPMENT.md).
 
 The original lower and middle body STEP files retain source import defects.
