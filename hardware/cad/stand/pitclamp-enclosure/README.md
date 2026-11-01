@@ -10,8 +10,9 @@ variant; the shipped PitClamp and PCB enclosure files remain the BOM references.
 | File | Purpose |
 | --- | --- |
 | [pitclamp-enclosure.FCStd](pitclamp-enclosure.FCStd) | Native FreeCAD document; start further geometry work here. |
-| [print/pitclamp-enclosure.3mf](print/pitclamp-enclosure.3mf) | Verified print mesh package, with body and cover as separate objects. |
-| [print/body.stl](print/body.stl), [print/cover.stl](print/cover.stl) | The same accepted print meshes as individual files. |
+| [print/pitclamp-enclosure.3mf](print/pitclamp-enclosure.3mf) | Print mesh package: separate body and four-material cover. |
+| [print/body.stl](print/body.stl), [print/cover.stl](print/cover.stl) | Individual print meshes; the cover STL combines its material regions into one physical solid. |
+| [Black](print/cover-black.stl), [cyan](print/cover-cyan.stl), [white](print/cover-white.stl), [pink](print/cover-pink.stl) cover STLs | Separate material regions with a shared origin; import together as parts of one cover object. |
 | [pitclamp-enclosure.step](pitclamp-enclosure.step) | Body and cover in assembly position for CAD interchange; see the STEP limitation below. |
 | [m6x25-hinge-screw.step](m6x25-hinge-screw.step) | Standard ISO 4762 M6 × 25 screw used by the revised hinge. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Current design scope, digital checks, and remaining development work. |
@@ -24,8 +25,10 @@ M6 × 25 screw and moves the M6 nut outward by 1 mm.
 
 ## Editing
 
-The native document has `Enclosure`, `Cover`, and `ElectronicsReferences`
-roots. The 23 colored electronics, motor, connector, and harness references are
+The native document has `Enclosure`, `CoverAssembly`, `ElectronicsReferences`,
+and hidden `CoverControlConstruction` roots. `CoverAssembly` contains the black
+`Cover` body, cyan button faces, white I/O marks, and pink AUX heart. The 23
+colored electronics, motor, connector, and harness references are
 embedded and hidden. Select a reference and press **Space** in FreeCAD to show
 it when checking packaging. Hidden construction tools are not print parts.
 The STEP and print exports contain only the enclosure and cover.
@@ -38,6 +41,22 @@ new sketches and native pockets follow it: the 6 mm passage, head counterbore,
 and M6 nut trap. `M6NutTrap` is the current body tip. The circle profiles are
 dimensioned; the hexagon profile records six fixed segments. Earlier geometry
 and the hidden references remain available in the native document.
+
+The cover's reset and AUX flexures come from the latest
+[community motherboard cover](https://github.com/researchanddesire/community-mods/tree/aee6c9e4df47ea35281a559f2808685ae531cd69/mods/ossm/ossm-rs485-pcb-cover).
+Their clearances, anchors, guards, AUX travel stop, cyan press faces, and the AUX tip's
+0.3 mm extension are retained at native scale. Separate striker extensions
+reach the PitClamp's tilted board; their ends follow its 8.33° contact planes.
+White power-input, USB, wired-remote and reset symbols, plus the pink AUX heart,
+reuse the source artwork. A new circle-M symbol marks the shared motor-harness
+exit. The inlays are 0.6 mm deep and flush with the exterior.
+
+Named cover construction stages store the resulting OpenCascade solids;
+they are geometry snapshots, not a fully regenerating Part Design history.
+Exact source tools, constrained artwork sketches and registration data remain
+in the hidden construction group. The original cover perimeter, screw-hole
+bridge layers, enclosure and hinge geometry are retained. Switch force,
+travel and printed flexure durability still need a test with the real PCB.
 
 ## Representative stand assembly
 
@@ -52,8 +71,8 @@ from the current Onshape source. The primary arm remains seated at 30.4°; the
 complete upper assembly moves with its rail. Each configuration retains its
 23 hidden electronics references for packaging review.
 
-The standalone enclosure and body print mesh include the same M6 revision;
-the cover is unchanged. See the [development notes](DEVELOPMENT.md) for the
+The standalone enclosure and body print mesh retain the same M6 revision;
+both stand variants include the updated controls and artwork cover. See the [development notes](DEVELOPMENT.md) for the
 remaining source clamp contacts and development work.
 
 ## Printing
@@ -63,19 +82,30 @@ cover has its outside face down. The generic 3MF lays them apart with a 10 mm
 gap and contains no printer, filament, or process settings. Select suitable
 settings for the actual printer and material.
 
+The cover's material order is black mechanics, cyan press faces, white I/O
+artwork and pink heart. Assign the intended filament to each region in the
+slicer. Use compatible colors of the same material for the bonded inlays;
+the combined `cover.stl` is the single-color alternative.
+
 The cover counterbores use two orthogonal 0.2 mm bridge transitions. Preserve
 that layer relationship when choosing the cover's layer height and inspecting
 its toolpaths. This does not establish that the complete body needs no support.
 
-The revised packaged meshes passed a Bambu Studio 02.08.02.61 check:
-both objects were manifold, each had one connected part, and a diagnostic
-P2S/0.4 mm/0.20 Standard/PLA slice completed successfully. Bambu still flagged
-a body cantilever for support or orientation review. No physical print or
-loaded-fit result is established by those digital checks.
+The revised cover and its four material meshes are closed, consistently
+oriented and manifold, with no reported self-intersections. The fused cover
+STL has one connected component. Bambu Studio 02.08.02.61 imports the cover as
+four material parts. A diagnostic P2S/0.4 mm/0.20 Standard/PLA slice completed
+for the complete package and for the cover alone; the cover-only check had no
+warnings. This geometry check used a single filament, so it does not validate
+an AMS assignment or color-change schedule. Only the diagnostic copy was
+arranged to that printer's bed; the tracked generic layout is retained.
+
+Bambu still flags the body's existing cantilever for support or orientation
+review. No physical print or loaded-fit result is established by these checks.
 
 ### STEP limitation
 
-The STEP reimports as two valid CAD solids. Earlier fine slicer tessellation
+The STEP contains the enclosure and the cover's separate material regions. Earlier fine slicer tessellation
 created open seams and intersecting triangles. In the investigated setup,
 Bambu's STEP import settings were 0.001 mm linear and 0.05 rad angular
 deflection. Attempts to heal only the STEP representation remained sensitive

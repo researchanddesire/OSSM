@@ -2,7 +2,7 @@
 
 Tracking snapshot added on 2026-10-30. The original native geometry was saved
 on 2026-10-15 and its accepted print package was checked on 2026-10-16.
-The M6 hinge revision below updates that snapshot. This remains a development
+The M6 hinge revision and 2026-11-01 cover controls below update that snapshot. This remains a development
 variant rather than a released replacement for the shipped parts.
 
 ## Current design
@@ -120,6 +120,54 @@ surface are removed after STL serialization. The cover mesh and 3MF bed layout
 are retained. Fresh mesh and Bambu Studio 02.08.02.61 checks apply to the new
 checksummed package; the body cantilever warning remains.
 
+## Cover controls and I/O artwork — 2026-11-01
+
+The cover now carries the motherboard-cover reset and AUX mechanisms from
+community-mods commit `aee6c9e4df47ea35281a559f2808685ae531cd69`, including
+its latest 0.3 mm AUX tip correction. The source clearances, flexures, anchors,
+guards and press faces are unscaled. The PitClamp board is tilted 8.33° behind
+the flat 3 mm cover, so the reset and AUX strikers gain separate 4.5433 mm and
+9.9563 mm extensions, trimmed to their respective board contact planes.
+
+The black cover, cyan press faces, white I/O symbols and pink AUX heart are
+separate material regions with 0.6 mm flush inlays. Power-input, USB, wired
+remote, reset and heart artwork reuse the exact native source curves. The
+circle-M at the shared harness exit is a new motor symbol; it asserts no
+individual wire polarity. The source's separate light pipe and removable
+RS-485 cap are not part of this cover revision.
+
+The source board reference is simplified and has a 0.25 mm X offset and a
+different mounting-hole pitch from the target envelope. Registration therefore
+uses the source's explicit nominal board and switch datums without scaling.
+The striker-end planes match those mapped datums; this is not measured switch
+fit or a full PCBA model.
+
+Digital checks found:
+
+- One valid connected physical cover and one valid black material solid.
+- Zero changed material in the four mounting/bridge regions or the shared
+  cable exit. The accepted enclosure and all 23 hidden reference shapes remain.
+- Zero added-control overlap with the enclosure, the 23 native reference
+  shapes, or the mapped source board/photo-detail envelopes.
+- The AUX cap/stem reaches its guard at 0.9 mm travel; it remains clear through
+  that point. The reset cap/stem retains about 0.5 mm radial guide clearance
+  through the checked 1 mm motion. This rigid-core check does not simulate
+  elastic leaf deflection or establish a reset travel stop.
+- Fused cover STL: 16,418 triangles, one closed component. The four material
+  meshes contain 33,720 triangles in total; each passes manifold, orientation
+  and reported self-intersection checks. The body remains 47,504 triangles.
+- Bambu Studio 02.08.02.61 successfully sliced the full package and the fused
+  cover alone using a single-filament P2S/0.4 mm/0.20 Standard/PLA diagnostic
+  profile. The cover-only slice reported no warnings. The full package retains
+  the inherited body cantilever warning. Filament/color assignment remains a
+  slicer setup step for the generic four-material package.
+
+The two stand variants retain their latest arm, enclosure, actuator and hinge
+placements, with the updated cover material regions installed in each. Print
+and slicer checks for the revised cover are recorded in `source.json`; the
+earlier M6 slice above applies only to its historical package. The body print
+mesh is unchanged by the cover revision.
+
 ## Work to track
 
 - [ ] Resolve fine STEP tessellation at the actual target-slicer settings.
@@ -131,6 +179,9 @@ checksummed package; the body cantilever warning remains.
       or a local printable-geometry change using actual sliced toolpaths.
 - [ ] Print body and cover; confirm the counterbore bridge layers, self-tapping
       screws, mounting-head access, and cover fit with the chosen material.
+- [ ] Test both printed controls with the actual PCB: switch contact, full
+      return, guard clearance, required force and repeated flexure life. The
+      longer AUX striker especially needs a real fit and stiffness check.
 - [ ] Check the actual PCB, motor, connectors, barrel jack, and cable bundle
       against the housing and strain relief. Reference envelopes are not
       physical-fit proof.

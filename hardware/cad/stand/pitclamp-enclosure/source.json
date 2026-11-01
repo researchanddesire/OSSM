@@ -1,7 +1,7 @@
 {
   "snapshot_added_date": "2026-10-30",
-  "native_geometry_saved_date": "2026-10-30",
-  "recorded_print_validation_date": "2026-10-30",
+  "native_geometry_saved_date": "2026-11-01",
+  "recorded_print_validation_date": "2026-11-01",
   "units": "millimeter",
   "development_status": "work in progress; not a released BOM replacement",
   "license": "CERN-OHL-S-2.0",
@@ -18,36 +18,36 @@
   "artifacts": [
     {
       "path": "pitclamp-enclosure.FCStd",
-      "role": "native CAD",
+      "role": "Native enclosure with source-derived reset/AUX controls, four cover material regions and hidden references",
       "original_workspace_filename": "OSSM-PitClamp-Latest.FCStd",
       "source_sha256": "c4c33bfcb871e83053dd05ea7515b710255139bdf36047adc8ef404108bc7e9b",
-      "sha256": "4efcc8f4c5126954354c8e5cd322bb7d014ebe0e89f3d18f782142aa756ac879",
-      "size_bytes": 11183047,
+      "sha256": "1ad23a5a963e67f0eb82f5bafabb282ab443cab0865caaf800ef38e58bf21abf",
+      "size_bytes": 11553586,
       "byte_identical_to_workspace": false,
-      "previous_sha256": "a5bbebcd7b9f7f620eb6e92abce38ceb88f04b6ad1e5dd1d485f54a8e354abb7",
-      "revision": "M6 hinge interfaces, 2026-10-30"
+      "previous_sha256": "4efcc8f4c5126954354c8e5cd322bb7d014ebe0e89f3d18f782142aa756ac879",
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
     },
     {
       "path": "pitclamp-enclosure.step",
-      "role": "Revised body and unchanged cover; valid CAD interchange, fine slicer tessellation not requalified",
+      "role": "Accepted body surface representation plus four cover material products; fine slicer STEP tessellation remains unqualified",
       "original_workspace_filename": "OSSM-PitClamp-Latest.step",
       "source_sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
-      "sha256": "dea042ed370464e5caccb48de1e080ef935c0d1c9a929e1aae9cad23340153a5",
-      "size_bytes": 3281577,
+      "sha256": "3062c98bb100e163a890510441d5b3b4168231e7f2ed71ef19881160d56582b1",
+      "size_bytes": 4107659,
       "byte_identical_to_workspace": false,
-      "previous_sha256": "070f7753c3b57e414a89c20d7f0ea1c631768cb606511ee27a8b1ee100dcfa4f",
-      "revision": "M6 hinge interfaces, 2026-10-30"
+      "previous_sha256": "dea042ed370464e5caccb48de1e080ef935c0d1c9a929e1aae9cad23340153a5",
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
     },
     {
       "path": "print/pitclamp-enclosure.3mf",
-      "role": "Revised generic print package, checked in Bambu Studio 02.08.02.61",
+      "role": "Generic two-object print package with four cover material parts and exact source palette",
       "original_workspace_filename": "OSSM-PitClamp-Latest.3mf",
       "source_sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
-      "sha256": "0735574e5381a1c0f5f4502cabc8fa5c00eac822c704d50f7e569a68652c2afc",
-      "size_bytes": 771567,
+      "sha256": "9db25748891a6443c4298c1dfd81598fcbb144e12c4c6c2035a5842c3c9367da",
+      "size_bytes": 1143487,
       "byte_identical_to_workspace": false,
-      "previous_sha256": "b871a1ebcef26ab71803b2f843e4b132cfe25686ccf7931b9a2dc4af99111916",
-      "revision": "M6 hinge interfaces, 2026-10-30"
+      "previous_sha256": "0735574e5381a1c0f5f4502cabc8fa5c00eac822c704d50f7e569a68652c2afc",
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
     },
     {
       "path": "print/body.stl",
@@ -62,14 +62,14 @@
     },
     {
       "path": "print/cover.stl",
-      "role": "accepted cover print mesh",
+      "role": "Fused single-color cover; one closed connected component",
       "original_workspace_filename": "Latest-Cover.stl",
       "source_sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
-      "sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
-      "size_bytes": 194884,
-      "byte_identical_to_workspace": true,
+      "sha256": "d7ba6103e8bc8acaf67962e46f6ca3a8ba026a8a96a92accf68610196eecfec3",
+      "size_bytes": 820984,
+      "byte_identical_to_workspace": false,
       "previous_sha256": "7dbefece63897a2a104253c4fbc6533b27e4126aeae9118364df0b7227380e3e",
-      "revision": "unchanged accepted cover mesh"
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
     },
     {
       "path": "m6x25-hinge-screw.step",
@@ -78,6 +78,34 @@
       "size_bytes": 905192,
       "onshape_export": false,
       "generation_reference": "m6_hinge_revision.screw_generation"
+    },
+    {
+      "path": "print/cover-black.stl",
+      "role": "Black cover mechanics and inlay pockets",
+      "sha256": "f243b7bbd1b7caa71f953741a7bd6007267b49bc43fbbe765b65ff727f0d58f1",
+      "size_bytes": 1124884,
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
+    },
+    {
+      "path": "print/cover-cyan.stl",
+      "role": "Cyan reset and AUX press-face inlays",
+      "sha256": "4b6cc3c489c0cb75871651af4d66cc306d102576b0de12283cd370d42a91fdb7",
+      "size_bytes": 43084,
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
+    },
+    {
+      "path": "print/cover-white.stl",
+      "role": "White power / USB / wired remote / motor / reset artwork",
+      "sha256": "80014b6e14ee439f7aade506726012e427d3709c065afbf1f79bbad5028c6b60",
+      "size_bytes": 485084,
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
+    },
+    {
+      "path": "print/cover-pink.stl",
+      "role": "Pink AUX heart inlay",
+      "sha256": "af2457e885bc55f0e7267b896768c0c182ba64db33a48cbe2388989a1cdfa6b4",
+      "size_bytes": 33284,
+      "revision": "Cover controls and I/O artwork, 2026-11-01"
     }
   ],
   "source_references": [
@@ -94,13 +122,21 @@
       "path": "Printed Parts/Mounting/STEP/OSSM - PCB - Box.stp",
       "git_blob_sha": "7fd25d1141c3bae089513ca3dc47433878652d46",
       "use": "initial PCB mounting measurements"
+    },
+    {
+      "repository": "researchanddesire/community-mods",
+      "commit": "aee6c9e4df47ea35281a559f2808685ae531cd69",
+      "path": "mods/ossm/ossm-rs485-pcb-cover/cad/OSSM-Cover-Interchangeable.FCStd",
+      "sha256": "35c07380972da4cd06dcb9c5e4565ec71bceb3148f9672a4cfed4b2428eca5b3",
+      "use": "Exact native reset/AUX mechanics, face inlays and I/O artwork; adapted only for the PitClamp board registration and striker reach"
     }
   ],
   "native_model": {
     "roots": [
       "Enclosure",
-      "Cover",
-      "ElectronicsReferences"
+      "ElectronicsReferences",
+      "CoverAssembly",
+      "CoverControlConstruction"
     ],
     "hidden_colored_references": 23,
     "reference_groups": {
@@ -109,18 +145,27 @@
       "MotorReference": 1
     },
     "enclosure_tip": "M6NutTrap",
-    "cover_tip": "CoverGeometry",
-    "sketches": 3,
-    "final_surface_stage": "Original stored SurfaceContinuity solid followed by three editable native sketch/Pocket operations for M6 hinge interfaces; original feature history and references retained."
+    "cover_tip": "CoverFinish",
+    "sketches": 10,
+    "final_surface_stage": "Original stored SurfaceContinuity solid followed by three editable native sketch/Pocket operations for M6 hinge interfaces; original feature history and references retained.",
+    "cover_material_regions": [
+      "Cover",
+      "CyanButtonFaces",
+      "WhiteIOMarks",
+      "PinkHeart"
+    ],
+    "cover_feature_history": "Seven named OpenCascade BRep operation snapshots; exact source tools, constrained source artwork sketches and registration data retained in hidden CoverControlConstruction. No automatic source dependency or end-to-end parametric regeneration is asserted."
   },
   "known_step_limitation": {
-    "valid_cad_solids": 2,
+    "valid_cad_solids": 16,
     "fine_slicer_tessellation_repaired": false,
     "investigated_slicer_settings": {
       "linear_deflection_mm": 0.001,
       "angular_deflection_rad": 0.05
     },
-    "print_route": "print/pitclamp-enclosure.3mf or print/*.stl"
+    "print_route": "print/pitclamp-enclosure.3mf or print/*.stl",
+    "material_products": 5,
+    "cover_material_solids": 15
   },
   "historical_print_validation_2026_10_16": {
     "body_triangles": 45456,
@@ -145,32 +190,74 @@
   },
   "recorded_print_validation": {
     "body_triangles": 47504,
-    "cover_triangles": 3896,
-    "closed_components_per_object": 1,
-    "boundary_edges": 0,
-    "nonmanifold_edges": 0,
-    "winding_consistent": true,
-    "manifold_boolean_status": "NoError",
-    "cover_mesh_unchanged": true,
+    "body_mesh_unchanged": true,
+    "body_stl_sha256": "115c7670752b8399a6125fc6c7e8ba47c792dd1a2aeaf0d7206f9e65348f7258",
+    "fused_cover_triangles": 16418,
+    "fused_cover_closed_components": 1,
+    "material_meshes": {
+      "Cover": {
+        "closed": true,
+        "nonmanifolds": false,
+        "self_intersections": false,
+        "nonuniform_normals": false,
+        "mesh_components": 1,
+        "triangles": 22496,
+        "sha256": "f243b7bbd1b7caa71f953741a7bd6007267b49bc43fbbe765b65ff727f0d58f1",
+        "file": "cover-black.stl"
+      },
+      "CyanButtonFaces": {
+        "closed": true,
+        "nonmanifolds": false,
+        "self_intersections": false,
+        "nonuniform_normals": false,
+        "mesh_components": 2,
+        "triangles": 860,
+        "sha256": "4b6cc3c489c0cb75871651af4d66cc306d102576b0de12283cd370d42a91fdb7",
+        "file": "cover-cyan.stl"
+      },
+      "WhiteIOMarks": {
+        "closed": true,
+        "nonmanifolds": false,
+        "self_intersections": false,
+        "nonuniform_normals": false,
+        "mesh_components": 11,
+        "triangles": 9700,
+        "sha256": "80014b6e14ee439f7aade506726012e427d3709c065afbf1f79bbad5028c6b60",
+        "file": "cover-white.stl"
+      },
+      "PinkHeart": {
+        "closed": true,
+        "nonmanifolds": false,
+        "self_intersections": false,
+        "nonuniform_normals": false,
+        "mesh_components": 1,
+        "triangles": 664,
+        "sha256": "af2457e885bc55f0e7267b896768c0c182ba64db33a48cbe2388989a1cdfa6b4",
+        "file": "cover-pink.stl"
+      }
+    },
+    "three_mf_sha256": "9db25748891a6443c4298c1dfd81598fcbb144e12c4c6c2035a5842c3c9367da",
     "three_mf_units": "millimeter",
+    "three_mf_build_objects": 2,
+    "cover_material_parts": 4,
+    "cover_material_closed_islands": 15,
     "three_mf_printer_settings_embedded": false,
     "three_mf_layout_preserved": true,
     "three_mf_layout_gap_mm": 10,
     "bambu_studio_version": "02.08.02.61",
-    "bambu_import_manifold_objects": 2,
-    "bambu_import_parts_per_object": 1,
-    "diagnostic_profile": "P2S 0.4 mm nozzle, 0.20 Standard, Bambu PLA Basic; diagnostic only",
+    "diagnostic_profile": "P2S 0.4 mm nozzle, 0.20 Standard, PLA; single-filament geometry diagnostic only",
+    "diagnostic_filament_changes": 0,
     "diagnostic_plate_arranged_for_slice": true,
     "print_package_layout_modified_by_diagnostic": false,
     "slice_return_code": 0,
     "slice_result": "Success.",
+    "diagnostic_gcode_sha256": "078a27c0f7eae392bee54f9530d3648f9218ae95dca849d248a19a70da28c907",
+    "cover_only_gcode_sha256": "a88e30b069abba2f2dcf694a322da2e99f82fcb2c2a693d1ea06d65c4ac3420d",
     "remaining_warning": "It seems object Body has floating cantilever. Please re-orient the object or enable support generation.",
-    "physical_fit_and_loaded_strength_validated": false,
-    "mesh_revision_method": "subtract only the \u00d86 bore, \u00d810.4 head counterbore and AF10.2 nut trap from accepted body mesh; unchanged cover mesh retained",
-    "maximum_cutter_chord_radial_error_mm": 5.647415219667273e-05,
-    "float32_zero_area_cleanup_removed_faces": 252,
-    "vertex_merge_rounding_decimal_places": 6,
-    "added_volume_mm3": 1.181006561597963e-14
+    "cover_only_slice_passed": true,
+    "cover_only_warning_message": "",
+    "AMS_assignment_or_color_change_schedule_validated": false,
+    "physical_fit_and_loaded_strength_validated": false
   },
   "initial_representative_stand_assembly_2026_10_30": {
     "repository_path": "hardware/cad/ossm-assembly.FCStd",
@@ -586,14 +673,24 @@
     ],
     "actuator_included": true,
     "enclosure_geometry_revision": "M6 hinge interfaces, 2026-10-30",
-    "source_enclosure_native_sha256": "4efcc8f4c5126954354c8e5cd322bb7d014ebe0e89f3d18f782142aa756ac879",
-    "cover_geometry_modified": false,
+    "source_enclosure_native_sha256": "1ad23a5a963e67f0eb82f5bafabb282ab443cab0865caaf800ef38e58bf21abf",
+    "cover_geometry_modified": true,
     "lower_pivot_and_frame_geometry_modified": false,
     "hidden_colored_references_per_configuration": 23,
     "hinge_screw": "m6x25-hinge-screw.step",
     "hinge_nut": "original source M6 nut, translated +1 mm along enclosure-native Y",
     "existing_working_arm_placements_preserved": true,
-    "physical_fit_and_loaded_strength_validated": false
+    "physical_fit_and_loaded_strength_validated": false,
+    "cover_materials_installed_per_configuration": 4,
+    "cover_revision": "Source-derived reset/AUX controls and I/O artwork, 2026-11-01",
+    "assembly_sha256": "9d122c55b884573dcfd77176bc30ef4bb0d86bfd4f706825206a66c25d4ca4f0",
+    "original_objects": 822,
+    "final_objects": 828,
+    "original_noncover_geometry_poses_appearance_preserved": true,
+    "actuator_link_preserved": true,
+    "original_noncover_brep_payloads_byte_identical": 432,
+    "original_noncover_gui_records_preserved": 820,
+    "saved_assembly_independently_reopened": true
   },
   "m6_hinge_revision": {
     "date": "2026-10-30",
@@ -1147,6 +1244,158 @@
       },
       "interpretation": "Unresolved numerical mass-property uncertainty: changing integration settings changes both individual volumes and their difference, and reported relative error remains above the requested tolerance. No exact mass or volume equality is claimed. The finite surface sample comparison and hinge-interface dimensions are independent geometry evidence; they do not prove a global surface bound or explain the entire mass discrepancy."
     },
-    "body_volume_method": "FreeCAD default Shape.Volume; see the separate default and adaptive mass-property comparisons for numerical uncertainty."
+    "body_volume_method": "FreeCAD default Shape.Volume; see the separate default and adaptive mass-property comparisons for numerical uncertainty.",
+    "scope": "Historical 2026-10-30 M6 revision. Its cover_unchanged flag describes that operation; the later cover revision below does not change the M6 interfaces."
+  },
+  "historical_m6_print_validation_2026_10_30": {
+    "body_triangles": 47504,
+    "cover_triangles": 3896,
+    "closed_components_per_object": 1,
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "winding_consistent": true,
+    "manifold_boolean_status": "NoError",
+    "cover_mesh_unchanged": true,
+    "three_mf_units": "millimeter",
+    "three_mf_printer_settings_embedded": false,
+    "three_mf_layout_preserved": true,
+    "three_mf_layout_gap_mm": 10,
+    "bambu_studio_version": "02.08.02.61",
+    "bambu_import_manifold_objects": 2,
+    "bambu_import_parts_per_object": 1,
+    "diagnostic_profile": "P2S 0.4 mm nozzle, 0.20 Standard, Bambu PLA Basic; diagnostic only",
+    "diagnostic_plate_arranged_for_slice": true,
+    "print_package_layout_modified_by_diagnostic": false,
+    "slice_return_code": 0,
+    "slice_result": "Success.",
+    "remaining_warning": "It seems object Body has floating cantilever. Please re-orient the object or enable support generation.",
+    "physical_fit_and_loaded_strength_validated": false,
+    "mesh_revision_method": "subtract only the \u00d86 bore, \u00d810.4 head counterbore and AF10.2 nut trap from accepted body mesh; unchanged cover mesh retained",
+    "maximum_cutter_chord_radial_error_mm": 5.647415219667273e-05,
+    "float32_zero_area_cleanup_removed_faces": 252,
+    "vertex_merge_rounding_decimal_places": 6,
+    "added_volume_mm3": 1.181006561597963e-14
+  },
+  "cover_controls_revision": {
+    "date": "2026-11-01",
+    "base_staging_commit": "a43ad547f46503a0dd18d25479303c1c10e5305c",
+    "upstream_commit": "aee6c9e4df47ea35281a559f2808685ae531cd69",
+    "source_mechanisms_unscaled": true,
+    "source_aux_tip_physical_fit_correction_mm": 0.3,
+    "board_tilt_degrees": 8.33,
+    "cover_thickness_mm": 3,
+    "inlay_depth_mm": 0.6,
+    "palette": {
+      "black": "#303842",
+      "cyan": "#00D9E6",
+      "white": "#FAFAFA",
+      "pink": "#FF2E7A"
+    },
+    "controls": {
+      "reset": {
+        "cover_press_center_mm": [
+          72.715991,
+          38.8,
+          25.39592091556556
+        ],
+        "target_contact_point_mm": [
+          72.715991,
+          24.15635876114149,
+          25.39592091556556
+        ],
+        "additional_striker_length_along_minusY_mm": 4.543341238858506
+      },
+      "aux": {
+        "cover_press_center_mm": [
+          72.75,
+          38.8,
+          62.34296831031547
+        ],
+        "target_contact_point_mm": [
+          72.75,
+          18.443410076195338,
+          62.34296831031547
+        ],
+        "additional_striker_length_along_minusY_mm": 9.956289923804658
+      }
+    },
+    "contact_registration_limitations": "Mapped nominal source switch datums, not measured physical switch positions. Imported source PCB context is shifted +0.25 mm X, is 1.4 mm thick vs target 1.6 mm, and has 29.7 mm mounting pitch vs target 29.4005 mm. No geometry scale is used.",
+    "artwork": [
+      {
+        "role": "power_input",
+        "native_anchor_xz_mm": [
+          116.5,
+          77.5
+        ],
+        "source": "DCInputSketch"
+      },
+      {
+        "role": "usb_port",
+        "native_anchor_xz_mm": [
+          116.5,
+          36.8
+        ],
+        "source": "USBTridentSketch"
+      },
+      {
+        "role": "wired_remote",
+        "native_anchor_xz_mm": [
+          115.5,
+          18.5
+        ],
+        "source": "WiredControllerIconSketch"
+      },
+      {
+        "role": "reset_control",
+        "native_anchor_xz_mm": [
+          82,
+          25.39592091556556
+        ],
+        "source": "ResetArrowSketch"
+      },
+      {
+        "role": "aux_control_heart",
+        "native_anchor_xz_mm": [
+          82,
+          62.34296831031547
+        ],
+        "source": "AuxHeartSketch"
+      },
+      {
+        "role": "motor_harness",
+        "native_anchor_xz_mm": [
+          63,
+          40
+        ],
+        "source": "New circle-M vector diagram; no wire polarity assertion"
+      }
+    ],
+    "source_light_pipe_and_RS485_cap_transplanted": false,
+    "enclosure_preservation": {
+      "valid": true,
+      "same_serialized_brep": false,
+      "same_brep_structure": true,
+      "numeric_max_delta": 7.105427357601002e-15,
+      "volume_delta_mm3": 0.0,
+      "faces": [
+        429,
+        429
+      ]
+    },
+    "hidden_reference_shapes_and_appearance_preserved": 23,
+    "protected_mount_and_shared_wire_zones_added_or_removed_mm3": 0,
+    "new_control_overlap_with_enclosure_or_23_reference_solids_mm3": 0,
+    "aux_guard_first_contact_travel_mm": 0.9,
+    "reset_radial_guide_clearance_mm": 0.499918,
+    "reset_guard_checked_travel_mm": 1,
+    "reset_positive_travel_stop_established": false,
+    "elastic_flexure_analysis_or_physical_switch_testing_complete": false,
+    "step_roundtrip": {
+      "roundtrip_valid": true,
+      "roundtrip_solids": 16,
+      "source_body_faces": 429,
+      "roundtrip_body_faces": 429,
+      "accepted_body_bbox_roundtrip_max_mm": 0.0
+    }
   }
 }
