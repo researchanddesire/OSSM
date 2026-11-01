@@ -168,8 +168,56 @@ and slicer checks for the revised cover are recorded in `source.json`; the
 earlier M6 slice above applies only to its historical package. The body print
 mesh is unchanged by the cover revision.
 
+## Folded-view icons and conformal Neo Memphis artwork — 2026-11-01
+
+The cover icons rotate +90° around native +Y at their existing anchors. Native
++Z is now reading-up, confirmed in nominal rail-aligned folded views of both
+stand variants. No physical control, arm, actuator or enclosure placement moves.
+These temporary orientation studies do not establish motion or folded clearances.
+
+The opposite rear exterior has a white conformal field with the black official
+R+D mark and three parallel ribbons routed around it. One repeated curve radius,
+stripe width and spacing tie the composition together; cyan and pink sections
+belong to those same ribbons. The composition follows the supplied Neo Memphis
+reference and uses only the existing black, cyan, white and pink. Editable
+production SVG and the original
+official vector mark are retained in `artwork/`, with source notes.
+
+The keep-in guide follows the actual rear-face perimeter, offset inward 5 mm
+with a 0.01 mm tolerance allowance. Sampled clearance to the original outer edge
+and hole is at least 5.0095 mm. The painted field stays inside that guide; a
+rounded morphological opening removes the unprintably narrow clamp-tail branch.
+Final profiles use absolute native X/Z coordinates. A +90° X rotation maps
+them to rear Y0, with no overall scale or translation.
+
+Inlays extend 0.6 mm inward and stay flush. The filled local wall exactly
+reconstructs the original physical region, and all other surfaces are unchanged.
+The generic 3MF has two objects, each containing four material regions. Both
+colored faces remain down in the existing layout, so inlays occupy the first
+three 0.2 mm face layers. Actual filament assignment and a multi-color print
+remain production setup and validation steps.
+
+The native document retains the previous body feature history, cover mechanism
+stages, source artwork sketches and 23 colored hidden references. Rear profiles,
+exact official source curves and registration data remain hidden construction.
+Both stand assemblies include the material regions without moving components.
+These are named geometry snapshots and source profiles, not an automatically
+regenerating parametric history.
+
+The revised material meshes pass closed-manifold and orientation checks, and
+no self-intersections are reported in the new rear artwork or cover. Strict
+FreeCAD checks still identify inherited body intersections at the M6
+counterbore exit, including coplanar overlaps. The accepted fused body mesh is
+retained; experimental local re-cuts were rejected because their serialized
+meshes introduced boundary defects. This revision does not claim that the entire
+body is self-intersection-free. The current 3MF imports as manifold without
+mesh repairs and completes the recorded Bambu Studio CLI diagnostic slice. The remaining
+M6 mesh finding and fine STEP tessellation remain development items.
+
 ## Work to track
 
+- [ ] Remove inherited M6 counterbore-exit mesh intersections with a local
+      export repair that preserves dimensions and passes serialized topology.
 - [ ] Resolve fine STEP tessellation at the actual target-slicer settings.
       Require closed, consistently oriented, nonintersecting output after STEP
       import; checking only CAD-solid validity is insufficient.

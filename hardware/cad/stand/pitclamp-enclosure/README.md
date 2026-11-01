@@ -10,11 +10,13 @@ variant; the shipped PitClamp and PCB enclosure files remain the BOM references.
 | File | Purpose |
 | --- | --- |
 | [pitclamp-enclosure.FCStd](pitclamp-enclosure.FCStd) | Native FreeCAD document; start further geometry work here. |
-| [print/pitclamp-enclosure.3mf](print/pitclamp-enclosure.3mf) | Print mesh package: separate body and four-material cover. |
+| [print/pitclamp-enclosure.3mf](print/pitclamp-enclosure.3mf) | Print mesh package: body and cover, each with four material regions. |
 | [print/body.stl](print/body.stl), [print/cover.stl](print/cover.stl) | Individual print meshes; the cover STL combines its material regions into one physical solid. |
+| [Black](print/body-black.stl), [cyan](print/body-cyan.stl), [white](print/body-white.stl), [pink](print/body-pink.stl) body STLs | Rear artwork and black body, with a shared origin; import as one multipart body object. |
 | [Black](print/cover-black.stl), [cyan](print/cover-cyan.stl), [white](print/cover-white.stl), [pink](print/cover-pink.stl) cover STLs | Separate material regions with a shared origin; import together as parts of one cover object. |
 | [pitclamp-enclosure.step](pitclamp-enclosure.step) | Body and cover in assembly position for CAD interchange; see the STEP limitation below. |
 | [m6x25-hinge-screw.step](m6x25-hinge-screw.step) | Standard ISO 4762 M6 × 25 screw used by the revised hinge. |
+| [artwork/rd-conformal-neo-memphis.svg](artwork/rd-conformal-neo-memphis.svg) | Editable Neo Memphis rear artwork, with the official R+D mark and source notes. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Current design scope, digital checks, and remaining development work. |
 | [source.json](source.json), [SHA256SUMS](SHA256SUMS) | Provenance, snapshot identities, and artifact checksums. |
 
@@ -25,8 +27,10 @@ M6 × 25 screw and moves the M6 nut outward by 1 mm.
 
 ## Editing
 
-The native document has `Enclosure`, `CoverAssembly`, `ElectronicsReferences`,
-and hidden `CoverControlConstruction` roots. `CoverAssembly` contains the black
+The native document has `EnclosureAssembly`, `CoverAssembly`,
+`ElectronicsReferences`, and hidden cover-control and brand-artwork construction
+groups. `EnclosureAssembly` contains the black `Enclosure` body and cyan,
+white and pink rear inlays. `CoverAssembly` contains the black
 `Cover` body, cyan button faces, white I/O marks, and pink AUX heart. The 23
 colored electronics, motor, connector, and harness references are
 embedded and hidden. Select a reference and press **Space** in FreeCAD to show
@@ -38,7 +42,8 @@ dimension properties are descriptive metadata, and the original snapshot had no
 Sketcher objects. A native chamfer and Boolean return features remain, but this
 is not a fully constrained, end-to-end regenerating feature history. Three
 new sketches and native pockets follow it: the 6 mm passage, head counterbore,
-and M6 nut trap. `M6NutTrap` is the current body tip. The circle profiles are
+and M6 nut trap. `M6NutTrap` retains that physical body; the subsequent
+`BodyBrandPockets` tip partitions its rear face for the flush color inlays. The circle profiles are
 dimensioned; the hexagon profile records six fixed segments. Earlier geometry
 and the hidden references remain available in the native document.
 
@@ -50,6 +55,23 @@ reach the PitClamp's tilted board; their ends follow its 8.33° contact planes.
 White power-input, USB, wired-remote and reset symbols, plus the pink AUX heart,
 reuse the source artwork. A new circle-M symbol marks the shared motor-harness
 exit. The inlays are 0.6 mm deep and flush with the exterior.
+
+The I/O and control icons read with native +Z up from the usual folded stand
+view. Each icon rotates a quarter turn around its existing anchor; the physical
+buttons stay in place. Nominal folded single-arm and double-arm views confirm
+reading direction, without establishing folded-motion clearance.
+
+The opposite rear exterior has a conformal Neo Memphis graphic: a white field,
+the black official R+D mark and three parallel ribbons routed around it.
+A shared curve radius, stripe width and spacing connect the composition; cyan
+and pink sections are part of the same ribbons. These use the cover’s four colors. The field follows the rear-face perimeter with a nominal 5 mm inward
+margin, including the enclosure's concave clamp-side curve. A small tolerance
+guard keeps the actual color edges at least 5 mm inside the original boundary.
+The narrow clamp tail is left clear.
+
+The rear inlays are 0.6 mm deep and flush, leaving the original wall's 2.4 mm
+black backing in the 3 mm rear floor. The filled body and cover retain their
+previous physical geometry.
 
 Named cover construction stages store the resulting OpenCascade solids;
 they are geometry snapshots, not a fully regenerating Part Design history.
@@ -82,19 +104,22 @@ cover has its outside face down. The generic 3MF lays them apart with a 10 mm
 gap and contains no printer, filament, or process settings. Select suitable
 settings for the actual printer and material.
 
-The cover's material order is black mechanics, cyan press faces, white I/O
-artwork and pink heart. Assign the intended filament to each region in the
-slicer. Use compatible colors of the same material for the bonded inlays;
-the combined `cover.stl` is the single-color alternative.
+Both objects use the same four material slots: black `#303842`, cyan
+`#00D9E6`, white `#FAFAFA` and pink `#FF2E7A`. Assign the loaded filament
+to each region in the slicer. Use compatible colors of the same material for
+the bonded inlays. Both decorated faces are already placed down, so their
+0.6 mm inlays occupy the first three 0.2 mm face layers. The unchanged fused
+`body.stl` and `cover.stl` are the single-color alternatives.
 
 The cover counterbores use two orthogonal 0.2 mm bridge transitions. Preserve
 that layer relationship when choosing the cover's layer height and inspecting
 its toolpaths. This does not establish that the complete body needs no support.
 
-The revised cover and its four material meshes are closed, consistently
-oriented and manifold, with no reported self-intersections. The fused cover
-STL has one connected component. Bambu Studio 02.08.02.61 imports the cover as
-four material parts. A diagnostic P2S/0.4 mm/0.20 Standard/PLA slice completed
+The current body and cover material meshes are checked for closed, consistently
+oriented manifold geometry. Self-intersection diagnostics and their source-mesh
+comparison are recorded separately in the manifest. Each fused
+single-color STL has one connected component. The 3MF contains two objects
+with four material parts each. A diagnostic P2S/0.4 mm/0.20 Standard/PLA slice completed
 for the complete package and for the cover alone; the cover-only check had no
 warnings. This geometry check used a single filament, so it does not validate
 an AMS assignment or color-change schedule. Only the diagnostic copy was
@@ -105,7 +130,7 @@ review. No physical print or loaded-fit result is established by these checks.
 
 ### STEP limitation
 
-The STEP contains the enclosure and the cover's separate material regions. Earlier fine slicer tessellation
+The STEP contains the body and cover as separate color material products. Earlier fine slicer tessellation
 created open seams and intersecting triangles. In the investigated setup,
 Bambu's STEP import settings were 0.001 mm linear and 0.05 rad angular
 deflection. Attempts to heal only the STEP representation remained sensitive
