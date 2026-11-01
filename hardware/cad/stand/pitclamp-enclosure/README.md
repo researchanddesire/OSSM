@@ -16,7 +16,7 @@ variant; the shipped PitClamp and PCB enclosure files remain the BOM references.
 | [Black](print/cover-black.stl), [cyan](print/cover-cyan.stl), [white](print/cover-white.stl), [pink](print/cover-pink.stl) cover STLs | Separate material regions with a shared origin; import together as parts of one cover object. |
 | [pitclamp-enclosure.step](pitclamp-enclosure.step) | Body and cover in assembly position for CAD interchange; see the STEP limitation below. |
 | [m6x25-hinge-screw.step](m6x25-hinge-screw.step) | Standard ISO 4762 M6 × 25 screw used by the revised hinge. |
-| [artwork/rd-conformal-neo-memphis.svg](artwork/rd-conformal-neo-memphis.svg) | Editable Neo Memphis rear artwork, with the official R+D mark and source notes. |
+| [artwork/rd-conformal-neo-memphis.svg](artwork/rd-conformal-neo-memphis.svg) | Editable radiating heart-and-gear artwork and source notes. |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Current design scope, digital checks, and remaining development work. |
 | [source.json](source.json), [SHA256SUMS](SHA256SUMS) | Provenance, snapshot identities, and artifact checksums. |
 
@@ -61,13 +61,19 @@ view. Each icon rotates a quarter turn around its existing anchor; the physical
 buttons stay in place. Nominal folded single-arm and double-arm views confirm
 reading direction, without establishing folded-motion clearance.
 
-The opposite rear exterior has a conformal Neo Memphis graphic: a white field,
-the black official R+D mark and three parallel ribbons routed around it.
-A shared curve radius, stripe width and spacing connect the composition; cyan
-and pink sections are part of the same ribbons. These use the cover’s four colors. The field follows the rear-face perimeter with a nominal 5 mm inward
-margin, including the enclosure's concave clamp-side curve. A small tolerance
-guard keeps the actual color edges at least 5 mm inside the original boundary.
-The narrow clamp tail is left clear.
+The opposite rear exterior has a large pink heart over the center of the cyan
+open-hardware gear, covering its circular aperture. The original gear path
+remains underneath, including the unchanged angles of its tapered opening.
+The body stays black; white is used only in selected geometric accents. Segmented concentric arcs
+radiate from the gear across the full profile toward the hinge, with staggered
+starts and varied palette colors, cropped at the perimeter.
+The composition uses the cover's four colors.
+
+The art field follows the complete usable rear profile with a nominal 2.5 mm
+inward margin, including the hinge-side return, narrow tail and concave curves.
+A 0.01 mm tolerance guard keeps the colored contours inside that boundary.
+The editable SVG contains the same flattened material footprints as the native
+profiles; preview clipping is not required for the production geometry.
 
 The rear inlays are 0.6 mm deep and flush, leaving the original wall's 2.4 mm
 black backing in the 3 mm rear floor. The filled body and cover retain their

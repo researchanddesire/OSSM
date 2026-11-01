@@ -168,41 +168,51 @@ and slicer checks for the revised cover are recorded in `source.json`; the
 earlier M6 slice above applies only to its historical package. The body print
 mesh is unchanged by the cover revision.
 
-## Folded-view icons and conformal Neo Memphis artwork — 2026-11-01
+## Folded-view icons and radiating rear artwork — 2026-11-01
 
 The cover icons rotate +90° around native +Y at their existing anchors. Native
 +Z is now reading-up, confirmed in nominal rail-aligned folded views of both
 stand variants. No physical control, arm, actuator or enclosure placement moves.
 These temporary orientation studies do not establish motion or folded clearances.
 
-The opposite rear exterior has a white conformal field with the black official
-R+D mark and three parallel ribbons routed around it. One repeated curve radius,
-stripe width and spacing tie the composition together; cyan and pink sections
-belong to those same ribbons. The composition follows the supplied Neo Memphis
-reference and uses only the existing black, cyan, white and pink. Editable
-production SVG and the original
-official vector mark are retained in `artwork/`, with source notes.
+The opposite rear exterior has a large pink heart overlaying the cyan open-hardware
+gear and hiding its circular aperture. The exact source gear path remains
+underneath, with the original outer contour and straight tapered-gap angles.
+The existing black body is the background; white appears only as geometric accents. Concentric segmented bands share the gear center and continue all the way
+through the tail toward the hinge. Their reproducibly randomized starts and
+palette colors avoid a shared empty wedge, cropped at the complete inward perimeter. The literal tools, lips and R+D logo are removed.
+The tiny separate hook field stays body black. Production SVG and native
+profiles use the same disjoint black, cyan, white and pink footprints.
 
-The keep-in guide follows the actual rear-face perimeter, offset inward 5 mm
-with a 0.01 mm tolerance allowance. Sampled clearance to the original outer edge
-and hole is at least 5.0095 mm. The painted field stays inside that guide; a
-rounded morphological opening removes the unprintably narrow clamp-tail branch.
-Final profiles use absolute native X/Z coordinates. A +90° X rotation maps
-them to rear Y0, with no overall scale or translation.
+The keep-in guide follows the complete actual rear-face profile, offset inward
+2.5 mm with a 0.01 mm tolerance allowance. No opening operation or tail crop
+removes the legal hinge, return or tail regions. Both components of the inset
+field are retained. Final profiles use absolute native X/Z coordinates; a
++90° X rotation places them on rear Y0 without overall scaling or translation.
 
-Inlays extend 0.6 mm inward and stay flush. The filled local wall exactly
-reconstructs the original physical region, and all other surfaces are unchanged.
+Inlays extend 0.6 mm inward and stay flush. A checked normal-prism construction
+preserves the filled physical wall. The native cut retains all 428 original
+non-rear faces and all 24 original rear boundary edges; no global refinement is
+applied. Whole-body volume integration was reference-sensitive in the inherited
+model and is not used as a conservation certificate. The constructive proof and
+separate failed comparison diagnostics are recorded in source.json.
 The generic 3MF has two objects, each containing four material regions. Both
 colored faces remain down in the existing layout, so inlays occupy the first
 three 0.2 mm face layers. Actual filament assignment and a multi-color print
 remain production setup and validation steps.
 
 The native document retains the previous body feature history, cover mechanism
-stages, source artwork sketches and 23 colored hidden references. Rear profiles,
-exact official source curves and registration data remain hidden construction.
+stages, source artwork sketches and 23 colored hidden references. Rear manufacturing profiles and registration data remain hidden construction;
+the exact official SVG source path is retained in `artwork/`.
 Both stand assemblies include the material regions without moving components.
 These are named geometry snapshots and source profiles, not an automatically
 regenerating parametric history.
+
+Default native tessellation produced microscopic cap defects near the rear
+curve despite valid CAD solids. The print package instead uses a constrained
+planar partition of the accepted mesh, with independent checks after binary
+serialization. The CAD-default mesh diagnostic remains recorded separately
+from the qualified print artifacts.
 
 The revised material meshes pass closed-manifold and orientation checks, and
 no self-intersections are reported in the new rear artwork or cover. Strict
