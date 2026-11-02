@@ -224,6 +224,30 @@ body is self-intersection-free. The current 3MF imports as manifold without
 mesh repairs and completes the recorded Bambu Studio CLI diagnostic slice. The remaining
 M6 mesh finding and fine STEP tessellation remain development items.
 
+## Bambu four-color project — 2026-11-01
+
+The portable 3MF retains its exact geometry and checksum. Actual Bambu GUI
+review found that its standard display colors do not assign parts to Bambu
+filaments: all eight initially inherit filament 1. A separate unsliced
+`print/pitclamp-enclosure-bambu-p2s-0p6.3mf` adds explicit per-part assignments
+and four filament definitions without changing the eight meshes or their layout.
+
+It targets P2S 0.6 mm High Flow and retains the `0.30mm Standard` preset label,
+with both effective normal and first-layer heights set to 0.2 mm. The project
+records `initial_layer_print_height;layer_height` as explicit process overrides;
+literal height fields alone did not survive Studio preset reconciliation.
+Fresh exact-file GUI reopen confirmed both overrides and four filament rows.
+The GUI reslice retained 194 layers and nine color changes. Independently parsed
+GUI-exported Gcode checked all 18 colored region/layer combinations within
+0.05 mm of their intended footprints through Z0.2/0.4/0.6 mm.
+At all four cover screws, bridge paths run along X at Z2.2 mm and Y at Z2.4 mm,
+matching the two orthogonal 0.2 mm geometry tiers. The body cantilever warning remains.
+
+Project filaments are black 1, cyan/blue 2, white 3 and pink 4. AMS bay selection
+is a separate send-time step and is not encoded. The project is unsliced;
+no generated Gcode, logs or preview images are tracked. No physical print,
+bridge strength, control function or PCB fit is established by these digital checks.
+
 ## Work to track
 
 - [ ] Remove inherited M6 counterbore-exit mesh intersections with a local

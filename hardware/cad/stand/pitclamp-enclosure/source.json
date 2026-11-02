@@ -158,6 +158,13 @@
       "sha256": "23c91a96982671e3889053df16af7ba3fbf0a4e5d6219f224d42fc180290a485",
       "size_bytes": 7287,
       "revision": "Folded-view icons and full-profile radiating artwork, 2026-11-01"
+    },
+    {
+      "path": "print/pitclamp-enclosure-bambu-p2s-0p6.3mf",
+      "role": "Unsliced Bambu P2S 0.6 mm High Flow project with eight-part/four-filament assignments and GUI-persistent 0.2 mm normal/first-layer overrides",
+      "sha256": "c2b83647be747db20553a12a346b9526d30b59b434e8f34dbd490d9de8ce8324",
+      "size_bytes": 1943323,
+      "revision": "Additive Bambu four-color project with persistent Studio process markers, 2026-11-01"
     }
   ],
   "source_references": [
@@ -2011,7 +2018,8 @@
       },
       "mechanical_cleanup_adopted": false,
       "art_region_self_intersections": 0
-    }
+    },
+    "scope": "Portable generic 3MF/STL geometry validation. Bambu-specific assignments and the actual four-filament slice are recorded separately under bambu_specific_project."
   },
   "initial_representative_stand_assembly_2026_10_30": {
     "repository_path": "hardware/cad/ossm-assembly.FCStd",
@@ -18736,5 +18744,464 @@
       "whole_field_contrasting_accent_percent": 50.53452573672953
     }
   },
-  "validation_evidence_locator_scope": "Entries beginning local-validation-evidence/ identify retained local audit evidence, not tracked repository files or public download links. Artifact paths and their hashes identify the published files."
+  "validation_evidence_locator_scope": "Entries beginning local-validation-evidence/ identify retained local audit evidence, not tracked repository files or public download links. Artifact paths and their hashes identify the published files.",
+  "bambu_specific_project": {
+    "date": "2026-11-01",
+    "artifact": "print/pitclamp-enclosure-bambu-p2s-0p6.3mf",
+    "sha256": "c2b83647be747db20553a12a346b9526d30b59b434e8f34dbd490d9de8ce8324",
+    "source_portable_generic_artifact": "print/pitclamp-enclosure.3mf",
+    "source_portable_generic_sha256": "6e54ed6b705b4a590edea7a0dc4b208ce591d86ff7e6a10a9b1e49b7b77a9af1",
+    "generic_part_assignment_behavior": "Bambu Studio 02.08.02.61 imported all eight generic parts on logical filament 1 despite standard display-color materials. Generic package retained unchanged; manually assign each material part in Bambu.",
+    "configured_printer": "Bambu Lab P2S",
+    "configured_nozzle_diameter_mm": 0.6,
+    "configured_nozzle_volume_type": "High Flow",
+    "underlying_process_preset_label": "0.30mm Standard @BBL P2S 0.6 nozzle",
+    "effective_normal_layer_height_mm": 0.2,
+    "effective_initial_layer_height_mm": 0.2,
+    "logical_filament_assignments": {
+      "1": "black",
+      "2": "cyan/blue",
+      "3": "white",
+      "4": "pink"
+    },
+    "logical_filament_numbers_are_not_AMS_bay_numbers": true,
+    "AMS_mapping_encoded_or_sent": false,
+    "unsliced_project": true,
+    "Gcode_logs_or_renders_tracked": false,
+    "geometry_and_existing_layout_unchanged": true,
+    "physical_print_or_fit_validated": false,
+    "printer_submission_performed_by_validation": false,
+    "persistent_process_override_marker": [
+      "initial_layer_print_height;layer_height",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "GUI_reopen_review": {
+      "project_sha256": "c2b83647be747db20553a12a346b9526d30b59b434e8f34dbd490d9de8ce8324",
+      "normal_and_first_layer_mm": 0.2,
+      "layers": 194,
+      "first_layer_Z_mm": 0.2,
+      "filament_changes": 9,
+      "estimated_seconds": 8453,
+      "estimated_mass_g": 104.73,
+      "actual_GUI_Gcode_export_sha256": "4bdea72dbe900c4791c5087d88df2e9922b135540664e47ee4d0d63487dd8a08",
+      "scope": "Exact Ready project fresh-opened and resliced in Studio; physical print quality and fit not established."
+    },
+    "project_validation": {
+      "state": "READY; root exact-file GUI fresh reopen and reslice retained both0.2mm heights and194layers",
+      "source_file": "local-validation-evidence/PitClamp-Radiating-Bambu-4Color-P2S-0p6.3mf",
+      "source_sha256": "b527a6d739ea701526640594fa8551dc3a6332a74a55390ce11eefa39dd5eaa2",
+      "Studio_marker_reference_sha256": "e6827580dd1970ff87dd7cb0bc77a6e9873601dd8c2e723f2771328337e64ffb",
+      "ready_file": "print/pitclamp-enclosure-bambu-p2s-0p6.3mf",
+      "ready_sha256": "c2b83647be747db20553a12a346b9526d30b59b434e8f34dbd490d9de8ce8324",
+      "only_changed_archive_member": "Metadata/project_settings.config",
+      "only_added_setting": "different_settings_to_system",
+      "marker_before": "setting absent",
+      "marker_after": [
+        "initial_layer_print_height;layer_height",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "normal_layer_height_mm": 0.2,
+      "initial_layer_height_mm": 0.2,
+      "all_existing_settings_identical": true,
+      "all_other_archive_member_bytes_identical": true,
+      "original_geometry_XML_byte_identical": true,
+      "original_part_assignment_metadata_byte_identical": true,
+      "original_privacy_clean_archive_preserved": true,
+      "Gcode_logs_or_preview_images_embedded": false,
+      "GUI_reopen_verified": true,
+      "publication_authorized_by_this_report": false,
+      "GUI_reopen_review": {
+        "project_sha256": "c2b83647be747db20553a12a346b9526d30b59b434e8f34dbd490d9de8ce8324",
+        "normal_and_first_layer_mm": 0.2,
+        "layers": 194,
+        "first_layer_Z_mm": 0.2,
+        "filament_changes": 9,
+        "estimated_seconds": 8453,
+        "estimated_mass_g": 104.73,
+        "actual_GUI_Gcode_export_sha256": "4bdea72dbe900c4791c5087d88df2e9922b135540664e47ee4d0d63487dd8a08",
+        "scope": "Exact Ready project fresh-opened and resliced in Studio; physical print quality and fit not established."
+      }
+    },
+    "prior_literal_height_candidate_GUI_persistence_failed": true,
+    "correction": "Add exact Studio-native process-difference markers so both 0.2 mm overrides survive GUI system-preset reconciliation. All existing settings and other archive members remain unchanged.",
+    "four_color_slice_validation": {
+      "status": "READY; actual GUI-exported four-filament Gcode inspected including native orthogonal bridge tier correspondence",
+      "validation_source": "Actual Studio GUI Export Plate Sliced File; no CLI invocation",
+      "bambu_version": "02.08.02.61",
+      "gcode_sha256": "4497f51327913fe02a7695b01c38110af48341bb1001e906155e0cd526a41407",
+      "filament_changes": 9,
+      "filaments": [
+        {
+          "id": 1,
+          "total_used_g": 98.14,
+          "used_for_object": true,
+          "filament_id": "GFA00"
+        },
+        {
+          "id": 2,
+          "total_used_g": 2.17,
+          "used_for_object": true,
+          "filament_id": "GFA00"
+        },
+        {
+          "id": 3,
+          "total_used_g": 2.21,
+          "used_for_object": true,
+          "filament_id": "GFA00"
+        },
+        {
+          "id": 4,
+          "total_used_g": 2.21,
+          "used_for_object": true,
+          "filament_id": "GFA00"
+        }
+      ],
+      "actual_settings": {
+        "printer_settings_id": "Bambu Lab P2S 0.6 nozzle",
+        "print_settings_id": "0.30mm Standard @BBL P2S 0.6 nozzle",
+        "layer_height": "0.2",
+        "initial_layer_print_height": "0.2",
+        "nozzle_diameter": [
+          "0.6"
+        ],
+        "nozzle_volume_type": [
+          "High Flow"
+        ],
+        "filament_colour": [
+          "#303842",
+          "#00D9E6",
+          "#FAFAFA",
+          "#FF2E7A"
+        ],
+        "filament_settings_id": [
+          "Bambu PLA Basic @BBL P2S 0.6 nozzle",
+          "Bambu PLA Basic @BBL P2S 0.6 nozzle",
+          "Bambu PLA Basic @BBL P2S 0.6 nozzle",
+          "Bambu PLA Basic @BBL P2S 0.6 nozzle"
+        ],
+        "enable_support": "0",
+        "enable_prime_tower": "1",
+        "prime_tower_width": "35",
+        "prime_tower_brim_width": "3",
+        "curr_bed_type": "Textured PEI Plate"
+      },
+      "arranged": false,
+      "orientation_changed": false,
+      "all_model_and_tower_extrusions_inside_256mm_plate": true,
+      "prime_tower_separation": [
+        {
+          "object": "Body - four material volumes",
+          "conservative_prime_tower_to_object_bbox_clearance_mm": 17.72993698567848
+        },
+        {
+          "object": "Cover - four material volumes",
+          "conservative_prime_tower_to_object_bbox_clearance_mm": 79.63636502109006
+        }
+      ],
+      "colored_model_face_paths": {
+        "cover/pink/0.2": {
+          "sampled_extrusion_centerline_points": 119,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/pink/0.2": {
+          "sampled_extrusion_centerline_points": 648,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/cyan/0.2": {
+          "sampled_extrusion_centerline_points": 212,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/cyan/0.2": {
+          "sampled_extrusion_centerline_points": 1263,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/white/0.2": {
+          "sampled_extrusion_centerline_points": 811,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/white/0.2": {
+          "sampled_extrusion_centerline_points": 559,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/white/0.4": {
+          "sampled_extrusion_centerline_points": 806,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/white/0.4": {
+          "sampled_extrusion_centerline_points": 556,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/pink/0.4": {
+          "sampled_extrusion_centerline_points": 139,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/pink/0.4": {
+          "sampled_extrusion_centerline_points": 645,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/cyan/0.4": {
+          "sampled_extrusion_centerline_points": 249,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/cyan/0.4": {
+          "sampled_extrusion_centerline_points": 1276,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/cyan/0.6": {
+          "sampled_extrusion_centerline_points": 254,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/cyan/0.6": {
+          "sampled_extrusion_centerline_points": 1260,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/pink/0.6": {
+          "sampled_extrusion_centerline_points": 159,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/pink/0.6": {
+          "sampled_extrusion_centerline_points": 646,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "cover/white/0.6": {
+          "sampled_extrusion_centerline_points": 810,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        },
+        "body/white/0.6": {
+          "sampled_extrusion_centerline_points": 559,
+          "maximum_distance_outside_expected_frozen_color_region_mm": 0.0,
+          "outside_0p05mm_tolerance": 0
+        }
+      },
+      "colored_regions_print_at_z_mm": [
+        0.2,
+        0.4,
+        0.6
+      ],
+      "color_path_containment_tolerance_mm": 0.05,
+      "arc_sampling_maximum_sagitta_mm": 0.01,
+      "tool_changes_from_gcode": [
+        {
+          "line": 7867,
+          "from": 1,
+          "to": 4,
+          "layer_z": 0.2
+        },
+        {
+          "line": 8631,
+          "from": 4,
+          "to": 2,
+          "layer_z": 0.2
+        },
+        {
+          "line": 10052,
+          "from": 2,
+          "to": 3,
+          "layer_z": 0.2
+        },
+        {
+          "line": 11944,
+          "from": 3,
+          "to": 1,
+          "layer_z": 0.4
+        },
+        {
+          "line": 19656,
+          "from": 1,
+          "to": 4,
+          "layer_z": 0.4
+        },
+        {
+          "line": 20414,
+          "from": 4,
+          "to": 2,
+          "layer_z": 0.4
+        },
+        {
+          "line": 22831,
+          "from": 2,
+          "to": 4,
+          "layer_z": 0.6
+        },
+        {
+          "line": 23606,
+          "from": 4,
+          "to": 3,
+          "layer_z": 0.6
+        },
+        {
+          "line": 24595,
+          "from": 3,
+          "to": 1,
+          "layer_z": 0.6
+        }
+      ],
+      "native_bridge_datum_sha256": "094105260b9c0be64bb5ce2bf8219980fd65158250cb5e584e8b07ec4c8dd573",
+      "native_bridge_layer_direction_correspondence": {
+        "hole1/Z2.2": {
+          "generic_center_xy_mm": [
+            106.75,
+            176.5851593017578
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 2,
+          "direction_histogram_deg_length_mm": {
+            "0.0": 2.550824285467172
+          },
+          "total_bridge_length_inside_ROI_mm": 2.550824285467172,
+          "native_expected_angle_deg": 0,
+          "dominant_angle_deg": 0.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole2/Z2.2": {
+          "generic_center_xy_mm": [
+            106.75,
+            118.58515930175781
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 2,
+          "direction_histogram_deg_length_mm": {
+            "0.0": 2.5597306899163925
+          },
+          "total_bridge_length_inside_ROI_mm": 2.5597306899163925,
+          "native_expected_angle_deg": 0,
+          "dominant_angle_deg": 0.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole3/Z2.2": {
+          "generic_center_xy_mm": [
+            31.25,
+            177.5851593017578
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 2,
+          "direction_histogram_deg_length_mm": {
+            "0.0": 2.550824285467172
+          },
+          "total_bridge_length_inside_ROI_mm": 2.550824285467172,
+          "native_expected_angle_deg": 0,
+          "dominant_angle_deg": 0.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole4/Z2.2": {
+          "generic_center_xy_mm": [
+            21.75,
+            119.08515930175781
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 2,
+          "direction_histogram_deg_length_mm": {
+            "0.0": 2.5597306899163996
+          },
+          "total_bridge_length_inside_ROI_mm": 2.5597306899163996,
+          "native_expected_angle_deg": 0,
+          "dominant_angle_deg": 0.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole1/Z2.4": {
+          "generic_center_xy_mm": [
+            106.75,
+            176.5851593017578
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 1,
+          "direction_histogram_deg_length_mm": {
+            "90.0": 1.4134614116905482
+          },
+          "total_bridge_length_inside_ROI_mm": 1.4134614116905482,
+          "native_expected_angle_deg": 90,
+          "dominant_angle_deg": 90.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole2/Z2.4": {
+          "generic_center_xy_mm": [
+            106.75,
+            118.58515930175781
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 1,
+          "direction_histogram_deg_length_mm": {
+            "90.0": 1.4134614116905482
+          },
+          "total_bridge_length_inside_ROI_mm": 1.4134614116905482,
+          "native_expected_angle_deg": 90,
+          "dominant_angle_deg": 90.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole3/Z2.4": {
+          "generic_center_xy_mm": [
+            31.25,
+            177.5851593017578
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 2,
+          "direction_histogram_deg_length_mm": {
+            "90.0": 3.748085550198823
+          },
+          "total_bridge_length_inside_ROI_mm": 3.748085550198823,
+          "native_expected_angle_deg": 90,
+          "dominant_angle_deg": 90.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        },
+        "hole4/Z2.4": {
+          "generic_center_xy_mm": [
+            21.75,
+            119.08515930175781
+          ],
+          "roi_radius_mm": 3.2,
+          "intersecting_extrusion_chords": 1,
+          "direction_histogram_deg_length_mm": {
+            "90.0": 2.004385762374568
+          },
+          "total_bridge_length_inside_ROI_mm": 2.004385762374568,
+          "native_expected_angle_deg": 90,
+          "dominant_angle_deg": 90.0,
+          "fraction_length_matching_expected_axis_within1deg": 1.0
+        }
+      },
+      "total_layers": 194,
+      "physical_bridge_clearance_or_print_validation": false,
+      "source_GUI_archive_sha256": "4bdea72dbe900c4791c5087d88df2e9922b135540664e47ee4d0d63487dd8a08",
+      "first_layer_z_mm": 0.2,
+      "layer_count": 194,
+      "all_layer_heights_mm": 0.2,
+      "regular_0p2_layer_sequence_verified": true,
+      "GUI_process_override_marker": "initial_layer_print_height;layer_height",
+      "actual_GUI_estimate_seconds": 8453,
+      "actual_GUI_estimate_mass_g": 104.73,
+      "no_Bambu_CLI_process_invoked_for_GUI_validation": true,
+      "print_start_or_physical_result_validated_by_this_report": false,
+      "project_readiness_binding": "Root fresh-opened the exact Ready artifact identified above; actual GUI exported Gcode was independently checked, without tracking generated Gcode."
+    },
+    "evidence_report_sha256": {
+      "bambu-project-ready-validation.json": "335a69da5e43277fba07b07763dc4492dccec58ecefeb2386e16796dab0019ae",
+      "bambu-studio-slice-validation.json": "1033b3e1842ecb1e6e202a87cd245b93623e0f8b6b1e91c455bb656c08dacb12",
+      "GUI-override-cause-and-fix.json": "16fce70727adda31428c82332f8dd0e9aa604a4d744c36deada5105b6ed7f014"
+    }
+  }
 }

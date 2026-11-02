@@ -11,6 +11,7 @@ variant; the shipped PitClamp and PCB enclosure files remain the BOM references.
 | --- | --- |
 | [pitclamp-enclosure.FCStd](pitclamp-enclosure.FCStd) | Native FreeCAD document; start further geometry work here. |
 | [print/pitclamp-enclosure.3mf](print/pitclamp-enclosure.3mf) | Print mesh package: body and cover, each with four material regions. |
+| [Bambu P2S 0.6 mm project](print/pitclamp-enclosure-bambu-p2s-0p6.3mf) | Unsliced four-color Bambu project; P2S 0.6 mm High Flow, 0.2 mm normal and first layers. |
 | [print/body.stl](print/body.stl), [print/cover.stl](print/cover.stl) | Individual print meshes; the cover STL combines its material regions into one physical solid. |
 | [Black](print/body-black.stl), [cyan](print/body-cyan.stl), [white](print/body-white.stl), [pink](print/body-pink.stl) body STLs | Rear artwork and black body, with a shared origin; import as one multipart body object. |
 | [Black](print/cover-black.stl), [cyan](print/cover-cyan.stl), [white](print/cover-white.stl), [pink](print/cover-pink.stl) cover STLs | Separate material regions with a shared origin; import together as parts of one cover object. |
@@ -109,6 +110,20 @@ Use the **3MF** or the individual STLs. The body has its rear face down; the
 cover has its outside face down. The generic 3MF lays them apart with a 10 mm
 gap and contains no printer, filament, or process settings. Select suitable
 settings for the actual printer and material.
+
+In Bambu Studio, the portable generic 3MF imports all eight parts on filament 1;
+its standard display colors do not assign Bambu filaments. Assign the parts
+manually, or open the separate Bambu project above. It explicitly assigns
+black 1, cyan/blue 2, white 3 and pink 4 to both objects. These are project
+filament indices, not AMS bay numbers; choose the actual AMS mapping before printing.
+
+The Bambu project targets P2S 0.6 mm High Flow with normal and first-layer heights
+overridden to 0.2 mm, while its underlying preset label still reads
+`0.30mm Standard @BBL P2S 0.6 nozzle`. Explicit Studio process-difference markers
+keep both 0.2 mm overrides when reopening the project. A fresh GUI reopen and
+reslice retained 194 layers and nine color changes. The actual exported toolpaths
+were checked at all 18 colored region/layer combinations and all four orthogonal
+bridge pairs at Z2.2/2.4 mm. Physical print quality, controls and fit remain unvalidated.
 
 Both objects use the same four material slots: black `#303842`, cyan
 `#00D9E6`, white `#FAFAFA` and pink `#FF2E7A`. Assign the loaded filament
