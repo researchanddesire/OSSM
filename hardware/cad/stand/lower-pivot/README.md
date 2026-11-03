@@ -4,6 +4,18 @@ Designed by **Alex - R+D** for OSSM stands using 3030 extrusion.
 
 Both configurations are included in the [OSSM assembly](../../ossm-assembly.FCStd).
 
+## Radiating print variant
+
+The [radiating stand kit](radiating/) adds the cyan, pink and white ring pattern
+to the active lower clamps and passive pivot. Its active clamps use an
+**M5 × 25 rear hinge bolt** and a **captured print-in-place front handle**.
+Only the handle's print-facing skin is blue; its opposite face is black.
+Editable FreeCAD and a configured one-arm/two-arm Bambu project are included.
+
+The sections below describe the earlier separate-handle variant used by the
+linked full-frame assemblies. The radiating variant has its own hardware and
+plate instructions; use those when printing that kit.
+
 ## Single hinge: active + passive
 
 - [Complete frame assembly](active-passive-assembly.step)
