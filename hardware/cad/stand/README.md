@@ -16,8 +16,3 @@ remain available as their matched earlier set.
 
 [Lower Pitclamp pivot](lower-pivot/) includes the active/passive configuration,
 reinforced print project, and double-arm assembly with mirrored active parts.
-
-The [radiating print variant](lower-pivot/radiating/) provides the current
-four-color lower/passive clamps, rear bolt hinges and captured print-in-place
-handles, with blue only on their print-facing skins. It includes editable
-FreeCAD and a configured one-arm/two-arm Bambu project.
