@@ -8,6 +8,7 @@
 *.jpg binary
 *.jpeg binary
 *.FCStd binary
+*.pdf binary
 
 # Preserve the native PCB source bytes.
 *.dip binary
