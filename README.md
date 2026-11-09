@@ -6,6 +6,8 @@ The starting design is Lucy Chapar's motor control harness. Mechanical CAD and
 PCB designs will be added as they are developed and reviewed. There is no
 complete machine design or firmware release in this baseline.
 
+To build an OSSM, follow the [build guides](hardware/build-guides/).
+
 ## Repository layout
 
 | Folder | Contents |
@@ -13,6 +15,7 @@ complete machine design or firmware release in this baseline.
 | [`hardware/cables/`](hardware/cables/) | Motor control harness source and reference images |
 | [`hardware/cad/`](hardware/cad/) | New mechanical design sources and STEP exports |
 | [`hardware/pcb/`](hardware/pcb/) | New PCB projects, schematics, and local libraries |
+| [`hardware/build-guides/`](hardware/build-guides/) | PDF build guides for the stand, actuator, wiring and wired remote |
 | [`assembly-docs/`](assembly-docs/) | Assembly documentation developed alongside these designs |
 | [`software/firmware/`](software/firmware/) | PlatformIO firmware project |
 | [`software/scripts/`](software/scripts/) | Release, screen capture, rig and cable rendering tooling |

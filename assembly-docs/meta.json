@@ -2,6 +2,7 @@
   "title": "OSSM",
   "pages": [
     "index",
+    "build-guides",
     "cable-harnesses",
     "bom"
   ]
