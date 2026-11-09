@@ -23,5 +23,10 @@ See the [lower-pivot parts and print files](stand/lower-pivot/README.md).
 - `actuator/`: actuator components, curved-front native source and export manifest.
 - `stand/`: PitClamp parts, PCB enclosure, lower pivots, feet and end caps.
 
+The single-arm stand is sold as the **1-arm stand** and the double-arm stand as
+the **2-arm stand**.
+
 STEP exports use millimetres unless noted otherwise. The original PCB mount
 base and lid use metres. Pivot plate 1 is the right plate; plate 2 is the left.
+The pivot plates and handle spacers belong to the discontinued pivot-plate
+stand and are kept for existing stands.

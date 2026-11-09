@@ -4,7 +4,7 @@ Designed by **Alex - R+D** for OSSM stands using 3030 extrusion.
 
 Both configurations are included in the [OSSM assembly](../../ossm-assembly.FCStd).
 
-## Single hinge: active + passive
+## Single hinge (1-arm stand): active + passive
 
 - [Complete frame assembly](active-passive-assembly.step)
 - [Active lower clamp](active-lower.step)
@@ -16,7 +16,7 @@ The other Pitclamp parts use standard geometry with the same blue trim:
 [hex dogbone](double-arm/dogbone-nuts.step) and
 [round dogbone](double-arm/dogbone-bolts.step).
 
-## Double hinge: two arms in series
+## Double hinge (2-arm stand): two arms in series
 
 The [complete frame assembly](double-arm-assembly.step) has one base rail,
 a first hinged arm, and a second hinged arm. **Each joint uses two active
