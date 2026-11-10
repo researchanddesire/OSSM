@@ -71,10 +71,8 @@ The STEP files keep the base and blue inlays as separate bodies.
 - [Passive pivot](passive-pivot.3mf)
 
 The print projects keep **8 wall loops**. The lower-clamp project retains its
-solid-infill reinforcement near the end of the latch. `passive-pivot.3mf`
-still holds the passive pivot with the earlier, shallower axle seat; print
-from the STEP until it is re-saved. For the double-hinge frame, print two of
-each hinge part.
+solid-infill reinforcement near the end of the latch. For the double-hinge
+frame, print two of each hinge part.
 
 Both frames use one **495.3 mm base rail** and two **304.8 mm crossfeet**.
 Each arm is **457.2 mm** long: one for the single hinge, two for the double hinge.
