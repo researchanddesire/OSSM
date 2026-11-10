@@ -1,9 +1,14 @@
 # PitClamp upper and handle
 
-The BOM's “PitClamp v1.1 Upper + Handle” entry contains one of each:
+The BOM's “PitClamp v1.1 Upper + Handle” entry is the upper and its handle
+printed in place as one part:
 
-- [Upper v1.1](pitclamp-upper-v1.1.step)
-- [Handle](pitclamp-handle.step)
+- [Upper v1.1 + handle, print in place](pitclamp-upper-handle-print-in-place-v1.1.step)
+
+The PitClamp Mini and every lower PitClamp use it. It needs no pivot screw.
+The separate [upper v1.1](pitclamp-upper-v1.1.step) and
+[handle](pitclamp-handle.step) remain available; joining them takes an
+M4 screw and nut that the kit does not include.
 
 ## Current actuator clamp
 
@@ -14,17 +19,18 @@ remain available as their matched earlier set.
 
 ## Lower pivot
 
-[Lower Pitclamp pivot](lower-pivot/) includes the active/passive configuration,
-reinforced print project, and double-arm assembly with mirrored active parts.
+[Lower Pitclamp pivot](lower-pivot/) includes the active lower clamp, the
+passive pivot, the reinforced print project and both stand assemblies.
 
-These are the two stands the OSSM ships with:
+These are the two stands the OSSM ships with. Every hinge has one active
+lower PitClamp on one side of the arm and one passive pivot on the other:
 
-- **1-arm stand:** the single hinge, one active lower PitClamp and the passive
-  pivot.
-- **2-arm stand:** the double hinge, two arms in series with two active lower
-  PitClamps (normal and mirrored) at each joint.
+- **1-arm stand:** the single hinge.
+- **2-arm stand:** the double hinge, two arms in series, so two active lower
+  PitClamps and two passive pivots.
 
-Their parts and quantities are in [the BOM](../../BOM.md#stands).
+Their parts and quantities are in [the BOM](../../BOM.md#stands). They use
+only fastener sizes the OSSM already ships.
 
 ## Multicolor PCB cover
 
