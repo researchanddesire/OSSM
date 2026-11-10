@@ -14,6 +14,9 @@ complete machine design or firmware release in this baseline.
 | [`hardware/cad/`](hardware/cad/) | New mechanical design sources and STEP exports |
 | [`hardware/pcb/`](hardware/pcb/) | New PCB projects, schematics, and local libraries |
 | [`assembly-docs/`](assembly-docs/) | Assembly documentation developed alongside these designs |
+| [`software/firmware/`](software/firmware/) | PlatformIO firmware project |
+| [`software/scripts/`](software/scripts/) | Release, screen capture, rig and cable rendering tooling |
+| [`software/dev/`](software/dev/) | Local development services |
 
 ## Render the cable
 
@@ -22,8 +25,8 @@ Install Python 3 and Graphviz, then run:
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r requirements-cables.txt
-bash scripts/render-cables.sh
+python -m pip install -r software/scripts/requirements-cables.txt
+bash software/scripts/render-cables.sh
 ```
 
 The command writes the diagram, PDF, HTML, and cable BOM to `cable-export/`.

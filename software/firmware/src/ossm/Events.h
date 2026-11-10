@@ -1,0 +1,68 @@
+#ifndef OSSM_SOFTWARE_EVENTS_H
+#define OSSM_SOFTWARE_EVENTS_H
+
+#include "boost/sml.hpp"
+#include "homing_session.h"
+namespace sml = boost::sml;
+
+/**
+ * These are the events that the OSSM state machine can respond to.
+ * They are used in OSSM.h and can be called from anywhere in the code that has
+ * access to an OSSM state machine
+ *
+ * For Example:
+ *  ossm->sm.process_event(ButtonPress{});
+ *
+ *
+ * There's nothing special about these events, they are just structs.
+ * They just happen to be defined inside of the OSSM State Machine class.
+ */
+struct ButtonPress {};
+struct LongPress {};
+
+struct DoublePress {};
+
+struct Done {};
+
+// An old task cannot complete or fail a later homing request.
+struct HomingPassDone { homing_session::Ticket ticket; uint8_t pass; };
+struct HomingFailed { homing_session::Ticket ticket; const char *message; };
+
+struct Error {};
+struct EmergencyStop {};
+struct Home {};
+struct MotorSafetyFault { uint64_t revision; };
+struct MotorSafetyReviewed {};
+struct InspectBoot {};
+
+struct BleClick {};
+struct ReturnToMenu {};
+
+// Posted by the OTA update task when no update was applied (no newer version,
+// or the check/download failed) so the SM leaves "checking" and shows the
+// no-update page.
+struct UpdateUnavailable {};
+// Posted by the OTA task once the resolver returned an artifact plan and the
+// streamed install is starting (the OSSM reboots when it succeeds).
+struct UpdateInstalling {};
+// Posted by the OTA task when the resolver offered a newer version; the OSSM
+// waits for a button press (or a second BLE go:update) before installing.
+struct UpdateAvailable {};
+// Posted by the OTA task on any failure; networkStatus.error holds the code.
+struct UpdateFailed {};
+
+// Definitions to make the table easier to read.
+static auto bleClick = sml::event<BleClick>;
+static auto buttonPress = sml::event<ButtonPress>;
+static auto longPress = sml::event<LongPress>;
+static auto doublePress = sml::event<DoublePress>;
+static auto done = sml::event<Done>;
+static auto error = sml::event<Error>;
+static auto home = sml::event<Home>;
+static auto emergencyStopEvent = sml::event<EmergencyStop>;
+static auto returnToMenu = sml::event<ReturnToMenu>;
+static auto updateUnavailable = sml::event<UpdateUnavailable>;
+static auto updateInstalling = sml::event<UpdateInstalling>;
+static auto updateAvailable = sml::event<UpdateAvailable>;
+static auto updateFailed = sml::event<UpdateFailed>;
+#endif  // OSSM_SOFTWARE_EVENTS_H

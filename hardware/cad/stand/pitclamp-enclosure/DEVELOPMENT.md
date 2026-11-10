@@ -1,0 +1,282 @@
+# Development status
+
+Tracking snapshot added on 2026-10-30. The original native geometry was saved
+on 2026-10-15 and its accepted print package was checked on 2026-10-16.
+The M6 hinge revision and 2026-11-01 cover controls below update that snapshot. This remains a development
+variant rather than a released replacement for the shipped parts.
+
+## Current design
+
+- Integrated PitClamp lower and electronics enclosure, with a separate 3 mm
+  cover and a flat rear print plane.
+- Filled, swept shoulder and matching 1.2 mm cover/shoulder chamfer; the shared
+  large corner reaches R8.
+- Continued hook-mouth and lower-edge bevels, refined hinge returns, and
+  mounting supports that grow into the enclosure walls/roof.
+- Four cover mounting holes with two 0.2 mm bridge transitions at each
+  counterbore, plus self-tapping body pilots.
+- M6 extrusion mounting access and a locally widened central counterbore mouth.
+  The neighboring grip texture is relieved locally: the first flute is removed,
+  the second is shortened, and the other 28 are retained. Physical holding force
+  has not been measured.
+- PCB supports, rest pads, cable relief, connector clearances, and 23 hidden
+  colored electronics/harness/motor references retained for further review.
+
+These features are present in the saved model. They are not a claim that every
+surface join is tangent or curvature continuous, or that the industrial design
+review is complete. Intentional chamfer creases, mating seams, screw seats, and
+grip texture remain.
+
+## Recorded digital checks — original 2026-10-16 snapshot
+
+- The native body and cover were valid single solids; the STEP reimport
+  contained the two corresponding solids.
+- Accepted body STL: 45,456 triangles, one closed connected component.
+- Accepted cover STL: 3,896 triangles, one closed connected component.
+- Both STLs had zero open edges, nonmanifold edges/vertices, orientation
+  defects, degenerate triangles, and reported self-intersections in the
+  recorded independent mesh audits.
+- Re-reading the archived 3MF preserved the accepted STL geometry exactly,
+  apart from the rigid translations used for the bed layout.
+- Bambu Studio reported both print objects manifold and completed the
+  diagnostic slice. It retained a body cantilever warning.
+- Modeled screw passages, regional pin/dogbone guards, rear backing, and
+  sampled cover-removal positions were checked during development. Those
+  regional checks do not prove full mechanism travel or physical fit.
+
+At the initial import, the print artifacts and STEP were copied byte-for-byte. The copy of the
+native document changed only its `License` and `LicenseURL` metadata from the
+FreeCAD defaults to the repository's CERN-OHL-S v2 notice. Its geometry,
+appearance, references, and all other document content were identical; the
+original workspace file is untouched. The [manifest](source.json) records both
+native hashes and binds those historical checks to that snapshot. The M6
+revision has its own native, mesh and slicer checks below.
+
+## Stand assembly integration — 2026-10-30
+
+The [OSSM assembly](../../ossm-assembly.FCStd) includes the visible Onshape
+actuator on the final moving arm of both stand alternatives. The PCB enclosure
+and cover, lower-pivot clamps, frame hardware, blue inlays and stand placements
+are retained. The primary arm is seated at 30.4°; the double-arm final rail is
+at 60.8°. The single-arm enclosure still extends toward the lower pivot.
+
+The current source upper jaw, one-piece lever with integral pivot loop,
+dogbones and 57AIM motor adapter replace the earlier nominal clamp context.
+The actuator uses the community one-piece curved front in place of the stock
+front/middle bodies and their two joining M3 screws/nuts. Four exactly
+coincident source motor bolts are omitted, leaving one bolt at each station.
+The two hidden electronics groups retain 23 references each.
+
+Registration matches the upper collar and hinge axes to the existing clamp;
+the source motor axis is 0.0263 mm from the previous nominal motor axis.
+The curved front clears the checked motor and adapter parts; its overlap with
+the lower body is below 0.0002 mm³ numerical residue. Source rigid-body contacts
+remain: adapter/upper jaw 118.239 mm³, adapter/motor 0.356 mm³ and
+upper jaw/lever 0.342 mm³. The retained lower/adapter contact is 63.906 mm³;
+the source M6 hinge screw originally intersected the enclosure lower by
+94.085 mm³ at its head seat. The M6 interface revision below replaces that
+earlier fit limitation. The adapter and jaw cylinder axes are about 0.299 mm
+eccentric in the source closed-clamp pose. The adapter/upper contacts are inherited from Onshape; the enclosure interfaces
+are recorded separately. They do not establish operating clearance. The earlier
+22.156 mm³ nominal-ring check is superseded by this source configuration.
+
+The assembly-derived lever and adapter may need a tolerance-only BRep fix on
+import; original individual STEP exports are retained. Deep Boolean checks
+also flag curve/surface warnings in the source lever, including the historical
+version. No new print package or physical-fit result is established by this
+integration. The M6 revision updates the standalone enclosure and its body
+print artifacts separately.
+
+## M6 hinge revision — 2026-10-30
+
+- Enlarge the inherited 5.2 mm passage to 6.0 mm on the existing hinge axis.
+- Use a 10.4 mm head counterbore through the near lower ear, ending at native
+  Y7.9. It braces the 10 mm bolt head with 0.2 mm radial clearance. The head
+  bears directly on the moving upper arm at Y8; the near lower ear retains
+  its 0.1 mm axial gap.
+- Resize the nut trap to 10.2 mm across flats. Keep its floor at Y24 so the
+  original 1.9 mm supporting wall remains; move the source M6 nut outward
+  by 1 mm instead of cutting a deeper recess.
+- Use an ISO 4762 M6 × 25 screw. Its end reaches native Y33; the old M6 × 20
+  source STEP remains available with the actuator source parts.
+
+Three sketches and native Pocket features follow the saved surface stage in
+the FreeCAD body. The body remains one valid solid. The body STEP and native
+document are updated together; the cover and the 23 hidden references are
+retained. The screw STEP is generated standard hardware geometry from the
+FreeCAD Fasteners workbench, not an Onshape export; the manifest records its
+generator revision and dimensions.
+
+The updated STEP reimports as two valid closed solids. It uses the previous
+accepted STEP surface representation with the same three local interface
+cuts. Interior samples cover every face in both directions; the largest
+sampled separation is 0.00224 mm. This is a sampled comparison, not a global
+error bound. Default CAD volume integration differs between representations;
+the manifest records the measured values and comparison limits.
+
+The print body keeps the accepted mesh and applies only the three local
+interface cuts. Zero-area triangles created where a cut meets a coplanar
+surface are removed after STL serialization. The cover mesh and 3MF bed layout
+are retained. Fresh mesh and Bambu Studio 02.08.02.61 checks apply to the new
+checksummed package; the body cantilever warning remains.
+
+## Cover controls and I/O artwork — 2026-11-01
+
+The cover now carries the motherboard-cover reset and AUX mechanisms from
+community-mods commit `aee6c9e4df47ea35281a559f2808685ae531cd69`, including
+its latest 0.3 mm AUX tip correction. The source clearances, flexures, anchors,
+guards and press faces are unscaled. The PitClamp board is tilted 8.33° behind
+the flat 3 mm cover, so the reset and AUX strikers gain separate 4.5433 mm and
+9.9563 mm extensions, trimmed to their respective board contact planes.
+
+The black cover, cyan press faces, white I/O symbols and pink AUX heart are
+separate material regions with 0.6 mm flush inlays. Power-input, USB, wired
+remote, reset and heart artwork reuse the exact native source curves. The
+circle-M at the shared harness exit is a new motor symbol; it asserts no
+individual wire polarity. The source's separate light pipe and removable
+RS-485 cap are not part of this cover revision.
+
+The source board reference is simplified and has a 0.25 mm X offset and a
+different mounting-hole pitch from the target envelope. Registration therefore
+uses the source's explicit nominal board and switch datums without scaling.
+The striker-end planes match those mapped datums; this is not measured switch
+fit or a full PCBA model.
+
+Digital checks found:
+
+- One valid connected physical cover and one valid black material solid.
+- Zero changed material in the four mounting/bridge regions or the shared
+  cable exit. The accepted enclosure and all 23 hidden reference shapes remain.
+- Zero added-control overlap with the enclosure, the 23 native reference
+  shapes, or the mapped source board/photo-detail envelopes.
+- The AUX cap/stem reaches its guard at 0.9 mm travel; it remains clear through
+  that point. The reset cap/stem retains about 0.5 mm radial guide clearance
+  through the checked 1 mm motion. This rigid-core check does not simulate
+  elastic leaf deflection or establish a reset travel stop.
+- Fused cover STL: 16,418 triangles, one closed component. The four material
+  meshes contain 33,720 triangles in total; each passes manifold, orientation
+  and reported self-intersection checks. The body remains 47,504 triangles.
+- Bambu Studio 02.08.02.61 successfully sliced the full package and the fused
+  cover alone using a single-filament P2S/0.4 mm/0.20 Standard/PLA diagnostic
+  profile. The cover-only slice reported no warnings. The full package retains
+  the inherited body cantilever warning. Filament/color assignment remains a
+  slicer setup step for the generic four-material package.
+
+The two stand variants retain their latest arm, enclosure, actuator and hinge
+placements, with the updated cover material regions installed in each. Print
+and slicer checks for the revised cover are recorded in `source.json`; the
+earlier M6 slice above applies only to its historical package. The body print
+mesh is unchanged by the cover revision.
+
+## Folded-view icons and radiating rear artwork — 2026-11-01
+
+The cover icons rotate +90° around native +Y at their existing anchors. Native
++Z is now reading-up, confirmed in nominal rail-aligned folded views of both
+stand variants. No physical control, arm, actuator or enclosure placement moves.
+These temporary orientation studies do not establish motion or folded clearances.
+
+The opposite rear exterior has a large pink heart overlaying the cyan open-hardware
+gear and hiding its circular aperture. The exact source gear path remains
+underneath, with the original outer contour and straight tapered-gap angles.
+The existing black body is the background; white appears only as geometric accents. Concentric segmented bands share the gear center and continue all the way
+through the tail toward the hinge. Their reproducibly randomized starts and
+palette colors avoid a shared empty wedge, cropped at the complete inward perimeter. The literal tools, lips and R+D logo are removed.
+The tiny separate hook field stays body black. Production SVG and native
+profiles use the same disjoint black, cyan, white and pink footprints.
+
+The keep-in guide follows the complete actual rear-face profile, offset inward
+2.5 mm with a 0.01 mm tolerance allowance. No opening operation or tail crop
+removes the legal hinge, return or tail regions. Both components of the inset
+field are retained. Final profiles use absolute native X/Z coordinates; a
++90° X rotation places them on rear Y0 without overall scaling or translation.
+
+Inlays extend 0.6 mm inward and stay flush. A checked normal-prism construction
+preserves the filled physical wall. The native cut retains all 428 original
+non-rear faces and all 24 original rear boundary edges; no global refinement is
+applied. Whole-body volume integration was reference-sensitive in the inherited
+model and is not used as a conservation certificate. The constructive proof and
+separate failed comparison diagnostics are recorded in source.json.
+The generic 3MF has two objects, each containing four material regions. Both
+colored faces remain down in the existing layout, so inlays occupy the first
+three 0.2 mm face layers. Actual filament assignment and a multi-color print
+remain production setup and validation steps.
+
+The native document retains the previous body feature history, cover mechanism
+stages, source artwork sketches and 23 colored hidden references. Rear manufacturing profiles and registration data remain hidden construction;
+the exact official SVG source path is retained in `artwork/`.
+Both stand assemblies include the material regions without moving components.
+These are named geometry snapshots and source profiles, not an automatically
+regenerating parametric history.
+
+Default native tessellation produced microscopic cap defects near the rear
+curve despite valid CAD solids. The print package instead uses a constrained
+planar partition of the accepted mesh, with independent checks after binary
+serialization. The CAD-default mesh diagnostic remains recorded separately
+from the qualified print artifacts.
+
+The revised material meshes pass closed-manifold and orientation checks, and
+no self-intersections are reported in the new rear artwork or cover. Strict
+FreeCAD checks still identify inherited body intersections at the M6
+counterbore exit, including coplanar overlaps. The accepted fused body mesh is
+retained; experimental local re-cuts were rejected because their serialized
+meshes introduced boundary defects. This revision does not claim that the entire
+body is self-intersection-free. The current 3MF imports as manifold without
+mesh repairs and completes the recorded Bambu Studio CLI diagnostic slice. The remaining
+M6 mesh finding and fine STEP tessellation remain development items.
+
+## Bambu four-color project — 2026-11-01
+
+The portable 3MF retains its exact geometry and checksum. Actual Bambu GUI
+review found that its standard display colors do not assign parts to Bambu
+filaments: all eight initially inherit filament 1. A separate unsliced
+`print/pitclamp-enclosure-bambu-p2s-0p6.3mf` adds explicit per-part assignments
+and four filament definitions without changing the eight meshes or their layout.
+
+It targets P2S 0.6 mm High Flow and retains the `0.30mm Standard` preset label,
+with both effective normal and first-layer heights set to 0.2 mm. The project
+records `initial_layer_print_height;layer_height` as explicit process overrides;
+literal height fields alone did not survive Studio preset reconciliation.
+Fresh exact-file GUI reopen confirmed both overrides and four filament rows.
+The GUI reslice retained 194 layers and nine color changes. Independently parsed
+GUI-exported Gcode checked all 18 colored region/layer combinations within
+0.05 mm of their intended footprints through Z0.2/0.4/0.6 mm.
+At all four cover screws, bridge paths run along X at Z2.2 mm and Y at Z2.4 mm,
+matching the two orthogonal 0.2 mm geometry tiers. The body cantilever warning remains.
+
+Project filaments are black 1, cyan/blue 2, white 3 and pink 4. AMS bay selection
+is a separate send-time step and is not encoded. The project is unsliced;
+no generated Gcode, logs or preview images are tracked. No physical print,
+bridge strength, control function or PCB fit is established by these digital checks.
+
+## Work to track
+
+- [ ] Remove inherited M6 counterbore-exit mesh intersections with a local
+      export repair that preserves dimensions and passes serialized topology.
+- [ ] Resolve fine STEP tessellation at the actual target-slicer settings.
+      Require closed, consistently oriented, nonintersecting output after STEP
+      import; checking only CAD-solid validity is insufficient.
+- [ ] Review the remaining hook, hinge, M6 rim, standoff, and shared-corner
+      transitions in close views before accepting further surface changes.
+- [ ] Review the body cantilever warning and decide on support, orientation,
+      or a local printable-geometry change using actual sliced toolpaths.
+- [ ] Print body and cover; confirm the counterbore bridge layers, self-tapping
+      screws, mounting-head access, and cover fit with the chosen material.
+- [ ] Test both printed controls with the actual PCB: switch contact, full
+      return, guard clearance, required force and repeated flexure life. The
+      longer AUX striker especially needs a real fit and stiffness check.
+- [ ] Check the actual PCB, motor, connectors, barrel jack, and cable bundle
+      against the housing and strain relief. Reference envelopes are not
+      physical-fit proof.
+- [ ] Check the source closed-clamp adapter/jaw contacts and operating clearance
+      before fabricating the assembled motor-clamp variant.
+- [ ] Verify complete upper-clamp/dogbone travel and extrusion mounting with
+      real hardware, including fastener length and tool access.
+- [ ] Measure loaded clamp retention and assess the locally relieved grip
+      texture before adopting the variant for use.
+- [ ] Improve the editable feature history or provide a portable, reproducible
+      model-generation workflow before claiming parametric regeneration.
+
+For each geometry revision, keep the native source and corresponding exports
+together, update the checksum manifest, and record which CAD, mesh, slicer, and
+physical checks actually passed. Keep failed experiments and older study
+models out of this current-design directory.

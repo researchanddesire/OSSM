@@ -1,0 +1,133 @@
+#ifndef OSSM_STATE_ACTIONS_H
+#define OSSM_STATE_ACTIONS_H
+
+#include "ossm/Events.h"
+
+// Forward declarations for action implementations (defined in actions.cpp)
+void ossmDrawHello();
+void ossmDrawMenu();
+void ossmStartHoming();
+void ossmStartSecondHoming(const HomingPassDone &event);
+void ossmSetHomingError(const HomingFailed &event);
+bool ossmHomingStartupFailed();
+bool ossmHomingTicketCurrent(homing_session::Ticket ticket);
+void ossmDrawPlayControls();
+void ossmStartStreaming();
+void ossmDrawPatternControls();
+void ossmDrawPreflight();
+void ossmResetSettingsStrokeEngine();
+void ossmResetSettingsSimplePen();
+void ossmResetSettingsStreaming();
+void ossmIncrementControlStrokeEngine();
+void ossmIncrementControlStreaming();
+void ossmStartSimplePenetration();
+void ossmStartStrokeEngine();
+void ossmEmergencyStop();
+void ossmDrawHelp();
+void ossmDrawWiFi();
+void ossmDrawUpdate();
+void ossmDrawNoUpdate();
+void ossmDrawUpdating();
+void ossmDrawUpdateFailed();
+void ossmStartUpdate();
+void ossmStartInstall();
+void ossmDrawUpdateAvailable();
+void ossmDrawError();
+void ossmSetHomed(const HomingPassDone &event);
+void ossmSetNotHomed();
+void ossmCheckPairing();
+void ossmDrawPairingSuccess();
+void ossmDrawPairingFailed();
+void ossmClearRemoteMenuAction();
+void ossmSetNetworkError(const char *code);
+void ossmResetWiFi();
+void ossmRestart();
+
+namespace actions {
+
+    constexpr auto drawHello = []() { ossmDrawHello(); };
+
+    constexpr auto drawMenu = []() { ossmDrawMenu(); };
+
+    constexpr auto startHoming = []() { ossmStartHoming(); };
+    constexpr auto homingStartupFailed = [] { return ossmHomingStartupFailed(); };
+    constexpr auto startSecondHoming = [](const HomingPassDone &event) { ossmStartSecondHoming(event); };
+    constexpr auto forwardHomeDone = [](const HomingPassDone &event) { return event.pass == 1 && ossmHomingTicketCurrent(event.ticket); };
+    constexpr auto backwardHomeDone = [](const HomingPassDone &event) { return event.pass == 2 && ossmHomingTicketCurrent(event.ticket); };
+    constexpr auto setHomingError = [](const HomingFailed &event) { ossmSetHomingError(event); };
+    constexpr auto currentHomeFailure = [](const HomingFailed &event) { return ossmHomingTicketCurrent(event.ticket); };
+
+    constexpr auto drawPlayControls = []() { ossmDrawPlayControls(); };
+
+    constexpr auto startStreaming = []() { ossmStartStreaming(); };
+
+    constexpr auto drawPatternControls = []() { ossmDrawPatternControls(); };
+
+    constexpr auto drawPreflight = []() { ossmDrawPreflight(); };
+
+    constexpr auto resetSettingsStrokeEngine = []() { ossmResetSettingsStrokeEngine(); };
+
+    constexpr auto resetSettingsSimplePen = []() { ossmResetSettingsSimplePen(); };
+
+    constexpr auto resetSettingsStreaming = []() { ossmResetSettingsStreaming(); };
+
+    constexpr auto incrementControlStrokeEngine = []() { ossmIncrementControlStrokeEngine(); };
+
+    constexpr auto incrementControlStreaming = []() { ossmIncrementControlStreaming(); };
+
+    constexpr auto startSimplePenetration = []() { ossmStartSimplePenetration(); };
+
+    constexpr auto startStrokeEngine = []() { ossmStartStrokeEngine(); };
+
+    constexpr auto emergencyStop = []() { ossmEmergencyStop(); };
+
+    constexpr auto drawHelp = []() { ossmDrawHelp(); };
+
+    constexpr auto drawWiFi = []() { ossmDrawWiFi(); };
+
+    constexpr auto drawUpdate = []() { ossmDrawUpdate(); };
+
+    constexpr auto drawNoUpdate = []() { ossmDrawNoUpdate(); };
+
+    constexpr auto drawUpdating = []() { ossmDrawUpdating(); };
+
+    constexpr auto drawUpdateFailed = []() { ossmDrawUpdateFailed(); };
+
+    // Spawns the OTA update task (TLS check + download run there, not on the
+    // button task, which lacks the stack for a TLS handshake).
+    constexpr auto startUpdate = []() { ossmStartUpdate(); };
+
+    // Installs the update the last check offered (confirmed by button/BLE).
+    constexpr auto startInstall = []() { ossmStartInstall(); };
+
+    constexpr auto drawUpdateAvailable = []() { ossmDrawUpdateAvailable(); };
+
+    constexpr auto stopWifiPortal = []() {};
+
+    constexpr auto resetWiFi = []() { ossmResetWiFi(); };
+
+    constexpr auto drawError = []() { ossmDrawError(); };
+
+    constexpr auto checkPairing = []() { ossmCheckPairing(); };
+
+    constexpr auto drawPairingSuccess = []() { ossmDrawPairingSuccess(); };
+
+    constexpr auto drawPairingFailed = []() { ossmDrawPairingFailed(); };
+
+    // A BLE-triggered menu action is finished once we are back in the menu.
+    constexpr auto clearRemoteMenuAction = []() { ossmClearRemoteMenuAction(); };
+
+    // Records why a network page failed (shown on screen and over BLE).
+    constexpr auto setNetworkError = [](const char *code) {
+        return [code]() { ossmSetNetworkError(code); };
+    };
+
+    constexpr auto setHomed = [](const HomingPassDone &event) { ossmSetHomed(event); };
+
+    constexpr auto setNotHomed = []() { ossmSetNotHomed(); };
+
+    constexpr auto restart = []() { ossmRestart(); };
+
+}  // namespace actions
+
+#endif  // OSSM_STATE_ACTIONS_H

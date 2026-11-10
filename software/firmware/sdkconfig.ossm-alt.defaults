@@ -1,0 +1,8 @@
+# OSSM ALT Edition: ESP32-S3 with 8 MB in-package flash. Applied after
+# sdkconfig.defaults, whose ESP32-only options the S3 build ignores.
+# CONFIG_ESPTOOLPY_FLASHSIZE_16MB is not set
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+CONFIG_ESPTOOLPY_FLASHSIZE_DETECT=n
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-8mb.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions-8mb.csv"

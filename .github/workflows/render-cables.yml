@@ -7,16 +7,16 @@ on:
       - hardware/cables/*.yml
       - hardware/cables/*.yaml
       - hardware/cables/images/**
-      - scripts/render-cables.sh
-      - requirements-cables.txt
+      - software/scripts/render-cables.sh
+      - software/scripts/requirements-cables.txt
       - .github/workflows/render-cables.yml
   pull_request:
     paths:
       - hardware/cables/*.yml
       - hardware/cables/*.yaml
       - hardware/cables/images/**
-      - scripts/render-cables.sh
-      - requirements-cables.txt
+      - software/scripts/render-cables.sh
+      - software/scripts/requirements-cables.txt
       - .github/workflows/render-cables.yml
   workflow_dispatch:
 
@@ -39,14 +39,14 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: requirements-cables.txt
+          cache-dependency-path: software/scripts/requirements-cables.txt
       - name: Install WireViz and Graphviz
         run: |
           sudo apt-get update
           sudo apt-get install --yes graphviz
-          python -m pip install -r requirements-cables.txt
+          python -m pip install -r software/scripts/requirements-cables.txt
       - name: Render diagrams and cable BOMs
-        run: bash scripts/render-cables.sh
+        run: bash software/scripts/render-cables.sh
       - uses: actions/upload-artifact@v4
         with:
           name: cable-export
@@ -74,8 +74,8 @@ jobs:
           git fetch origin "$SOURCE_BRANCH"
           if ! git diff --quiet "$SOURCE_SHA" FETCH_HEAD -- \
             'hardware/cables/*.yml' 'hardware/cables/*.yaml' \
-            hardware/cables/images scripts/render-cables.sh \
-            requirements-cables.txt .github/workflows/render-cables.yml; then
+            hardware/cables/images software/scripts/render-cables.sh \
+            software/scripts/requirements-cables.txt .github/workflows/render-cables.yml; then
             echo "Harness inputs changed; a newer run will update the previews."
             exit 0
           fi

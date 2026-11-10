@@ -1,0 +1,228 @@
+#include "stroke_engine.h"
+
+#include <mqtt_client.h>
+#include <new>
+
+#include "constants/UserConfig.h"
+#include "ossm/OSSM.h"
+#include "ossm/pages/pairing.h"
+#include "ossm/state/ble.h"
+#include "ossm/state/calibration.h"
+#include "ossm/state/settings.h"
+#include "ossm/state/state.h"
+#include "services/communication/mqtt.h"
+#include "services/stepper.h"
+#include "services/motorSafety.h"
+#include "services/tasks.h"
+#include "structs/SettingPercents.h"
+#include "utils/StrokeEngineHelper.h"
+#include "utils/getEfuseMac.h"
+
+namespace sml = boost::sml;
+using namespace sml;
+
+namespace stroke_engine {
+
+static void startStrokeEngineTask(void *pvParameters) {
+    const uint64_t safetyRevision = *static_cast<uint64_t *>(pvParameters);
+    delete static_cast<uint64_t *>(pvParameters);
+    if (!motorSafetyEventCurrent(safetyRevision)) { vTaskDelete(nullptr); return; }
+    if (!motorSafetyBeginNormalOperation(safetyRevision)) {
+        stateMachine->process_event(MotorSafetyFault{safetyRevision});
+        vTaskDelete(nullptr);
+        return;
+    }
+    if (!Stroker.bindMotionOwner(safetyRevision, motorSafetyEventCurrent)) {
+        vTaskDelete(nullptr);
+        return;
+    }
+    float measuredStrokeMm = calibration.measuredStrokeSteps / (1_mm);
+
+    machineGeometry strokingMachine = {
+        .physicalTravel = abs(calibration.measuredStrokeSteps / (1_mm)),
+        .keepoutBoundary = 6.0};
+    SettingPercents lastSetting = settings;
+
+    // Adopt the StrokeEngine origin only when entering right after a real
+    // physical home (justHomed) AND the carriage is actually at the homed rest
+    // position (counter ~0). On a go:menu re-entry neither holds, so we
+    // preserve the existing counter and skip the re-base that used to
+    // accumulate ~6 mm of drift per entry.
+    constexpr int32_t HOME_TOL = 40;  // steps (~2 mm at 20 steps/mm)
+    bool atHome = calibration.justHomed &&
+                  (abs(stepper->getCurrentPosition()) < HOME_TOL);
+    calibration.justHomed = false;
+
+    if (atHome) {
+        // thisIsHome() below (re-)defines the origin at -keepout: the counter
+        // is being re-established, not translated.
+        stepperFrame = StepperFrame::StrokeEngine;
+    } else {
+        // Cross-mode entry (e.g. home -> SimplePenetration -> go:menu ->
+        // here): the counter is still a native-frame value; translate it into
+        // the StrokeEngine frame exactly (no motion). Same-mode re-entry is a
+        // no-op (frame already StrokeEngine) and keeps the counter as-is.
+        stepperTranslateFrame(StepperFrame::StrokeEngine);
+    }
+
+    Stroker.begin(&strokingMachine, &servoMotor, stepper);
+    Stroker.thisIsHome(5.0f, atHome);
+
+    Stroker.setSensation(calculateSensation(settings.sensation), true);
+
+    Stroker.setDepth(0.01f * settings.depth * abs(measuredStrokeMm), true);
+    Stroker.setStroke(0.01f * settings.stroke * abs(measuredStrokeMm), true);
+
+    auto isInCorrectState = [safetyRevision]() {
+        if (!motorSafetyEventCurrent(safetyRevision)) return false;
+        // Add any states that you want to support here.
+        return stateMachine->is("strokeEngine"_s) ||
+               stateMachine->is("strokeEngine.idle"_s) ||
+               stateMachine->is("strokeEngine.pattern"_s);
+    };
+
+    while (isInCorrectState()) {
+        if (!motorSafetyCanEnableOutputs()) break;
+        if (isChangeSignificant(lastSetting.speed, settings.speed) ||
+            wasLastSpeedCommandFromBLE()) {
+            // Speed is float, so give a little wiggle room here to assume 0
+            if (settings.speed < 0.1f) {
+                Stroker.stopMotionForOwner(safetyRevision);
+            } else if (Stroker.getState() == READY) {
+                Stroker.startPatternForOwner(safetyRevision);
+            }
+
+            Stroker.setSpeed(settings.speed, true);
+            lastSetting.speed = settings.speed;
+        }
+
+        if (lastSetting.stroke != settings.stroke) {
+            float newStroke = 0.01f * settings.stroke * abs(measuredStrokeMm);
+            ESP_LOGD("UTILS", "change stroke: %f %f", settings.stroke,
+                     newStroke);
+            Stroker.setStroke(newStroke, true);
+            lastSetting.stroke = settings.stroke;
+        }
+
+        if (lastSetting.depth != settings.depth) {
+            float newDepth = 0.01f * settings.depth * abs(measuredStrokeMm);
+            ESP_LOGD("UTILS", "change depth: %f %f", settings.depth, newDepth);
+            Stroker.setDepth(newDepth, false);
+            lastSetting.depth = settings.depth;
+        }
+
+        if (lastSetting.sensation != settings.sensation) {
+            float newSensation = calculateSensation(settings.sensation);
+            ESP_LOGD("UTILS", "change sensation: %f %f", settings.sensation,
+                     newSensation);
+            Stroker.setSensation(newSensation, false);
+            lastSetting.sensation = settings.sensation;
+        }
+
+        if (lastSetting.pattern != settings.pattern) {
+            ESP_LOGD("UTILS", "change pattern: %d", settings.pattern);
+
+            switch (settings.pattern) {
+                case StrokePatterns::SimpleStroke:
+                    Stroker.setPattern(new SimpleStroke("Simple Stroke"),
+                                       false);
+                    break;
+                case StrokePatterns::TeasingPounding:
+                    Stroker.setPattern(new TeasingPounding("Teasing Pounding"),
+                                       false);
+                    break;
+                case StrokePatterns::RoboStroke:
+                    Stroker.setPattern(new RoboStroke("Robo Stroke"), false);
+                    break;
+                case StrokePatterns::HalfnHalf:
+                    Stroker.setPattern(new HalfnHalf("Half'n'Half"), false);
+                    break;
+                case StrokePatterns::Deeper:
+                    Stroker.setPattern(new Deeper("Deeper"), false);
+                    break;
+                case StrokePatterns::StopNGo:
+                    Stroker.setPattern(new StopNGo("Stop'n'Go"), false);
+                    break;
+                case StrokePatterns::Insist:
+                    Stroker.setPattern(new Insist("Insist"), false);
+                    break;
+                default:
+                    break;
+            }
+
+            lastSetting.pattern = settings.pattern;
+        }
+
+        if (bleState.hasActiveConnection) {
+            // When connected to BLE, update more frequently for improved
+            // responsiveness
+            vTaskDelay(100);
+        } else {
+            vTaskDelay(400);
+        }
+    }
+
+    Stroker.stopMotionForOwner(safetyRevision);
+
+    vTaskDelete(nullptr);
+}
+
+static void publishStateTask(void *pvParameters) {
+    auto isInCorrectState = []() {
+        return stateMachine->is("strokeEngine"_s) ||
+               stateMachine->is("strokeEngine.idle"_s) ||
+               stateMachine->is("strokeEngine.pattern"_s);
+    };
+
+    const TickType_t publishInterval = pdMS_TO_TICKS(
+        (int)(1000.0f / UserConfig::mqttPublishFrequencyHz));
+
+    TickType_t lastWakeTime = xTaskGetTickCount();
+
+    while (isInCorrectState()) {
+        if (!mqttConnected || !pages::isOssmPaired()) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            lastWakeTime = xTaskGetTickCount();
+            continue;
+        }
+
+        vTaskDelayUntil(&lastWakeTime, publishInterval);
+
+        String payload = ossm->getCurrentState();
+        String topic = "ossm/" + getMacAddress();
+
+        int result = esp_mqtt_client_publish(
+            mqttClient, topic.c_str(), payload.c_str(), payload.length(), 0,
+            false);
+
+        if (result < 0) {
+            ESP_LOGD("MQTT", "Publish failed: %d", result);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            lastWakeTime = xTaskGetTickCount();
+        }
+    }
+
+    vTaskDelete(nullptr);
+}
+
+void startStrokeEngine() {
+    // Keep the current low-stack allocation and retry policy. The captured
+    // revision stays fixed while task creation retries, so stop cannot be undone.
+    const uint32_t stackSize = 4 * configMINIMAL_STACK_SIZE;
+    auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
+    if (!revision) return;
+    if (!Tasks::startOperation(startStrokeEngineTask, "startStrokeEngineTask",
+                               stackSize, &Tasks::runStrokeEngineTaskH, revision)) {
+        delete revision;
+        return;
+    }
+
+    if (xTaskCreatePinnedToCore(publishStateTask, "publishStateTask",
+                                5 * configMINIMAL_STACK_SIZE, nullptr,
+                                tskIDLE_PRIORITY + 1, nullptr,
+                                Tasks::operationTaskCore) != pdPASS) {
+        ESP_LOGE("StrokeEngine", "Could not create the state publishing task");
+    }
+}
+
+}  // namespace stroke_engine

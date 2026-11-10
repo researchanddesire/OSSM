@@ -19,7 +19,7 @@ jobs:
       - name: Check for firmware or release workflow changes
         id: check_changes
         run: |
-          if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -Eq "^(Software/|\.github/scripts/|\.github/workflows/)"; then
+          if git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.sha }} | grep -Eq "^(software/firmware/|\.github/scripts/|\.github/workflows/)"; then
             echo "Firmware-affecting changes detected"
             echo "changes_detected=true" >> "$GITHUB_OUTPUT"
           else
@@ -52,7 +52,7 @@ jobs:
 
       - name: Build PlatformIO Project
         run: |
-          cd Software
+          cd software/firmware
           pio run -e staging
           pio run -e production
 
@@ -60,8 +60,8 @@ jobs:
         run: |
           for environment in staging production; do
             python .github/scripts/build_web_installer.py \
-              --build-dir "Software/.pio/build/$environment" \
-              --output "Software/.pio/build/$environment/web-installer.bin"
+              --build-dir "software/firmware/.pio/build/$environment" \
+              --output "software/firmware/.pio/build/$environment/web-installer.bin"
           done
 
       - name: Test immutable publisher
@@ -76,10 +76,10 @@ jobs:
         with:
           name: firmware-bin
           path: |
-            Software/.pio/build/production/firmware.bin
-            Software/.pio/build/production/partitions.bin
-            Software/.pio/build/production/bootloader.bin
-            Software/.pio/build/production/web-installer.bin
+            software/firmware/.pio/build/production/firmware.bin
+            software/firmware/.pio/build/production/partitions.bin
+            software/firmware/.pio/build/production/bootloader.bin
+            software/firmware/.pio/build/production/web-installer.bin
           retention-days: 14
 
       - name: Checkout legacy 4 MB firmware with Bluetooth
@@ -97,8 +97,8 @@ jobs:
 
       - name: Test and build legacy 4 MB firmware
         run: |
-          VERSION="$(python scripts/release_version.py read --header Software/src/constants/Version.h)"
-          python scripts/release_version.py write --version "$VERSION" \
+          VERSION="$(python software/scripts/release_version.py read --header software/firmware/src/constants/Version.h)"
+          python software/scripts/release_version.py write --version "$VERSION" \
             --header legacy-4mb/Software/src/constants/Version.h --version-json legacy-4mb/version.json
           pio test --project-dir legacy-4mb/Software -e test
           RELEASE_BUILD_SHA=$(git rev-parse HEAD) pio run --project-dir legacy-4mb/Software -e production -t buildprog
@@ -150,7 +150,7 @@ jobs:
 
       - name: Check PlatformIO Project
         run: |
-          cd Software
+          cd software/firmware
           pio check --skip-packages --fail-on-defect high -e production -f src
 
   test:
@@ -178,5 +178,5 @@ jobs:
 
       - name: Unit Test PlatformIO Project
         run: |
-          cd Software
+          cd software/firmware
           pio test -e test
