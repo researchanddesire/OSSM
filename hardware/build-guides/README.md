@@ -29,3 +29,12 @@ minor counts compatible part changes, and the patch counts documentation
 corrections. Each file is named for its `MAJOR.MINOR` edition and holds that
 edition's latest correction. A new correction replaces its file in place; a new
 minor edition, such as actuator 1.2, gets a new file.
+
+## Cover thumbnails
+
+The docs page shows page one of each PDF as a thumbnail from
+`assembly-docs/assets/build-guides/<file>.webp`. After adding or replacing a
+PDF, run `bash software/scripts/render-build-guide-covers.sh` and commit the
+PDF and its thumbnail together. A new file also needs a cover in the grid on
+`assembly-docs/build-guides.mdx`. The `--check` option lists PDFs without a
+cover and covers without a PDF.
