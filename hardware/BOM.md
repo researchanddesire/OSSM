@@ -93,5 +93,5 @@ a screw has to reach between 2 and 9.3 mm past the face.
   hardware. To check on the first build: socket heads on the 90° seats of the
   lower clamp base, the hinge with 3 mm of thread in its nut, and standard
   washers in place of 18 mm ones on the passive pivot. The two assembly STEPs
-  and `ossm-assembly.FCStd` still show the earlier hardware and, for the
-  2-arm stand, two active clamps per joint.
+  show this hardware; `ossm-assembly.FCStd` still shows the earlier screws
+  and, for the 2-arm stand, two active clamps per joint.

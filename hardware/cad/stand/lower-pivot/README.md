@@ -46,11 +46,19 @@ One base rail, a first hinged arm and a second hinged arm: two hinges, so
 **two active clamps and two passive pivots**. The second hinge mounts at the
 far end of the first arm. No mirrored parts are needed.
 
-The [complete frame assembly](double-arm-assembly.step) and the mirrored
-parts in [`double-arm/`](double-arm/) show the earlier layout with two active
-clamps (one normal, one mirrored) at each joint. They are kept for reference
-until the assembly is redrawn. Both assembly STEPs also still model the
-earlier screws.
+The [complete frame assembly](double-arm-assembly.step) shows it. The second
+hinge sits 59 mm in front of the first arm, so the elbow folds forward over
+the base. Its active clamp is on the same side of the stand as the first one.
+
+The mirrored parts in [`double-arm/`](double-arm/) belong to the earlier
+layout with two active clamps at each joint. They are kept for reference and
+are not needed for either stand.
+
+Both assembly STEPs were redrawn on 2026-11-11 with the hardware above. Their
+M6 × 16 and M5 × 20 screws, M5 nuts and washers are plain solids, and the
+clasp is drawn in the upper's earlier, slightly over-closed position.
+[`ossm-assembly.FCStd`](../../ossm-assembly.FCStd) still shows the earlier
+layout and screws.
 
 ## Printing and frame parts
 
