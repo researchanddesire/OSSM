@@ -38,47 +38,47 @@ build, and rows marked "1-arm stand only" are left out of a 2-arm build.
 ### Stand parts by build
 
 Quantities are for the stand alone. They leave out the PitClamp Mini that
-holds the actuator and the four T-nuts for the Mini and the PCB box.
+holds the actuator and the four T-nuts for the Mini and the PCB box. Where the
+sources disagreed, these follow the CAD: the Onshape lower clamp
+"Lower V1.1 - SideMount Reinforced 3030" and the two stand assemblies in
+[`cad/stand/lower-pivot/`](cad/stand/lower-pivot/README.md).
 
 | Part | 1-arm | 2-arm |
 | --- | --- | --- |
-| 12 in extrusion (crossfeet) | 2 | 2 |
+| 11.75 in extrusion (crossfeet) | 2 | 2 |
 | 18 in extrusion (arm) | 1 | 2 |
 | 19.5 in extrusion (base rail) | 1 | 1 |
 | Base bracket | 4 | 4 |
 | Printed foot and grippy foot | 4 + 4 | 4 + 4 |
-| End cap | 6 | to confirm |
+| End cap | 6 | 8 |
 | Active lower clamp | 1 | 2 |
 | Active lower clamp, mirrored | – | 2 |
 | Passive pivot | 1 | – |
 | Mounting ring | 1 | 2 |
 | Mounting ring, mirrored | – | 2 |
-| Upper jaw, handle and both dogbones | 1 set | 2 sets |
-| Upper jaw, handle and both dogbones, mirrored | – | 2 sets |
-| M6 × 12 screw (feet and brackets) | 12 | 12 |
-| M6 T-nut | 19 | 28 |
-| M6 × 25 countersunk screw (active lowers) | 2 | 8 |
-| M6 × 25 socket-head screw (mounting rings) | 2 | 8 |
+| Upper jaw and handle | 1 + 1 | 2 + 2 |
+| Upper jaw and handle, mirrored | – | 2 + 2 |
+| Dogbone links, hex and round (all clamps use the normal links) | 1 + 1 | 4 + 4 |
+| M6 × 12 screw (brackets and feet) | 12 | 12 |
+| M6 × 30 socket-head screw and M6 washer (lower clamps, 2 per clamp) | 2 + 2 | 8 + 8 |
+| M6 × 25 socket-head screw (mounting rings, 2 per ring) | 2 | 8 |
 | M6 × 20 socket-head screw (passive pivot: 2 base bolts, 1 axle) | 3 | – |
 | 18 mm M6 steel washer (passive pivot) | 2 | – |
-| M6 plain washer (brackets and rings) | 10 | 16 |
+| M6 plain washer (brackets) | 8 | 8 |
+| M6 T-nut | 19 | 28 |
+| M5 × 25 screw and M5 nut (hinge) | 1 + 1 | 4 + 4 |
 | M4 × 16 screw and M4 nut (handle pivot) | 1 + 1 | 4 + 4 |
 | M4 × 25 screw and M4 nut (dogbone links) | 2 + 2 | 8 + 8 |
-| M5 × 25 screw and M5 nut (hinge) | 1 + 1 | 4 + 4 |
 
-### Open questions
+### Notes
 
-The 2-arm quantities come from the CAD layout; the README in
-`cad/stand/lower-pivot/` notes that physical fit and loading are untested.
-These points need a decision before the counts are final:
-
-- **Screw lengths.** The lower-pivot parts call for M6 × 25 countersunk screws
-  on the active lowers, M6 × 20 on the passive pivot and an M4 × 16 handle
-  pivot. Stand Build Guide 1.0 uses M6 × 30 socket-head screws with washers on
-  the lower clamp, M6 × 25 on the pivot plate and its axle, and an M4 × 12
-  handle pin.
-- **Hinge.** The guide's hinge is M5 × 25. The actuator PitClamp moved to an
-  M6 × 25 hinge with a 6 mm bore; check the lower-pivot uppers.
-- **Screws per lower clamp.** Two, as in the guide; confirm against the part.
-- **End caps** for the 2-arm stand's second arm.
-- **Packaging** quantities for the new hardware.
+- **Lower clamp.** The shipping part is the Onshape "Lower V1.1 - SideMount
+  Reinforced 3030": three Ø6.2 mm holes on a 30 mm pitch. The outer two
+  (60 mm apart) are counterbored and take the M6 × 30 screws; the middle hole
+  stays empty. `lower-pivot/active-lower.step` is the earlier keyed base with
+  two countersunk holes 46 mm apart. The mirrored clamp for the 2-arm stand
+  is not in Onshape yet.
+- **Hinge.** The lower clamp's hinge bore is 5.2 mm with an M5 hex nut trap,
+  so the hinge is M5 × 25 + M5 nut.
+- **Not yet tested:** physical fit and loading of the 2-arm stand (see the
+  README in `cad/stand/lower-pivot/`), and packaging for its extra hardware.
