@@ -4,6 +4,7 @@ Step-by-step PDF build guides for the OSSM. They are also listed on
 [ohai.researchanddesire.com/ossm/build-guides](https://ohai.researchanddesire.com/ossm/build-guides).
 
 Build in this order: the stand, the actuator, the wiring, then the wired remote.
+The toy mounting guide then shows how to mount a toy on the finished OSSM.
 
 ## Current hardware
 
@@ -13,6 +14,7 @@ Build in this order: the stand, the actuator, the wiring, then the wired remote.
 | [actuator-1.1.pdf](actuator-1.1.pdf) | OSSM Actuator Build Guide, 24 mm Clamping Thread end effector | 1.1.11 |
 | [wiring-1.0.pdf](wiring-1.0.pdf) | OSSM Wiring Guide, V2.3 board | 1.0.10 |
 | [remote-1.0.pdf](remote-1.0.pdf) | OSSM Wired Remote Guide, Remote V2 | 1.0.8 |
+| [toy-mounting-1.0.pdf](toy-mounting-1.0.pdf) | OSSM Toy Mounting Guide, flange plates and Vac-U-Lock | 1.0.0 |
 
 ## Earlier hardware
 
