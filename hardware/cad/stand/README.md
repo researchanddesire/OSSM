@@ -16,3 +16,10 @@ remain available as their matched earlier set.
 
 [Lower Pitclamp pivot](lower-pivot/) includes the active/passive configuration,
 reinforced print project, and double-arm assembly with mirrored active parts.
+
+## Multicolor PCB cover
+
+[FreeCAD](pcb-mount-lid-multicolor.FCStd) ·
+[STEP](pcb-mount-lid-multicolor.step) ·
+[3MF](../../print-files/3mf/pcb-mount-lid-multicolor.3mf) ·
+[Printing notes](../../print-files/3mf/README.md)
