@@ -14,7 +14,7 @@ The toy mounting guide then shows how to mount a toy on the finished OSSM.
 | [actuator-1.1.pdf](actuator-1.1.pdf) | OSSM Actuator Build Guide, 24 mm Clamping Thread end effector | 1.1.12 |
 | [wiring-1.0.pdf](wiring-1.0.pdf) | OSSM Wiring Guide, V2.3 board | 1.0.10 |
 | [remote-1.0.pdf](remote-1.0.pdf) | OSSM Wired Remote Guide, Remote V2 | 1.0.8 |
-| [toy-mounting-1.0.pdf](toy-mounting-1.0.pdf) | OSSM Toy Mounting Guide, flange plates and Vac-U-Lock | 1.0.2 |
+| [toy-mounting-1.0.pdf](toy-mounting-1.0.pdf) | OSSM Toy Mounting Guide, flange plates and Vac-U-Lock | 1.0.3 |
 
 ## Earlier hardware
 
