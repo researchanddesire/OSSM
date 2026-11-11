@@ -55,9 +55,13 @@ One base rail, a first hinged arm and a second hinged arm: two hinges, so
 **two active clamps and two passive pivots**. The second hinge mounts at the
 far end of the first arm. No mirrored parts are needed.
 
-The [complete frame assembly](double-arm-assembly.step) shows it. The second
-hinge sits 59 mm in front of the first arm, so the elbow folds forward over
-the base. Its active clamp is on the same side of the stand as the first one.
+The [complete frame assembly](double-arm-assembly.step) shows it. In use the
+arms reach out the back of the base and the OSSM points away from it. The
+second hinge's clamp bolts to the face of the first arm that is then on top,
+so the stand can lie flat with its arms lowered. That clamp is on the same
+side of the stand as the first one. From the first arm's line, the second arm
+swings about 38° toward its clamp and 26° the other way; the assembly shows
+it 22.4° toward the back of the base.
 
 The mirrored parts in [`double-arm/`](double-arm/) belong to the earlier
 layout with two active clamps at each joint. They are kept for reference and
