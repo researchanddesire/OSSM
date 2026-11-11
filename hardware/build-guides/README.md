@@ -10,13 +10,19 @@ The toy mounting guide then shows how to mount a toy on the finished OSSM.
 
 | File | Guide | Version on the cover |
 | --- | --- | --- |
-| [stand-1.0.pdf](stand-1.0.pdf) | OSSM Stand Build Guide, PitClamp stand | 1.0.14 |
+| [stand-1.0.pdf](stand-1.0.pdf) | OSSM Stand Build Guide, 1-arm stand (PitClamp stand) | 1.0.14 |
 | [actuator-1.1.pdf](actuator-1.1.pdf) | OSSM Actuator Build Guide, 24 mm Clamping Thread end effector | 1.1.11 |
 | [wiring-1.0.pdf](wiring-1.0.pdf) | OSSM Wiring Guide, V2.3 board | 1.0.10 |
 | [remote-1.0.pdf](remote-1.0.pdf) | OSSM Wired Remote Guide, Remote V2 | 1.0.8 |
 | [toy-mounting-1.0.pdf](toy-mounting-1.0.pdf) | OSSM Toy Mounting Guide, flange plates and Vac-U-Lock | 1.0.1 |
 
+The 2-arm stand (two arms in series, two lower PitClamps at each joint) has
+no build guide yet. Its guide is in preparation and will be added here.
+
 ## Earlier hardware
+
+The pivot-plate stand is discontinued. Its guides stay here for existing
+stands.
 
 | File | Guide | Version on the cover |
 | --- | --- | --- |
