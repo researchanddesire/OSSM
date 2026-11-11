@@ -81,7 +81,11 @@ a screw has to reach between 2 and 9.3 mm past the face.
   head: 8 mm past the face.
 - **Hinge.** M5 × 20 with an M5 nut in the hex trap, as on the PitClamp Mini.
   The head runs in the Ø8.9 mm bore of the outer cheek and stops on the eye of
-  the upper; 3 mm of thread reaches the nut.
+  the upper; 4 mm of thread reaches the nut. The trap in the lower clamp base
+  is 5 mm deep with a flat floor, so a 4.7 mm nut sits 0.3 mm below the
+  mounting face and the base seats flat on the rail. It was 4 mm deep with a
+  chamfered floor, which left the nut proud. The wall between the trap and
+  the slot for the upper's eye is 1.9 mm, as on the PitClamp Mini lower.
 - **Upper and handle.** The print-in-place part the PitClamp Mini uses
   (`cad/stand/pitclamp-upper-handle-print-in-place-v1.1.step`). It needs no
   pivot screw.
@@ -91,7 +95,7 @@ a screw has to reach between 2 and 9.3 mm past the face.
   2.2 mm deeper than in the earlier file to suit that screw.
 - **Not yet tested:** nothing here has been printed or loaded with this
   hardware. To check on the first build: socket heads on the 90° seats of the
-  lower clamp base, the hinge with 3 mm of thread in its nut, and standard
-  washers in place of 18 mm ones on the passive pivot. The two assembly STEPs
+  lower clamp base, the hinge nut on its 1.9 mm wall with 4 mm of thread,
+  and standard washers in place of 18 mm ones on the passive pivot. The two assembly STEPs
   show this hardware; `ossm-assembly.FCStd` still shows the earlier screws
   and, for the 2-arm stand, two active clamps per joint.

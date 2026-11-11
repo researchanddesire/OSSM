@@ -33,8 +33,17 @@ Hardware per hinge, all of it sizes the OSSM already ships:
 | Passive pivot axle into the arm | M6 × 16 socket-head, 1 T-nut |
 
 The passive pivot's axle seat is 2.2 mm deeper than in the first release of
-this file, so that an M6 × 16 reaches 7 mm into the arm's slot. Why each
-length fits is in [the BOM notes](../../../BOM.md#notes).
+this file, so that an M6 × 16 reaches 7 mm into the arm's slot.
+
+The active lower clamp's hinge nut trap is **5 mm deep with a flat floor**.
+It was 4 mm deep with a 0.8 mm chamfer at the floor, which held the M5 nut
+proud of the mounting face, against the rail and in the path of the second
+arm. Now a 4.7 mm nut sits 0.3 mm below the face, and the M5 × 20 has 4 mm
+of thread in it. The wall left between the trap and the slot for the upper's
+eye is 1.9 mm, the same as on the Pitclamp Mini lower. The copies in
+[`double-arm/`](double-arm/) carry the same trap.
+
+Why each length fits is in [the BOM notes](../../../BOM.md#notes).
 
 ## Single hinge (1-arm stand)
 
@@ -54,9 +63,10 @@ The mirrored parts in [`double-arm/`](double-arm/) belong to the earlier
 layout with two active clamps at each joint. They are kept for reference and
 are not needed for either stand.
 
-Both assembly STEPs were redrawn on 2026-11-11 with the hardware above. Their
-M6 × 16 and M5 × 20 screws, M5 nuts and washers are plain solids, and the
-clasp is drawn in the upper's earlier, slightly over-closed position.
+Both assembly STEPs were redrawn on 2026-11-11 with the hardware above and
+the deeper nut trap. Their M6 × 16 and M5 × 20 screws, M5 nuts and washers
+are plain solids, and the clasp is drawn in the upper's earlier, slightly
+over-closed position.
 [`ossm-assembly.FCStd`](../../ossm-assembly.FCStd) still shows the earlier
 layout and screws.
 
