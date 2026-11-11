@@ -1,2 +1,5 @@
 # Preserve original STEP export bytes, including embedded line endings.
 *.step binary
+# Print files and print projects are binary as well.
+*.stl binary
+*.3mf binary
