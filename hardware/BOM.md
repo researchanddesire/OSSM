@@ -78,8 +78,11 @@ a screw has to reach between 2 and 9.3 mm past the face.
   counterbore 11 mm deep that ends in a 90° seat. An M6 × 25 socket-head screw
   seats on it and reaches 7.3 mm past the face. No washer.
 - **Mounting ring.** 2 × M6 × 25 on a flat seat with 17 mm of ring under the
-  head: 8 mm past the face. The ring has no centre hole (the Ø24 mm hole of
-  earlier files is filled).
+  head: 8 mm past the face. Each seat is a Ø13 mm counterbore (Ø18.5 mm in
+  earlier files), which fits the socket head and would take a standard M6
+  washer. The ring has no centre hole (the Ø24 mm hole of earlier files is
+  filled) and a third key in the arm's slot between the two screws, so its
+  T-nuts stay in place too.
 - **Hinge.** M5 × 20 with an M5 nut in the hex trap, as on the PitClamp Mini.
   The head runs in the Ø8.9 mm bore of the outer cheek and stops on the eye of
   the upper; 4 mm of thread reaches the nut. The trap in the lower clamp base

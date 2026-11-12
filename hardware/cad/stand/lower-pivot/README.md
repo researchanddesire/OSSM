@@ -41,8 +41,10 @@ took no washer. The passive pivot also has a third T-slot key between its base
 bolts. The keys leave a 17 mm pocket around each bolt, as on the lower clamp,
 so the T-nuts stay in place while the plate goes on.
 
-The mounting ring has no centre hole: the Ø24 mm hole of earlier files is
-filled.
+The mounting ring has no centre hole (the Ø24 mm hole of earlier files is
+filled). Its two screw seats are Ø13 mm counterbores, down from Ø18.5 mm, on
+the same flat floor, and it has a third T-slot key between the screws, as
+the lower clamp and the passive pivot have.
 
 Both changes follow the first test print (2026-11-12) and are not printed
 yet. [`passive-pivot.3mf`](passive-pivot.3mf) still holds the plate of that
