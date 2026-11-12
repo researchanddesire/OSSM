@@ -25,8 +25,8 @@ Hardware per hinge, all of it sizes the OSSM already ships:
 
 | Where | Hardware |
 | --- | --- |
-| Lower clamp base to the rail | 2 × M6 × 25 socket-head, 2 T-nuts, no washers |
-| Mounting ring to the arm | 2 × M6 × 25 socket-head, 2 T-nuts |
+| Lower clamp base to the rail | 2 × M6 × 25 socket-head, 2 M6 washers, 2 T-nuts |
+| Mounting ring to the arm | 2 × M6 × 25 socket-head, 2 M6 washers, 2 T-nuts |
 | Clamp hinge | M5 × 20 socket-head, M5 nut in the hex trap |
 | Dogbone links | 2 × M4 × 25 socket-head, 2 M4 nuts |
 | Passive pivot to the rail | 2 × M6 × 16 socket-head, 2 M6 washers, 2 T-nuts |
@@ -46,9 +46,11 @@ filled). Its two screw seats are Ø13 mm counterbores, down from Ø18.5 mm, on
 the same flat floor, and it has a third T-slot key between the screws, as
 the lower clamp and the passive pivot have.
 
-Both changes follow the first test print (2026-11-12) and are not printed
-yet. [`passive-pivot.3mf`](passive-pivot.3mf) still holds the plate of that
-first print; it is regenerated once the second test print passes.
+These changes follow the first test print and were approved on the second
+(2026-11-13). The kit carries one M6 washer for every M6 screw. On the lower
+clamp base the washer rests on the 90° seat, not on a flat floor.
+[`passive-pivot.3mf`](passive-pivot.3mf) still holds the plate of the first
+test print and has to be regenerated.
 
 The active lower clamp's hinge nut trap is **5 mm deep with a flat floor**.
 It was 4 mm deep with a 0.8 mm chamfer at the floor, which held the M5 nut

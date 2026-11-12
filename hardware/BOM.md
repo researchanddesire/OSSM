@@ -61,7 +61,7 @@ holds the actuator and the four T-nuts for the Mini and the PCB box.
 | M6 × 12 screw (brackets and feet) | 12 | 12 |
 | M6 × 25 screw (per clamp: 2 lower clamp base, 2 mounting ring) | 4 | 8 |
 | M6 × 16 screw (per passive pivot: 2 base bolts, 1 axle) | 3 | 6 |
-| M6 plain washer (brackets 8, passive pivot 3 per pivot) | 11 | 14 |
+| M6 plain washer (one under every M6 screw) | 19 | 26 |
 | M6 T-nut | 19 | 26 |
 | M5 × 20 screw and M5 nut (hinge) | 1 + 1 | 2 + 2 |
 | M4 × 25 screw and M4 nut (dogbone links) | 2 + 2 | 4 + 4 |
@@ -76,11 +76,14 @@ a screw has to reach between 2 and 9.3 mm past the face.
   Onshape part "Stand Pivot Clamp": 30 mm thick with a 4 mm key that sits in
   the T-slot, and two Ø6.4 mm holes 46 mm apart. Each hole has a Ø12.5 mm
   counterbore 11 mm deep that ends in a 90° seat. An M6 × 25 socket-head screw
-  seats on it and reaches 7.3 mm past the face. No washer.
+  seats on it and reaches 7.3 mm past the face. The kit carries a washer for
+  every M6 screw; here a 12 mm washer rests on the cone rather than on a flat
+  floor and shortens the reach to about 4.7 mm, so check the grip on the
+  T-nut when fitting one.
 - **Mounting ring.** 2 × M6 × 25 on a flat seat with 17 mm of ring under the
-  head: 8 mm past the face. Each seat is a Ø13 mm counterbore (Ø18.5 mm in
-  earlier files), which fits the socket head and would take a standard M6
-  washer. The ring has no centre hole (the Ø24 mm hole of earlier files is
+  head: 8 mm past the face, 6.4 mm with the washer. Each seat is a Ø13 mm
+  counterbore (Ø18.5 mm in earlier files), which fits the socket head and a
+  standard M6 washer. The ring has no centre hole (the Ø24 mm hole of earlier files is
   filled) and a third key in the arm's slot between the two screws, so its
   T-nuts stay in place too.
 - **Hinge.** M5 × 20 with an M5 nut in the hex trap, as on the PitClamp Mini.
