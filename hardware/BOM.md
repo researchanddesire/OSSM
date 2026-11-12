@@ -61,7 +61,7 @@ holds the actuator and the four T-nuts for the Mini and the PCB box.
 | M6 × 12 screw (brackets and feet) | 12 | 12 |
 | M6 × 25 screw (per clamp: 2 lower clamp base, 2 mounting ring) | 4 | 8 |
 | M6 × 16 screw (per passive pivot: 2 base bolts, 1 axle) | 3 | 6 |
-| M6 plain washer (brackets 8, passive pivot base bolts 2 per pivot) | 10 | 12 |
+| M6 plain washer (brackets 8, passive pivot 3 per pivot) | 11 | 14 |
 | M6 T-nut | 19 | 26 |
 | M5 × 20 screw and M5 nut (hinge) | 1 + 1 | 2 + 2 |
 | M4 × 25 screw and M4 nut (dogbone links) | 2 + 2 | 4 + 4 |
@@ -78,7 +78,8 @@ a screw has to reach between 2 and 9.3 mm past the face.
   counterbore 11 mm deep that ends in a 90° seat. An M6 × 25 socket-head screw
   seats on it and reaches 7.3 mm past the face. No washer.
 - **Mounting ring.** 2 × M6 × 25 on a flat seat with 17 mm of ring under the
-  head: 8 mm past the face.
+  head: 8 mm past the face. The ring has no centre hole (the Ø24 mm hole of
+  earlier files is filled).
 - **Hinge.** M5 × 20 with an M5 nut in the hex trap, as on the PitClamp Mini.
   The head runs in the Ø8.9 mm bore of the outer cheek and stops on the eye of
   the upper; 4 mm of thread reaches the nut. The trap in the lower clamp base
@@ -89,13 +90,18 @@ a screw has to reach between 2 and 9.3 mm past the face.
 - **Upper and handle.** The print-in-place part the PitClamp Mini uses
   (`cad/stand/pitclamp-upper-handle-print-in-place-v1.1.step`). It needs no
   pivot screw.
-- **Passive pivot.** Two base bolts, M6 × 16 with an M6 washer on the
-  counterbore floor (5.4 mm past the face), and an M6 × 16 axle into a T-nut
-  in the arm (7 mm). The axle seat in `lower-pivot/passive-pivot.step` is
-  2.2 mm deeper than in the earlier file to suit that screw.
-- **Not yet tested:** nothing here has been printed or loaded with this
-  hardware. To check on the first build: socket heads on the 90° seats of the
-  lower clamp base, the hinge nut on its 1.9 mm wall with 4 mm of thread,
-  and standard washers in place of 18 mm ones on the passive pivot. The two assembly STEPs
+- **Passive pivot.** Two base bolts into the rail and an axle into a T-nut
+  in the arm, all three M6 × 16 on a standard M6 washer (ISO 7089, 12 mm
+  across). Each sits in the same counterbore, Ø13 mm and 8 mm deep with a
+  flat floor: the head ends 0.4 mm below the face and the screw reaches
+  6.4 mm past the mounting face. Three keys sit in the rail's slot and leave
+  a 17 mm pocket around each base bolt, as on the lower clamp base, so the
+  T-nuts stay where they are put.
+- **Tested so far:** the first test print (2026-11-12) confirmed the lower
+  clamp base with this hardware: socket heads on the 90° seats, M5 × 20 and
+  the M5 nut in the 5 mm trap. The passive pivot's washer counterbores and
+  third key and the ring without its centre hole come from that print and
+  are in the second test print; they are not printed yet. Nothing has been
+  load tested. The two assembly STEPs
   show this hardware; `ossm-assembly.FCStd` still shows the earlier screws
   and, for the 2-arm stand, two active clamps per joint.

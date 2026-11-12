@@ -30,10 +30,23 @@ Hardware per hinge, all of it sizes the OSSM already ships:
 | Clamp hinge | M5 × 20 socket-head, M5 nut in the hex trap |
 | Dogbone links | 2 × M4 × 25 socket-head, 2 M4 nuts |
 | Passive pivot to the rail | 2 × M6 × 16 socket-head, 2 M6 washers, 2 T-nuts |
-| Passive pivot axle into the arm | M6 × 16 socket-head, 1 T-nut |
+| Passive pivot axle into the arm | M6 × 16 socket-head, 1 M6 washer, 1 T-nut |
 
-The passive pivot's axle seat is 2.2 mm deeper than in the first release of
-this file, so that an M6 × 16 reaches 7 mm into the arm's slot.
+The passive pivot's three screws each sit on a standard M6 washer (12 mm
+across) in the same counterbore: Ø13 mm, 8 mm deep, flat floor. Head and
+washer end 0.4 mm below the face, and an M6 × 16 reaches 6.4 mm past the
+mounting face. Earlier files had Ø19 mm seats for an 18 mm washer on the base
+bolts, which left the head proud, and an Ø11 mm conical seat on the axle that
+took no washer. The passive pivot also has a third T-slot key between its base
+bolts. The keys leave a 17 mm pocket around each bolt, as on the lower clamp,
+so the T-nuts stay in place while the plate goes on.
+
+The mounting ring has no centre hole: the Ø24 mm hole of earlier files is
+filled.
+
+Both changes follow the first test print (2026-11-12) and are not printed
+yet. [`passive-pivot.3mf`](passive-pivot.3mf) still holds the plate of that
+first print; it is regenerated once the second test print passes.
 
 The active lower clamp's hinge nut trap is **5 mm deep with a flat floor**.
 It was 4 mm deep with a 0.8 mm chamfer at the floor, which held the M5 nut
