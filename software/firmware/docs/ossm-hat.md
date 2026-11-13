@@ -239,6 +239,20 @@ or enabling motion. None of these operations claims physical power removal.
   and StrokeEngine coordinate frames without changing the motor's absolute
   encoder. An outage invalidates the reference even if it occurred between
   telemetry consumers' reads; another home is needed to restore measured position.
+- `getMotorPositionMm()` is in millimetres in the shared counter's current frame
+  (`services/stepper.h`). Native reads 0 at the homed rest position and counts
+  extension negative; StrokeEngine reads extension minus the 6 mm keepout. The
+  frame is set at mode entry and by homing and is kept in the menu, so the
+  value's sign and origin follow the last mode used.
+- The RAD BLE Motion sample, the payload of a `motion.position` sensor stream,
+  reports `positionMm` in that frame with two values that do not depend on it.
+  `extensionMm` is the distance from the homed rest position: 0 at home and
+  positive toward the far end of travel in every mode
+  (`position_telemetry_logic::extensionMm`). `travelMm` is the travel measured
+  by homing, `calibration.measuredStrokeSteps` at 20 steps per mm; it is 0 until
+  a home has measured it. `100 * extensionMm / travelMm` is the position as a
+  percentage of travel. `extensionMm` has the same source as `positionMm`,
+  named by `positionSource`.
 
 Homing selects RS-485 current when the HAT is detected. Its separate
 `Config::Hat::sensorlessCurrentLimitAmps` is initially 1.5 A; the legacy threshold

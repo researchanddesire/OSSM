@@ -5,6 +5,7 @@
 #include <cmath>
 
 #include "FirmwareProvenance.h"
+#include "constants/Config.h"
 #include "constants/Pins.h"
 #include "constants/UserConfig.h"
 #include "constants/Version.h"
@@ -15,6 +16,7 @@
 #include "ossm/state/motion.h"
 #include "ossm/state/settings.h"
 #include "ossm/state/state.h"
+#include "position_telemetry_logic.h"
 #include "services/encoder.h"
 #include "services/board.h"
 #include "services/communication/nimble.h"
@@ -908,9 +910,17 @@ String snapshot(radble::Surface surface, void*) {
                 document["hatDetected"] = motor::hasHat();
             }
             break;
-        case radble::Surface::Motion:
+        case radble::Surface::Motion: {
+            const float positionMm = getMotorPositionMm();
             document["homed"] = calibration.isHomed;
-            document["positionMm"] = getMotorPositionMm();
+            document["positionMm"] = positionMm;
+            // positionMm follows the shared counter's current frame, so its
+            // sign and origin change with the mode. These two do not.
+            document["extensionMm"] = position_telemetry_logic::extensionMm(
+                positionMm, stepperFrame == StepperFrame::StrokeEngine,
+                Config::Advanced::strokeZeroOffsetMm);
+            document["travelMm"] = std::fabs(calibration.measuredStrokeSteps) /
+                                   Config::Driver::stepsPerMM;
             document["positionSource"] = motorPositionUsesRs485() ? "rs485" : "stepper";
             document["hat"] = motor::hasHat();
             document["motorCurrentAmps"] = motor::hasHat() ? motor::getCurrent() : NAN;
@@ -926,6 +936,7 @@ String snapshot(radble::Surface surface, void*) {
             document["strokeCount"] = session.strokeCount;
             document["distanceMeters"] = session.distanceMeters;
             break;
+        }
         case radble::Surface::Connectivity:
             document["wifi"] = WiFi.status() == WL_CONNECTED;
             document["rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
