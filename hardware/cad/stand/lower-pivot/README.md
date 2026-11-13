@@ -4,39 +4,95 @@ Designed by **Alex - R+D** for OSSM stands using 3030 extrusion.
 
 Both configurations are included in the [OSSM assembly](../../ossm-assembly.FCStd).
 
-## Single hinge (1-arm stand): active + passive
+## How a hinge is built
 
-- [Complete frame assembly](active-passive-assembly.step)
-- [Active lower clamp](active-lower.step)
-- [Passive pivot](passive-pivot.step), including its blue inlays
-- **2 × 18 mm steel washers** for the passive pivot
+Every hinge has **one active lower Pitclamp** on one side of the arm and
+**one passive pivot** on the other. The active clamp locks the angle; the
+passive pivot carries the other side on an axle screw.
 
-The other Pitclamp parts use standard geometry with the same blue trim:
-[upper](double-arm/upper.step), [handle](double-arm/handle.step),
-[hex dogbone](double-arm/dogbone-nuts.step) and
-[round dogbone](double-arm/dogbone-bolts.step).
+Printed parts per hinge:
+
+- [Active lower clamp](active-lower.step): the keyed base. Its 4 mm key sits
+  in the T-slot.
+- [Mounting ring](double-arm/mounting-ring.step), fixed to the arm.
+- [Upper + handle, print in place](../pitclamp-upper-handle-print-in-place-v1.1.step),
+  the same part as on the Pitclamp Mini.
+- [Hex dogbone](double-arm/dogbone-nuts.step) and
+  [round dogbone](double-arm/dogbone-bolts.step).
+- [Passive pivot](passive-pivot.step), including its blue inlays.
+
+Hardware per hinge, all of it sizes the OSSM already ships:
+
+| Where | Hardware |
+| --- | --- |
+| Lower clamp base to the rail | 2 × M6 × 25 socket-head, 2 M6 washers, 2 T-nuts |
+| Mounting ring to the arm | 2 × M6 × 25 socket-head, 2 M6 washers, 2 T-nuts |
+| Clamp hinge | M5 × 20 socket-head, M5 nut in the hex trap |
+| Dogbone links | 2 × M4 × 25 socket-head, 2 M4 nuts |
+| Passive pivot to the rail | 2 × M6 × 16 socket-head, 2 M6 washers, 2 T-nuts |
+| Passive pivot axle into the arm | M6 × 16 socket-head, 1 M6 washer, 1 T-nut |
+
+The passive pivot's three screws each sit on a standard M6 washer (12 mm
+across) in the same counterbore: Ø13 mm, 8 mm deep, flat floor. Head and
+washer end 0.4 mm below the face, and an M6 × 16 reaches 6.4 mm past the
+mounting face. Earlier files had Ø19 mm seats for an 18 mm washer on the base
+bolts, which left the head proud, and an Ø11 mm conical seat on the axle that
+took no washer. The passive pivot also has a third T-slot key between its base
+bolts. The keys leave a 17 mm pocket around each bolt, as on the lower clamp,
+so the T-nuts stay in place while the plate goes on.
+
+The mounting ring has no centre hole (the Ø24 mm hole of earlier files is
+filled). Its two screw seats are Ø13 mm counterbores, down from Ø18.5 mm, on
+the same flat floor, and it has a third T-slot key between the screws, as
+the lower clamp and the passive pivot have.
+
+These changes follow the first test print and were approved on the second
+(2026-11-13). The kit carries one M6 washer for every M6 screw. On the lower
+clamp base the washer rests on the 90° seat, not on a flat floor.
+[`passive-pivot.3mf`](passive-pivot.3mf) still holds the plate of the first
+test print and has to be regenerated.
+
+The active lower clamp's hinge nut trap is **5 mm deep with a flat floor**.
+It was 4 mm deep with a 0.8 mm chamfer at the floor, which held the M5 nut
+proud of the mounting face, against the rail and in the path of the second
+arm. Now a 4.7 mm nut sits 0.3 mm below the face, and the M5 × 20 has 4 mm
+of thread in it. The wall left between the trap and the slot for the upper's
+eye is 1.9 mm, the same as on the Pitclamp Mini lower. The copies in
+[`double-arm/`](double-arm/) carry the same trap.
+
+Why each length fits is in [the BOM notes](../../../BOM.md#notes).
+
+## Single hinge (1-arm stand)
+
+One hinge on the base rail. [Complete frame assembly](active-passive-assembly.step).
 
 ## Double hinge (2-arm stand): two arms in series
 
-The [complete frame assembly](double-arm-assembly.step) has one base rail,
-a first hinged arm, and a second hinged arm. **Each joint uses two active
-Pitclamps**, one on each side of the extrusion: four clamps total. The second
-pair mounts at the far end of the first arm, facing toward the first pair.
+One base rail, a first hinged arm and a second hinged arm: two hinges, so
+**two active clamps and two passive pivots**. The second hinge mounts at the
+far end of the first arm. No mirrored parts are needed.
 
-Print **two of each component in both columns**: one normal and one mirrored
-set per joint.
+The [complete frame assembly](double-arm-assembly.step) shows it with the
+first arm upright and the second arm square to it. The second hinge is built
+exactly like the first, carried from the base rail onto the first arm: its
+clamp and passive pivot bolt to the face of the first arm that looks toward
+the hinge end of the base, so they are on top when the first arm is folded
+down onto the base and the stand can lie flat. That clamp is on the same side
+of the stand as the first one. In use the second arm reaches out past the
+hinge end of the base and the OSSM points away from the base. The second arm
+sits in its mounting ring as the first does, 40 mm past the hinge, so its end
+cap clears the first arm when the two are square.
 
-| Part | Normal | Mirrored |
-| --- | --- | --- |
-| Lower clamp | [STEP](double-arm/active-lower.step) | [STEP](double-arm/mirrored-active-lower.step) |
-| Upper | [STEP](double-arm/upper.step) | [STEP](double-arm/mirrored-upper.step) |
-| Handle | [STEP](double-arm/handle.step) | [STEP](double-arm/mirrored-handle.step) |
-| Mounting ring | [STEP](double-arm/mounting-ring.step) | [STEP](double-arm/mirrored-mounting-ring.step) |
-| Dogbone nuts | [STEP](double-arm/dogbone-nuts.step) | [STEP](double-arm/mirrored-dogbone-nuts.step) |
-| Dogbone bolts | [STEP](double-arm/dogbone-bolts.step) | [STEP](double-arm/mirrored-dogbone-bolts.step) |
+The mirrored parts in [`double-arm/`](double-arm/) belong to the earlier
+layout with two active clamps at each joint. They are kept for reference and
+are not needed for either stand.
 
-Use standard Pitclamp hardware, including an **M4 × 16 socket-head screw and
-M4 nut** for each handle pivot (four on the double-hinge frame).
+Both assembly STEPs were redrawn on 2026-11-11 with the hardware above and
+the deeper nut trap. Their M6 × 16 and M5 × 20 screws, M5 nuts and washers
+are plain solids, and the clasp is drawn in the upper's earlier, slightly
+over-closed position.
+[`ossm-assembly.FCStd`](../../ossm-assembly.FCStd) still shows the earlier
+layout and screws.
 
 ## Printing and frame parts
 
@@ -50,15 +106,10 @@ The STEP files keep the base and blue inlays as separate bodies.
 
 The print projects keep **8 wall loops**. The lower-clamp project retains its
 solid-infill reinforcement near the end of the latch. For the double-hinge
-frame, print **four lowers and four mounting rings**, plus the quantities in
-the table above; adjust the project quantities accordingly.
+frame, print two of each hinge part.
 
 Both frames use one **495.3 mm base rail** and two **304.8 mm crossfeet**.
 Each arm is **457.2 mm** long: one for the single hinge, two for the double hinge.
-
-Active lowers use **M6 × 25 countersunk screws**; mounting rings use
-**M6 × 25 socket-head screws**. The single frame's passive plate uses
-**M6 × 20 socket-head screws**, with its two 18 mm washers under the base bolts.
 
 ## CAD source
 
@@ -70,6 +121,7 @@ lower bolts.
 
 Frame parts come from the [OSSM - Extrusion Base Onshape assembly](https://cad.onshape.com/documents/d520ea9a8cadb4ae8681f59b/w/00b211a6fa3b76c59ef28f4e/e/a97eb2dc016eb5c9594d0915),
 exported October 30, 2026. Extrusion lengths above are measured from its geometry.
-The assemblies are CAD references; physical fit and loading are untested.
+The assemblies are CAD references; physical fit and loading are untested,
+and so is the hardware listed above.
 
 Hardware and supporting files use the repository's **CERN-OHL-S v2** license.
