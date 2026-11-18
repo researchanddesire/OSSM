@@ -1,13 +1,15 @@
-#include "streaming_logic.h"
-
-#include <ArduinoFake.h>
-#include <ArduinoJson.h>
-#include <unity.h>
-
 #include <array>
 #include <filesystem>
 #include <fstream>
 #include <string>
+
+#include "streaming_logic.h"
+
+// ArduinoFake defines macros such as round and abs. Load the standard
+// library headers first so these macros do not affect their declarations.
+#include <ArduinoFake.h>
+#include <ArduinoJson.h>
+#include <unity.h>
 
 #define ESP_LOGI(tag, format, ...)
 #include "command/command_pattern.hpp"
