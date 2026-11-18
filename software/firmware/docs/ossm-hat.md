@@ -56,12 +56,14 @@ that conflicting pinout.
 
 ## Shared PC safety bus
 
-Modbus RTU does not arbitrate between masters. **Build with
-`OSSM_HAT_LISTEN_ONLY` whenever the independent PC safety monitor is attached.**
-The PR HIL workflow opts in with `RAD_HIL_HAT_LISTEN_ONLY=1`. That build never
-transmits on the HAT: it correlates the PC monitor's FC03 requests and replies,
-including its full block at `0x0E`, count 12. A position-only PC stream cannot
-make current and voltage appear fresh.
+Modbus RTU does not arbitrate between masters. Use
+`RAD_HIL_HAT_LISTEN_ONLY=1` for receive-only staging diagnostics while the
+independent PC monitor owns the bus. The resulting build correlates the PC
+monitor's full-block FC03 requests and replies, including register `0x0E`,
+count 12. A position-only PC stream cannot make current and voltage appear
+fresh. The standard PR hardware workflow uses the ordinary staging image.
+A powered HAT run requires exclusive UART ownership and the stop qualification
+below.
 
 Normal staging and production builds poll the full telemetry block at `0x0E`,
 count 10, plus control/telemetry at register 0, count 26, once a second, with

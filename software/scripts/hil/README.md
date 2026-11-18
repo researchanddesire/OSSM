@@ -148,6 +148,13 @@ latch or stale status. It never clears a latch or hands the motor back; a latche
 guard waits for human review. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
 
+After verifying the running image, the harness reads the OSSM's onboard guard
+using the read-only USB `hat` command. A reported latch fails immediately with
+its fault and bus mode in the evidence. The usual readiness and soak checks
+still apply. If the HAT reports receive-only operation and
+`StopPathUnverified`, check who owns the RS-485 bus and qualify the stop path
+before a powered run. See the [HAT commissioning requirements](../../firmware/docs/ossm-hat.md).
+
 ### OSSM Funscript playback
 
 The required PR build runs `test_funscript_streaming` for firmware and validation
@@ -163,7 +170,7 @@ For a powered playback check, use the same fixture in the R+D Funscript Player
 with a local media clip longer than six seconds. Use the unloaded, identified
 OSSM on the Test Rig and take the OSSM fixture lock. Keep the independent RS-485
 guard active with a fresh stationary baseline, verified stop and measured interior
-travel bounds before connecting. Turn off **Simple Mode** and **Reverse**, start
+travel bounds before connecting. Turn off **Simplified** and **Reverse**, start
 at low speed, and constrain depth and stroke to the verified range. Compare the
 player's transmitted commands with the independently measured rail position.
 Check that it moves in both directions within the range, holds at the repeat,

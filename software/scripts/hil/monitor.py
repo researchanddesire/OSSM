@@ -4,7 +4,27 @@ import json
 import re
 
 PREFIX = 'RAD_HEALTH '
+HAT_PREFIX = 'RAD_HAT '
 FAULT = re.compile(r'Guru Meditation|panic(?:ked)?|abort\(\)|assert failed|watchdog|task_wdt|Brownout detector|Rebooting', re.I)
+
+HAT_FLAGS = ('detected', 'fresh', 'passive', 'guardReady', 'guardArmed',
+             'guardLatched', 'outputDisabled')
+STOP_PATH_UNVERIFIED = 16  # motor_guard::Fault::StopPathUnverified
+
+
+def parse_hat_status(line):
+    if not line.startswith(HAT_PREFIX):
+        return None
+    try:
+        data = json.loads(line[len(HAT_PREFIX):])
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or any(type(data.get(key)) is not bool for key in HAT_FLAGS):
+        return None
+    fault = data.get('guardFault')
+    if type(fault) is not int or not 0 <= fault <= 255:
+        return None
+    return {**{key: data[key] for key in HAT_FLAGS}, 'guardFault': fault}
 
 
 class EvidenceError(RuntimeError):
@@ -28,6 +48,7 @@ class Monitor:
         self.heartbeats = 0
         self.disconnects = None
         self.passed = False
+        self.ossm_hat = None
 
     def tick(self, now):
         if self.soak_started is None and now-self.started > self.STARTUP_SECONDS:
@@ -44,6 +65,17 @@ class Monitor:
                 if self.boot_id is not None or marker in self.markers:
                     raise EvidenceError('unexpected reboot')
                 self.markers.add(marker)
+        if self.expected.get('product') == 'ossm' and self.boot_id is not None:
+            hat = parse_hat_status(line)
+            if hat is not None:
+                self.ossm_hat = hat
+                if hat['guardLatched']:
+                    fault = hat['guardFault']
+                    reason = ('StopPathUnverified (16)' if fault == STOP_PATH_UNVERIFIED
+                              else f'fault {fault}')
+                    if hat['detected'] and hat['passive']:
+                        reason += '; HAT is receiving only on the shared RS-485 bus'
+                    raise EvidenceError('OSSM motor safety latch: ' + reason)
         if PREFIX not in line:
             return
         try:
@@ -100,7 +132,10 @@ class Monitor:
             self.passed = True
 
     def result(self, now):
-        return dict(self.expected, status='passed' if self.passed else 'failed',
-                    boot_id=self.boot_id, heartbeats=self.heartbeats,
-                    soak_seconds=0 if self.soak_started is None else now-self.soak_started,
-                    device_soak_ms=0 if self.soak_uptime is None else self.last_uptime-self.soak_uptime)
+        result = dict(self.expected, status='passed' if self.passed else 'failed',
+                      boot_id=self.boot_id, heartbeats=self.heartbeats,
+                      soak_seconds=0 if self.soak_started is None else now-self.soak_started,
+                      device_soak_ms=0 if self.soak_uptime is None else self.last_uptime-self.soak_uptime)
+        if self.ossm_hat is not None:
+            result['ossm_hat'] = self.ossm_hat
+        return result
