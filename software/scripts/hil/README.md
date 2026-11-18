@@ -147,6 +147,18 @@ harness watches the guard throughout the run and fails it on any guard fault,
 latch or stale status. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
 
+The enrolled OSSM carries an RS-485 HAT on the motor bus the guard polls. The
+guard's polling keeps that HAT receive-only, so the firmware homes on STEP/DIR
+and treats the guard as its independent monitor. Twice a second the guard reads
+the full block from register 0; the firmware lowers ENA only while those reads
+show the drive in STEP/DIR control. See
+[Shared PC safety bus](../../firmware/docs/ossm-hat.md#shared-pc-safety-bus).
+
+After verifying the running image, the harness reads the OSSM's onboard guard
+using the read-only USB `hat` command. A reported latch fails immediately with
+its fault and bus mode in the evidence. The usual readiness and soak checks
+still apply.
+
 ### Pull-request runs take precedence
 
 A pull-request run does not fail because of what the bench was doing before it.
@@ -169,6 +181,34 @@ A pull-request run does not fail because of what the bench was doing before it.
 
 The firmware's own stop latch on a guarded bus is not stored, so the reset that
 follows flashing clears it.
+
+### OSSM Funscript playback
+
+The required PR build runs `test_funscript_streaming` for firmware and validation
+changes. It opens the standard JSON
+[`bench.funscript`](../../firmware/test/test_funscript_streaming/fixtures/bench.funscript),
+forms the R+D Funscript Player's `stream:<next position>:<timestamp difference in ms>`
+commands, and passes them through the firmware's BLE validator, command parser and
+motion planner. The fixture includes a reversal, a repeated position, and a move
+too short to execute at the test speed. Run it locally with
+`pio test -d software/firmware -e test -f test_funscript_streaming`.
+
+For a powered playback check, use the same fixture in the R+D Funscript Player
+with a local media clip longer than six seconds. Use the unloaded, identified
+OSSM on the Test Rig and take the OSSM fixture lock. Keep the independent RS-485
+guard active with a fresh stationary baseline, verified stop and measured interior
+travel bounds before connecting. Turn off **Simplified** and **Reverse**, start
+at low speed, and constrain depth and stroke to the verified range. Compare the
+player's transmitted commands with the independently measured rail position.
+Check that it moves in both directions within the range, holds at the repeat,
+never moves opposite the short target, and returns to rest after disconnect.
+Keep the regular unattended HIL run at idle.
+
+The guard's `status.json` carries the last three seconds of encoder positions at
+50 Hz in `trace`; merge successive snapshots for the independent record, and
+read the file at most eight times a second. On hardware the 50 ms waypoint is
+reached rather than held when the firmware's latency buffer lengthens it; it
+must still never move the rail away from its target.
 
 ## Installation and runner migration
 
