@@ -92,6 +92,7 @@
 - The reviewed harness and fixture inventory live outside the runner work directory.
 - Never infer product identity or flash capacity from a COM port or advertising name.
 - Follow software/scripts/hil/README.md for enrollment, shared-device locks, and rollout.
+- PR hardware runs take precedence on the Test Rig: they take a fixture from a bench session and have the OSSM guard clear its own latch before flashing. Hold fixtures only through `rig_lock`, and expect a bench session to be stopped when a PR run arrives.
 - Keep Wi-Fi credentials, fixture identities, and raw device logs outside the repository.
 - A missing device or incomplete three-minute observation must fail validation.
 

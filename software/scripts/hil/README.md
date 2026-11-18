@@ -144,9 +144,31 @@ be under 5 s old, stream bench telemetry at 30 Hz or more, hold a verified stop
 path, report no fault, and be in `collision-only` mode with a verified handback,
 which lets the firmware home within the guard's hard-stop contact limits. The
 harness watches the guard throughout the run and fails it on any guard fault,
-latch or stale status. It never clears a latch or hands the motor back; a latched
-guard waits for human review. The guard's before/after state is
+latch or stale status. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
+
+### Pull-request runs take precedence
+
+A pull-request run does not fail because of what the bench was doing before it.
+
+- **Fixture.** `rig_lock` records its holder in `<lock>.holder`. A pull-request
+  run that finds a fixture taken leaves `<lock>.preempt` and waits up to five
+  minutes. The rig watchdog (`C:\rad-hil\watchdog`, scheduled task
+  `RAD Rig Watchdog`) terminates the holder unless it is another pull-request
+  run; the single worker already serializes those. Bench sessions must hold the
+  fixture through `rig_lock` and expect to be stopped.
+- **Guard.** When the OSSM guard is missing, latched or not handed back, the run
+  first holds every OSSM in its ROM loader, so none sends pulses, then leaves
+  `locks\ossm-guard.request`. The watchdog starts a missing guard. The guard
+  checks that the motor is idle, healthy and between its measured stops, moves
+  it slowly to mid-rail, hands it back and clears its latch. It refuses, and the
+  run fails before any write, if those checks fail.
+- **Record.** The fault that was cleared stays in the guard's `events.jsonl` and
+  `latch.cleared.json`, in `results/rs485-guard.json`, and in the "Before
+  flashing" line of the PR comment.
+
+The firmware's own stop latch on a guarded bus is not stored, so the reset that
+follows flashing clears it.
 
 ## Installation and runner migration
 
@@ -173,7 +195,8 @@ guard waits for human review. The guard's before/after state is
    lock directories; grant read/execute access to the harness and fixture.
 5. Hardware jobs do not cancel in-progress flashing. One worker serializes jobs
    across repositories; OS locks additionally cover shared product families and
-   the legacy Lockbox `C:\lkbx-hil\fixture.lock`. Within a job both required
+   the legacy Lockbox `C:\lkbx-hil\fixture.lock`, and a pull-request run takes
+   them from a bench session (see above). Within a job both required
    variants flash and observe in parallel. A killed flash is a failure and needs
    explicit recovery; it never becomes a passing run on retry.
 6. Run real PRs against both persistent branches for each product, plus a
