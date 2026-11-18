@@ -30,7 +30,7 @@ jobs:
   build:
     needs: check_changes
     if: needs.check_changes.outputs.changes_detected == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -128,7 +128,7 @@ jobs:
   check:
     needs: check_changes
     if: needs.check_changes.outputs.changes_detected == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -156,7 +156,7 @@ jobs:
   test:
     needs: check_changes
     if: needs.check_changes.outputs.changes_detected == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
