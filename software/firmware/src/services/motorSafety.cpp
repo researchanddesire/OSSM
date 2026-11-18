@@ -12,6 +12,7 @@
 
 #include "constants/Config.h"
 #include "motor_guard_logic.h"
+#include "shared_bus_logic.h"
 #include "ossm/Events.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/error.h"
@@ -19,6 +20,7 @@
 #include "ossm/state/state.h"
 #include "services/led.h"
 #include "services/motorFeedback.h"
+#include "services/motorMotion.h"
 #include "services/ossmHat.h"
 #include "services/ossmHatEmergency.h"
 #include "services/stepper.h"
@@ -105,10 +107,30 @@ void revokeHomingLocked() {
 }
 
 
+// What a receive-only HAT sees of a bus owned by another master. Motion then
+// stays on STEP/DIR with that master as the independent monitor; see
+// shared_bus_logic.h.
+shared_bus::Observation sharedBusObservation() {
+    const auto hat = getOssmHatStatus();
+    OssmHatTelemetry sample;
+    OssmHatControlSnapshot control;
+    shared_bus::Observation seen;
+    seen.hatDetected = hat.detected;
+    seen.receiveOnly = hat.passive;
+    seen.serialSelected = motorMotionSerialLatched();
+    seen.telemetryFresh = readOssmHatTelemetry(sample);
+    seen.controlsFresh = readOssmHatControlSnapshot(control);
+    seen.modbusEnable = control.modbusEnable;
+    return seen;
+}
+
 bool required() {
 #ifdef OSSM_HAT_REQUIRE_SAFETY
     return true;
 #else
+    // The serial guard protects serial motion. A receive-only HAT cannot send
+    // any, so the shared-bus interlock below applies instead.
+    if (shared_bus::active(sharedBusObservation())) return false;
     return rememberedHat || ossmHatDetected();
 #endif
 }
@@ -455,7 +477,8 @@ bool stoppedForReview(const SafetyControlOwner &owner, OssmHatTelemetry *proof) 
             sample.voltageVolts <= 36.0f &&
             (sample.alarm == 0 || sample.alarm == 0x10) &&
             digitalRead(Pins::Driver::motorEnablePin) == HIGH &&
-            (!ossmHatDetected() || serialOutputOff())) {
+            (!ossmHatDetected() || serialOutputOff() ||
+             shared_bus::pulsesAllowed(sharedBusObservation()))) {
             const int64_t delta = motor_feedback_logic::encoderDelta(
                 sample.positionCounts, origin);
             if (quietAt == 0 || epoch != sample.continuity ||
@@ -522,6 +545,15 @@ void monitor(void *) {
             static_cast<uint32_t>(now - serialControl.updatedAtMs) <= 100;
         const bool freshSerialMode = serialMode && freshSerialControl;
         const bool exclusive = !hat.passive;
+        shared_bus::Observation sharedSeen;
+        sharedSeen.hatDetected = hat.detected;
+        sharedSeen.receiveOnly = hat.passive;
+        sharedSeen.serialSelected = motorMotionSerialLatched();
+        sharedSeen.telemetryFresh = haveSample;
+        sharedSeen.controlsFresh = haveSerialControl;
+        sharedSeen.modbusEnable = serialControl.modbusEnable;
+        const bool shared = shared_bus::active(sharedSeen);
+        const auto sharedInterlock = shared_bus::interlock(sharedSeen);
         bool armed;
         bool fault;
         bool probeDisableDue = false;
@@ -702,13 +734,22 @@ void monitor(void *) {
         }
         if (guard.armed() && (!control || !exclusive))
             guard.tripFault(motor_guard::Fault::StopPathUnverified);
+        // Shared bus: ENA was lowered on the other master's word that the
+        // drive executes STEP/DIR. Without that word pulses must stop; a
+        // drive in serial control would store them for a later handback.
+        if (shared && digitalRead(Pins::Driver::motorEnablePin) == LOW) {
+            if (sharedInterlock == shared_bus::Interlock::MonitorSilent)
+                guard.tripFault(motor_guard::Fault::TelemetryStale);
+            else if (sharedInterlock == shared_bus::Interlock::DriveNotStepDir)
+                guard.tripFault(motor_guard::Fault::StopPathUnverified);
+        }
         guard.tick(now);
         armed = guard.armed();
         fault = guard.fault() != motor_guard::Fault::None;
         if (fault) revokeHomingLocked();
         portEXIT_CRITICAL(&guardMux);
 
-        if (needed && fault) enforceCurrentFaultStop();
+        if ((needed || shared) && fault) enforceCurrentFaultStop();
         else if (needed && !armed && !serialProbeClaimed.load()) {
             // A first-arm request can race this task between its two critical
             // sections. Recheck live state and only reassert the pin here;
@@ -747,8 +788,11 @@ void monitor(void *) {
         if (!guard.armed() && guard.fault() == motor_guard::Fault::None)
             guard.setStopPathVerified(stopped);
         published.required = needed;
-        published.ready = !needed || (!serialProbeClaimed.load() &&
-            control && exclusive && guard.ready(now));
+        published.ready = shared
+            ? sharedInterlock == shared_bus::Interlock::Ready &&
+                  guard.fault() == motor_guard::Fault::None
+            : !needed || (!serialProbeClaimed.load() &&
+                  control && exclusive && guard.ready(now));
         publishCoreLocked(now);
         published.outputDisableVerified = disabled;
         published.stoppedVerified = stopped;
@@ -937,6 +981,9 @@ MotorSafetyFaultInfo getMotorSafetyFaultInfo() {
 const char *motorSafetyReason() {
     const auto status = getMotorSafetyStatus();
     if (status.latched) return motor_guard::reason(static_cast<motor_guard::Fault>(status.fault));
+    const auto sharedInterlock = shared_bus::interlock(sharedBusObservation());
+    if (sharedInterlock != shared_bus::Interlock::NotShared)
+        return shared_bus::reason(sharedInterlock);
     if (!status.required) return "Legacy board without a detected HAT";
     if (ossmHatDetected() && !independentSerialStopVerified())
         return "Serial motion needs reviewed UART-timer preflights and a finite stop qualification after each boot";
@@ -954,6 +1001,8 @@ bool motorSafetyCanEnableOutputs() {
     const bool armed = guard.armed();
     portEXIT_CRITICAL(&guardMux);
     if (fault || deadlineTripped || serialProbeClaimed.load()) return false;
+    const auto sharedSeen = sharedBusObservation();
+    if (shared_bus::active(sharedSeen)) return shared_bus::pulsesAllowed(sharedSeen);
     if (!needed) return true;
     return initialized.load() && armed && deadlineArmed &&
            hat.ageMs <= 100 && hat.sampleRateHz >= 30 &&
@@ -980,7 +1029,8 @@ bool motorSafetySerialCanMove(uint64_t session) {
 MotorSerialSafetyStatus getMotorSerialSafetyStatus() {
     const auto position = getOssmHatPositionStatus();
     MotorSerialSafetyStatus result;
-    result.selected = ossmHatDetected();
+    result.externalGuard = shared_bus::active(sharedBusObservation());
+    result.selected = ossmHatDetected() && !result.externalGuard;
     portENTER_CRITICAL(&guardMux);
     const bool gpioProof = serialGpioStopVerified.load();
     const bool timerProof = serialTimerStopVerified.load();
@@ -1013,10 +1063,13 @@ static bool enableOutputsForTicket(const MotorHomingTicket *ticket) {
     const bool needed = required();
     const auto hat = getOssmHatStatus();
     const bool control = controlsReady();
+    const auto sharedSeen = sharedBusObservation();
+    const bool sharedReady = !shared_bus::active(sharedSeen) ||
+        shared_bus::pulsesAllowed(sharedSeen);
     portENTER_CRITICAL(&guardMux);
     const bool allowed = !serialProbeClaimed.load() && (ticket ? ticketCurrentLocked(*ticket) :
         !homingSession.active()) && homingSession.commandsReady() &&
-        initialized.load() && stepper != nullptr &&
+        initialized.load() && stepper != nullptr && sharedReady &&
         guard.fault() == motor_guard::Fault::None && !deadlineTripped &&
         (!needed || (guard.armed() && deadlineArmed && hat.ageMs <= 100 &&
                      hat.sampleRateHz >= 30 && control &&
@@ -1032,7 +1085,7 @@ static bool enableOutputsForTicket(const MotorHomingTicket *ticket) {
 }
 
 static bool enableSerialAfterGpio(const MotorHomingTicket *ticket) {
-    if (!ossmHatDetected()) return true;
+    if (!ossmHatDetected() || shared_bus::active(sharedBusObservation())) return true;
     portENTER_CRITICAL(&guardMux);
     const SafetyControlOwner owner{safetyControlRevision, serialSession,
         ticket ? *ticket : MotorHomingTicket{}, ticket != nullptr};

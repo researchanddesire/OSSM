@@ -35,6 +35,9 @@ struct HomingTaskContext {
     MotorHomingTicket ticket;
     uint8_t pass;
     bool useHat;
+    // False for STEP/DIR motion, including a receive-only HAT whose bus
+    // another master guards: its telemetry is used, its transmitter is not.
+    bool serialMotion;
 };
 
 bool mqttPausedForHoming = false;
@@ -210,9 +213,15 @@ void runHomingPass(const HomingTaskContext &context) {
                 return;
             }
             current = sample.currentAmps;
-            overLimit = hatContact.update(sample.sequence, sample.updatedAtMs,
-                sample.positionCounts, current, Config::Hat::sensorlessCurrentLimitAmps,
-                32768.0 / (Config::Driver::pulleyToothCount * Config::Driver::beltPitchMm));
+            // On STEP/DIR the pulses already sent keep pressing the stop
+            // until they are taken back. React to the first loaded sample
+            // and retreat quickly, as boards without a HAT do, so the contact
+            // ends well inside an external guard's 200 ms limit.
+            overLimit = context.serialMotion
+                ? hatContact.update(sample.sequence, sample.updatedAtMs,
+                      sample.positionCounts, current, Config::Hat::sensorlessCurrentLimitAmps,
+                      32768.0 / (Config::Driver::pulleyToothCount * Config::Driver::beltPitchMm))
+                : homing_logic::isCurrentOverLimit(current, 0, Config::Hat::homingCurrentAmps);
         } else {
             current = motor::getCurrent();
             overLimit = homing_logic::isCurrentOverLimit(current, 0,
@@ -223,7 +232,7 @@ void runHomingPass(const HomingTaskContext &context) {
         int32_t retreat = 0;
         if (!runMotorHomingCommand(context.ticket, [&] {
             stepper->stopMove();
-            stepper->setSpeedInHz(context.useHat ? 25_mm : 250_mm);
+            stepper->setSpeedInHz(context.serialMotion ? 25_mm : 250_mm);
             retreat = stepper->getCurrentPosition() - sign * Config::Driver::homingOffsetMn;
             return true;
         })) return;
@@ -280,7 +289,8 @@ void startHomingTask(void *parameter) {
 
 void createHomingTask(MotorHomingTicket ticket, uint8_t pass) {
     if (!motorHomingTicketCurrent(ticket)) return;
-    auto *context = new (std::nothrow) HomingTaskContext{ticket, pass, ossmHatDetected()};
+    auto *context = new (std::nothrow) HomingTaskContext{ticket, pass, ossmHatDetected(),
+                                                           motorMotionUsesSerial()};
     BaseType_t created = pdFAIL;
     for (int attempt = 0; context != nullptr && attempt < 20 && created != pdPASS; ++attempt) {
         if (attempt > 0) vTaskDelay(pdMS_TO_TICKS(250));
@@ -293,7 +303,7 @@ void createHomingTask(MotorHomingTicket ticket, uint8_t pass) {
     delete context;
     if (commitMotorHomingState(ticket, [] { taskCreationFailed.store(true); return true; })) {
         errorState.message = ui::strings::homingTookTooLong;
-        const HomingTaskContext failed{ticket, pass, ossmHatDetected()};
+        const HomingTaskContext failed{ticket, pass, ossmHatDetected(), motorMotionUsesSerial()};
         failHatHoming(failed, ui::strings::homingTookTooLong);
     }
 }

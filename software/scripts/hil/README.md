@@ -148,12 +148,17 @@ latch or stale status. It never clears a latch or hands the motor back; a latche
 guard waits for human review. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
 
+The enrolled OSSM carries an RS-485 HAT on the motor bus the guard polls. The
+guard's polling keeps that HAT receive-only, so the firmware homes on STEP/DIR
+and treats the guard as its independent monitor. Twice a second the guard reads
+the full block from register 0; the firmware lowers ENA only while those reads
+show the drive in STEP/DIR control. See
+[Shared PC safety bus](../../firmware/docs/ossm-hat.md#shared-pc-safety-bus).
+
 After verifying the running image, the harness reads the OSSM's onboard guard
 using the read-only USB `hat` command. A reported latch fails immediately with
 its fault and bus mode in the evidence. The usual readiness and soak checks
-still apply. If the HAT reports receive-only operation and
-`StopPathUnverified`, check who owns the RS-485 bus and qualify the stop path
-before a powered run. See the [HAT commissioning requirements](../../firmware/docs/ossm-hat.md).
+still apply.
 
 ### OSSM Funscript playback
 

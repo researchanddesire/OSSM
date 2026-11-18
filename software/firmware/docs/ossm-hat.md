@@ -1,11 +1,13 @@
 # OSSM V2.3 RS-485 HAT motion and feedback
 
 The firmware discovers a live 57AIM30 feedback path at startup, then reads motor
-position, current, supply voltage and alarm through UART2. A detected HAT selects
-absolute RS485 position commands for homing, Simple Penetration, Streaming and
-StrokeEngine. Boards without a detected/remembered HAT retain STEP/DIR. Discovery
-is read-only; motion requires an explicitly armed session and a proven independent
-GPIO or UART timer stop. A detected HAT never silently falls back to pulses after a fault.
+position, current, supply voltage and alarm through UART2. A detected HAT that
+owns its bus selects absolute RS485 position commands for homing, Simple
+Penetration, Streaming and StrokeEngine. Boards without a detected/remembered HAT
+retain STEP/DIR, and so does a HAT that shares its bus with another master (see
+[Shared PC safety bus](#shared-pc-safety-bus)). Discovery is read-only; serial
+motion requires an explicitly armed session and a proven independent GPIO or UART
+timer stop. A HAT that selected serial motion never silently falls back to pulses.
 
 This serial motion backend applies to classic ESP32 V2 boards. The ESP32-S3
 OSSM ALT build retains its existing read-only HAT telemetry and STEP/DIR motion;
@@ -56,14 +58,33 @@ that conflicting pinout.
 
 ## Shared PC safety bus
 
-Modbus RTU does not arbitrate between masters. Use
-`RAD_HIL_HAT_LISTEN_ONLY=1` for receive-only staging diagnostics while the
-independent PC monitor owns the bus. The resulting build correlates the PC
-monitor's full-block FC03 requests and replies, including register `0x0E`,
-count 12. A position-only PC stream cannot make current and voltage appear
-fresh. The standard PR hardware workflow uses the ordinary staging image.
-A powered HAT run requires exclusive UART ownership and the stop qualification
-below.
+Modbus RTU does not arbitrate between masters. A HAT that observes another
+master, such as the Test Rig's independent PC guard, stays receive-only until
+reboot. It correlates that master's FC03 requests and replies, and it can send
+neither a serial target nor a serial stop. The firmware therefore keeps motion on
+STEP/DIR, as on a board without a HAT, with the other master as the independent
+monitor (`lib/OSSMLogic/src/shared_bus_logic.h`):
+
+- The onboard serial guard and its per-boot stop qualification are not required.
+  Homing uses the current and position decoded from the other master's reads.
+- ENA is lowered only while those reads supply fresh telemetry and a fresh
+  register 0 showing STEP/DIR control (`0x00 = 0`). The other master must read
+  register 0 with count 26 at least once a second alongside its telemetry polls;
+  a telemetry-only `0x0E` block omits the control mode. A position-only stream
+  cannot make current and voltage appear fresh.
+- If the reads stop, or the drive leaves STEP/DIR control, while ENA is low, the
+  guard latches `TelemetryStale` or `StopPathUnverified`, stops pulses and raises
+  ENA. A drive in serial control stores pulses and runs them on handback.
+- A latched fault still blocks motion until `target.guardReset`; that reviewed
+  reset accepts the same stopped STEP/DIR evidence.
+- A board whose HAT selected the serial backend before another master appeared
+  never returns to pulses.
+
+`motor.driveSafety` reports `stopMethod: external-guard` and the USB `hat` record
+reports `externalGuard: true` in this arrangement. The PR hardware workflow
+flashes the ordinary staging image, which the Test Rig guard's polling keeps
+receive-only. `RAD_HIL_HAT_LISTEN_ONLY=1` builds a diagnostic image that is
+receive-only from its first instruction.
 
 Normal staging and production builds poll the full telemetry block at `0x0E`,
 count 10, plus control/telemetry at register 0, count 26, once a second, with
@@ -84,11 +105,8 @@ homing, and it does not auto-home after flashing. Existing installed PC-based HI
 gates remain separate; a manual onboard-guard run must not be relabeled as a
 passing PC-guard run.
 
-A passive onboard observer also needs fresh control registers: the PC master must
-read register 0 with count 26 at least once a second, alongside its regular telemetry
-polls. A telemetry-only `0x0E` block omits the STEP/DIR control mode and cannot prove
-that it is safe to arm. Serial motion additionally requires exclusive UART
-ownership; the HAT cannot send targets while the PC is acting as an RTU master.
+Serial motion requires exclusive UART ownership; the HAT cannot send targets
+while the PC is acting as an RTU master.
 
 ## Serial position commands and commissioning
 

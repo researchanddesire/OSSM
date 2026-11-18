@@ -38,11 +38,17 @@ public:
         return false;
 #else
         if (serial_.load()) return true;
-        if (!ossmHatDetected()) return false;
+        const auto hat = getOssmHatStatus();
+        // A receive-only HAT shares its bus with another master and can never
+        // send a target, so motion stays on STEP/DIR (shared_bus_logic.h).
+        // The request that reveals the other master is always decoded before
+        // its reply can mark the HAT detected.
+        if (!hat.detected || hat.passive) return false;
         bool expected = false;
         if (serial_.compare_exchange_strong(expected, true)) {
-            // A detected HAT never falls back to pulses, including after loss
-            // of power/telemetry or failure of serial authorization.
+            // A HAT that owned its bus never falls back to pulses, including
+            // after loss of power/telemetry, failed serial authorization or
+            // another master appearing later.
             const int32_t logical = pulse_->getCurrentPosition();
             pulse_->forceStop();
             pulse_->disableOutputs();
@@ -224,6 +230,7 @@ public:
         portENTER_CRITICAL(&mux_); const auto value = commandTarget_; portEXIT_CRITICAL(&mux_);
         return value;
     }
+    bool serialLatched() const { return serial_.load(); }
     bool mirror(int32_t keepout) {
         if (!serialSelected()) return false;
         refresh();
@@ -393,6 +400,7 @@ void registerMotorSerialMotionAuthorization(uint64_t (*session)(), bool (*canMov
     sessionCallback.store(session);
 }
 bool motorMotionUsesSerial() { return axis.serialSelected(); }
+bool motorMotionSerialLatched() { return axis.serialLatched(); }
 int32_t motorMotionCommandedTarget() { return axis.commandedTarget(); }
 bool mirrorMotorMotionFrame(int32_t keepoutSteps) { return axis.mirror(keepoutSteps); }
 MotorMotionStatus getMotorMotionStatus() { return axis.status(); }
