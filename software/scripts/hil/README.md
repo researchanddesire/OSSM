@@ -148,6 +148,40 @@ latch or stale status. It never clears a latch or hands the motor back; a latche
 guard waits for human review. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
 
+The enrolled OSSM carries an RS-485 HAT on the motor bus the guard polls. The
+guard's polling keeps that HAT receive-only, so the firmware homes on STEP/DIR
+and treats the guard as its independent monitor. Twice a second the guard reads
+the full block from register 0; the firmware lowers ENA only while those reads
+show the drive in STEP/DIR control. See
+[Shared PC safety bus](../../firmware/docs/ossm-hat.md#shared-pc-safety-bus).
+
+After verifying the running image, the harness reads the OSSM's onboard guard
+using the read-only USB `hat` command. A reported latch fails immediately with
+its fault and bus mode in the evidence. The usual readiness and soak checks
+still apply.
+
+### OSSM Funscript playback
+
+The required PR build runs `test_funscript_streaming` for firmware and validation
+changes. It opens the standard JSON
+[`bench.funscript`](../../firmware/test/test_funscript_streaming/fixtures/bench.funscript),
+forms the R+D Funscript Player's `stream:<next position>:<timestamp difference in ms>`
+commands, and passes them through the firmware's BLE validator, command parser and
+motion planner. The fixture includes a reversal, a repeated position, and a move
+too short to execute at the test speed. Run it locally with
+`pio test -d software/firmware -e test -f test_funscript_streaming`.
+
+For a powered playback check, use the same fixture in the R+D Funscript Player
+with a local media clip longer than six seconds. Use the unloaded, identified
+OSSM on the Test Rig and take the OSSM fixture lock. Keep the independent RS-485
+guard active with a fresh stationary baseline, verified stop and measured interior
+travel bounds before connecting. Turn off **Simplified** and **Reverse**, start
+at low speed, and constrain depth and stroke to the verified range. Compare the
+player's transmitted commands with the independently measured rail position.
+Check that it moves in both directions within the range, holds at the repeat,
+never moves opposite the short target, and returns to rest after disconnect.
+Keep the regular unattended HIL run at idle.
+
 ## Installation and runner migration
 
 1. Review and commit the `hardware-run.yml` wrapper first. Callers and the runner

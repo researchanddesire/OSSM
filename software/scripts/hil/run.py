@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 
 from bundle import validate, partition_rows
 from catalog import PRODUCTS, REPOSITORIES, policy, regions, physical_flash_allowed
-from monitor import Monitor, PREFIX
+from monitor import HAT_PREFIX, Monitor, PREFIX, parse_hat_status
 from ossm_guard import GuardWatch
 from video import Recorder
 
@@ -160,7 +160,12 @@ def safe_line(line):
               'provisioning.wifiSettings', 'update', 'wifiSettings'}
     if line.startswith('RAD_STATE ') and line[10:] in states:
         return line
-    # Only the structured, credential-free health protocol is retained verbatim.
+    if line.startswith(HAT_PREFIX):
+        hat = parse_hat_status(line)
+        if hat is not None:
+            return HAT_PREFIX+json.dumps(hat, separators=(',', ':'))
+        return '[malformed or unexpected HAT record redacted]'
+    # Retain the structured, credential-free health protocol.
     # Normal firmware logs may contain request bodies, Wi-Fi keys or pairing codes.
     if PREFIX in line:
         try:
@@ -196,17 +201,23 @@ def safe_line(line):
 def observe(device, port_name, monitor, log, guard=None):
     import serial
     from esptool.reset import HardReset
-    port = serial.Serial(port=None, baudrate=115200, timeout=.25)
+    port = serial.Serial(port=None, baudrate=115200, timeout=.25, write_timeout=1)
     port.dtr = False; port.rts = False; port.port = port_name
     port.open()
     try:
         port.reset_input_buffer()
         HardReset(port, uses_usb=device['usb_vid'] == 0x303a and device['usb_pid'] == 0x1001)()
         pending = bytearray()
+        next_hat_poll = 0.0
         while not monitor.passed:
-            monitor.tick(time.monotonic())
+            now = time.monotonic()
+            monitor.tick(now)
             if guard:
                 guard.check()
+            if (monitor.expected['product'] == 'ossm' and monitor.boot_id is not None
+                    and now >= next_hat_poll):
+                port.write(b'\nhat\n')
+                next_hat_poll = now + 5
             pending.extend(port.read(port.in_waiting or 1))
             if len(pending) > 65536:
                 raise RuntimeError('serial line exceeded bounded framing')

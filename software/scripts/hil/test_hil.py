@@ -12,7 +12,7 @@ from write import write_verified
 
 from bundle import validate, package, merge, partition_rows, validate_partitions
 from catalog import PRODUCTS, REPOSITORIES, policy, regions, OSSM_4MB, physical_flash_allowed
-from monitor import Monitor, EvidenceError, PREFIX
+from monitor import HAT_PREFIX, Monitor, EvidenceError, PREFIX
 from run import load_fixture, rig_lock, safe_line, test_device, main
 
 SHA = 'a'*40
@@ -98,9 +98,10 @@ class BundleTests(unittest.TestCase):
 
 
 class MonitorTests(unittest.TestCase):
-    def monitor(self):
-        expected = dict(schema=1, product='dtt', variant='v1', device_id=MAC,
-                        flash_bytes=4194304, build_sha=SHA, image_sha256='b'*64, track='staging')
+    def monitor(self, product='dtt'):
+        expected = dict(schema=1, product=product, variant='v1' if product == 'dtt' else '4mb',
+                        device_id=MAC, flash_bytes=4194304, build_sha=SHA, image_sha256='b'*64,
+                        track='staging')
         monitor = Monitor(expected, 0)
         monitor.feed(PREFIX+json.dumps(dict(expected, event='boot', boot_id=1, uptime_ms=10)), .01)
         return monitor
@@ -148,6 +149,28 @@ class MonitorTests(unittest.TestCase):
         fresh = Monitor(monitor.expected, 0)
         record['device_id'] = '112233445566'
         with self.assertRaises(EvidenceError): fresh.feed(PREFIX+json.dumps(record), 1)
+
+    def test_ossm_reports_latched_stop_path_before_startup_deadline(self):
+        monitor = self.monitor('ossm')
+        status = dict(detected=True, fresh=True, passive=True, guardReady=False,
+                      guardArmed=False, guardLatched=True, guardFault=16, outputDisabled=False)
+        line = HAT_PREFIX+json.dumps(dict(status, other='secret-value'))
+        self.monitor().feed(line, 5)
+        with self.assertRaisesRegex(EvidenceError, r'StopPathUnverified.*shared RS-485 bus'):
+            monitor.feed(line, 5)
+        self.assertEqual(monitor.result(5)['ossm_hat'], status)
+        self.assertFalse(monitor.passed)
+        self.assertEqual(json.loads(safe_line(line)[len(HAT_PREFIX):]), status)
+
+    def test_unlatched_hat_does_not_override_normal_readiness(self):
+        monitor = self.monitor('ossm')
+        status = dict(detected=True, fresh=True, passive=True, guardReady=False,
+                      guardArmed=False, guardLatched=False, guardFault=0, outputDisabled=True)
+        monitor.feed(HAT_PREFIX+json.dumps(status), 2)
+        self.assertIsNone(monitor.soak_started)
+        self.heartbeat(monitor, 5)
+        self.assertEqual(monitor.soak_started, 5)
+        self.assertFalse(monitor.passed)
 
 
 class HostTests(unittest.TestCase):

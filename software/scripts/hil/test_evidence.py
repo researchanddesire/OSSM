@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ossm_guard import GuardWatch, unsafe_reason  # noqa: E402
+from ossm_guard import GuardWatch, read_status, unsafe_reason  # noqa: E402
 from video import Recorder, view_filter  # noqa: E402
 
 
@@ -46,6 +46,20 @@ class GuardTests(unittest.TestCase):
                 watch.require()
             watch.close()
             self.assertIn('unavailable', json.loads((Path(root) / 'rs485-guard.json').read_text())['preflight'])
+
+    def test_status_file_contention_retries_and_still_rejects_stale_samples(self):
+        old = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+        snapshot = json.dumps(guard_status(time=old))
+        with patch.object(Path, 'read_text', side_effect=[PermissionError(), snapshot]) as reader:
+            status = read_status('status.json')
+        self.assertEqual(reader.call_count, 2)
+        self.assertIn('guard is not running', unsafe_reason(status))
+
+    def test_persistent_status_file_denial_fails(self):
+        with patch.object(Path, 'read_text', side_effect=PermissionError()) as reader:
+            with self.assertRaises(PermissionError):
+                read_status('status.json')
+        self.assertEqual(reader.call_count, 3)
 
     def test_fault_during_the_run_fails_it(self):
         with tempfile.TemporaryDirectory() as root:
