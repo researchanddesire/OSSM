@@ -20,7 +20,18 @@ MAX_SAMPLE_AGE_MS = 500.0
 
 
 def read_status(path):
-    status = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+    path = Path(path)
+    # Windows can deny an open while the guard atomically replaces the file.
+    # Limit the wait to 50 ms and check the returned sample's age as usual.
+    for attempt in range(3):
+        try:
+            raw = path.read_text(encoding='utf-8-sig')
+            break
+        except PermissionError:
+            if attempt == 2:
+                raise
+            time.sleep(0.025)
+    status = json.loads(raw)
     written = datetime.fromisoformat(status['time'])
     status['status_age_s'] = (datetime.now(timezone.utc) - written).total_seconds()
     return status

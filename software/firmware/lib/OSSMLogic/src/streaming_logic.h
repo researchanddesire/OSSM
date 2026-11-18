@@ -4,13 +4,11 @@
 #include <cstdint>
 #include <algorithm>
 
-// Pure logic extracted from src/ossm/streaming/streaming.cpp.
-// No hardware dependencies — testable on native platform.
+// Shared by the firmware and native streaming tests.
 
 namespace streaming_logic {
 
 /// Compute max stroke in steps from user percentages and calibration.
-/// streaming.cpp line 88
 inline int32_t calculateMaxStroke(float strokePct, float depthPct,
                                   float measuredStrokeSteps) {
     return std::abs(
@@ -18,7 +16,6 @@ inline int32_t calculateMaxStroke(float strokePct, float depthPct,
 }
 
 /// Compute depth offset in steps.
-/// streaming.cpp line 90
 inline int32_t calculateDepthOffset(float measuredStrokeSteps,
                                     int32_t maxStroke, float depthPct) {
     return measuredStrokeSteps * (depthPct / 100.0f) - maxStroke;
@@ -26,7 +23,6 @@ inline int32_t calculateDepthOffset(float measuredStrokeSteps,
 
 /// Scale a BLE position percentage (0-100) into a native-frame stepper target
 /// (services/stepper.h: extension is negative counts).
-/// streaming.cpp line 95
 ///
 inline int32_t scaleStreamPosition(int posPercent, int32_t maxStroke,
                                    int32_t depth) {
@@ -42,7 +38,6 @@ struct MotionProfile {
 };
 
 /// Plan a triangular/trapezoidal motion profile for a streaming move.
-/// Extracted from streaming.cpp lines 99-125.
 ///
 /// Given a distance to travel, available time, and machine limits,
 /// computes the required speed and acceleration for a smooth move.
@@ -52,26 +47,26 @@ inline MotionProfile planMotion(int32_t currentPosition,
                                 int32_t targetPosition, float timeSeconds,
                                 uint32_t maxSpeed, uint32_t maxAccel,
                                 int32_t stepsPerMm = 1) {
-    int32_t distance = std::abs(targetPosition - currentPosition);
+    const int32_t requestedDistance = std::abs(targetPosition - currentPosition);
+    if (requestedDistance <= 1 || timeSeconds <= 0.01f || maxSpeed == 0 || maxAccel == 0) {
+        return {0, 0, 0, currentPosition};
+    }
 
     // Clamp distance to what's physically achievable
-    int32_t maxDistance = maxAccel * std::pow(timeSeconds / 2, 2);
-    maxDistance =
-        std::min(maxDistance, static_cast<int32_t>(maxSpeed * timeSeconds));
-
-    if (distance > maxDistance) {
-        int32_t reducedDist = maxDistance - (2 * stepsPerMm);
-        if (reducedDist < 0) reducedDist = 0;
-        if (targetPosition > currentPosition) {
-            targetPosition = currentPosition + reducedDist;
-        } else {
-            targetPosition = currentPosition - reducedDist;
-        }
-        distance = reducedDist;
+    const float halfTime = timeSeconds / 2.0f;
+    const int32_t maxDistance = std::min(maxAccel * halfTime * halfTime,
+                                        maxSpeed * timeSeconds);
+    int32_t distance = requestedDistance;
+    if (requestedDistance > maxDistance) {
+        // Leave the existing 2 mm margin on shortened moves. A move that
+        // cannot cover the margin holds its position.
+        distance = maxDistance - 2 * stepsPerMm;
+        if (distance <= 1) return {0, 0, 0, currentPosition};
+        targetPosition = currentPosition + (targetPosition > currentPosition ? distance : -distance);
     }
 
     // Triangular profile: speed = 2 * distance / time
-    uint32_t requiredSpeed = (2 * distance) / timeSeconds;
+    uint32_t requiredSpeed = (2.0f * distance) / timeSeconds;
     requiredSpeed = std::max(requiredSpeed, 100u);
     requiredSpeed = std::min(requiredSpeed, maxSpeed);
 
