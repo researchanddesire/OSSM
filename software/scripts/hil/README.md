@@ -148,6 +148,28 @@ latch or stale status. It never clears a latch or hands the motor back; a latche
 guard waits for human review. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
 
+### OSSM Funscript playback
+
+The required PR build runs `test_funscript_streaming` for firmware and validation
+changes. It opens the standard JSON
+[`bench.funscript`](../../firmware/test/test_funscript_streaming/fixtures/bench.funscript),
+forms the R+D Funscript Player's `stream:<next position>:<timestamp difference in ms>`
+commands, and passes them through the firmware's BLE validator, command parser and
+motion planner. The fixture includes a reversal, a repeated position, and a move
+too short to execute at the test speed. Run it locally with
+`pio test -d software/firmware -e test -f test_funscript_streaming`.
+
+For a powered playback check, use the same fixture in the R+D Funscript Player
+with a local media clip longer than six seconds. Use the unloaded, identified
+OSSM on the Test Rig and take the OSSM fixture lock. Keep the independent RS-485
+guard active with a fresh stationary baseline, verified stop and measured interior
+travel bounds before connecting. Turn off **Simple Mode** and **Reverse**, start
+at low speed, and constrain depth and stroke to the verified range. Compare the
+player's transmitted commands with the independently measured rail position.
+Check that it moves in both directions within the range, holds at the repeat,
+never moves opposite the short target, and returns to rest after disconnect.
+Keep the regular unattended HIL run at idle.
+
 ## Installation and runner migration
 
 1. Review and commit the `hardware-run.yml` wrapper first. Callers and the runner

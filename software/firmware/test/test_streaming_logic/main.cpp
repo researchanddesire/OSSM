@@ -127,8 +127,7 @@ void test_planMotion_accel_clamped_to_max(void) {
     TEST_ASSERT_LESS_OR_EQUAL(maxAccel, profile.acceleration);
 }
 
-void test_planMotion_very_short_time(void) {
-    // Very short time (0.01s) → profile still valid
+void test_planMotion_at_minimum_time_holds_position(void) {
     auto profile = streaming_logic::planMotion(
         0,       // currentPosition
         5000,    // targetPosition
@@ -137,8 +136,9 @@ void test_planMotion_very_short_time(void) {
         100000,  // maxAccel
         1        // stepsPerMm
     );
-    TEST_ASSERT_GREATER_THAN(0u, profile.speed);
-    TEST_ASSERT_GREATER_THAN(0u, profile.acceleration);
+    TEST_ASSERT_EQUAL_UINT32(0, profile.speed);
+    TEST_ASSERT_EQUAL_UINT32(0, profile.acceleration);
+    TEST_ASSERT_EQUAL_INT32(0, profile.targetPosition);
 }
 
 int main(int argc, char **argv) {
@@ -159,7 +159,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_planMotion_distance_exceeds_max);
     RUN_TEST(test_planMotion_speed_clamped_to_max);
     RUN_TEST(test_planMotion_accel_clamped_to_max);
-    RUN_TEST(test_planMotion_very_short_time);
+    RUN_TEST(test_planMotion_at_minimum_time_holds_position);
 
     return UNITY_END();
 }
