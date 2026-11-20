@@ -53,12 +53,8 @@ static void startStreamingTask(void *pvParameters) {
     // Reset the queue to clear any existing commands
     targetQueue = {};
 
-    // Motion state
-    int16_t currentPosition = 0;
-    int16_t targetPosition = 0;
-
-    uint16_t maxSpeed = Config::Driver::maxSpeedMmPerSecond * (1_mm);
-    uint32_t maxAccel = Config::Driver::maxAcceleration * (1_mm);
+    const uint32_t maxSpeed = Config::Driver::maxSpeedMmPerSecond * (1_mm);
+    const uint32_t maxAccel = Config::Driver::maxAcceleration * (1_mm);
 
     // Set initial max speed and acceleration
     stepper->setSpeedInHz(maxSpeed);
@@ -75,8 +71,8 @@ static void startStreamingTask(void *pvParameters) {
         // Get next move
         PositionTime targetPositionTime = targetQueue.front();
         //Wait for previous command to finish if it isn't moving in the same direction.
-        int16_t distance = targetPositionTime.position - lastPositionTime.position;
-        targetPositionTime.direction = (distance > 0) - (distance < 0);
+        const int positionDelta = targetPositionTime.position - lastPositionTime.position;
+        targetPositionTime.direction = (positionDelta > 0) - (positionDelta < 0);
         bool sameDirection = lastPositionTime.direction == targetPositionTime.direction;
         if (!sameDirection && stepper->isRunning()){
             vTaskDelay(1);
@@ -112,55 +108,26 @@ static void startStreamingTask(void *pvParameters) {
             calibration.measuredStrokeSteps);
         int32_t depth = streaming_logic::calculateDepthOffset(
             calibration.measuredStrokeSteps, maxStroke, settings.depth);
-        uint32_t speedLimit = maxSpeed * (settings.speed/100.0);
-        uint32_t accelLimit = maxAccel * (settings.sensation/100.0);
-        // skip movement if speeds are 0
-        if (speedLimit > 0 && accelLimit > 0){
-            targetPosition = streaming_logic::scaleStreamPosition(
-                targetPositionTime.position, maxStroke, depth);
-            currentPosition = stepper->getCurrentPosition();
-            // Calculate distance to travel (in steps)
-            distance = abs(targetPosition - currentPosition);
-            if (timeSeconds > 0.01f && distance > 1.0f) {
-                //Find max distance possible to travel given available time, max acceleration, and max speed.
-                int32_t maxDistance = accelLimit * pow(timeSeconds/2,2);
-                //This technically optimistic... the speed limit assumes perfect acceleration
-                maxDistance = min(maxDistance, int32_t(speedLimit * timeSeconds));
-                //if the distance asked for is greater then the maximum possible, reduce the ask.
-                //Is it what they asked for? No. Will they notice at these speeds? Hopefully not.
-                if (distance > maxDistance){
-                    ESP_LOGI("Streaming","Too fast, shortening distance: %.0f -> %.0f",distance,maxDistance);
-                    distance = maxDistance - (2_mm);
-                    if (targetPosition > currentPosition) {
-                        targetPosition = currentPosition + distance;
-                    } else {
-                        targetPosition = currentPosition - distance;
-                    }
-                }
-                // start by calculating a triangular motion with unlimited
-                uint32_t requiredSpeed = (2 * distance) / timeSeconds;
-                // constrain it to legal maximums
-                requiredSpeed = constrain(requiredSpeed, 100.0f, speedLimit);
-                // calculate what proportion of the move needs to be at max speed, if any.
-                float vt = requiredSpeed * timeSeconds;
-                float proportion = max(-((2 * distance - 2 * vt)/vt),0.01f);
-                // calculate acceleration such that triangle or trapezoid is created depending on needs
-                uint32_t requiredAccel = requiredSpeed / (timeSeconds * proportion / 2);
-                // constrain just in case, but reducing the distance should mostly preven this.
-                requiredAccel = constrain(requiredAccel, 100.0f, accelLimit);
-                if (stepper->isRunning()){
-                    requiredAccel = max(stepper->getAcceleration(),requiredAccel);
-                }
-                stepper->setAcceleration(requiredAccel);
-                stepper->setSpeedInHz(requiredSpeed);
-                stepper->moveToForOwner(targetPosition, safetyRevision, motorSafetyEventCurrent, false);
-
-                ESP_LOGI("Streaming", "P(%d): %d -> %d = %d, T: %.3f, S: %d, A: %d, Q: %d",
-                        targetPositionTime.position, currentPosition, targetPosition, distance,
-                        timeSeconds, requiredSpeed, requiredAccel, targetQueue.size());
+        const uint32_t speedLimit = maxSpeed * (settings.speed / 100.0);
+        const uint32_t accelLimit = maxAccel * (settings.sensation / 100.0);
+        const int32_t requestedPosition = streaming_logic::scaleStreamPosition(
+            targetPositionTime.position, maxStroke, depth);
+        const int32_t currentPosition = stepper->getCurrentPosition();
+        auto move = streaming_logic::planMotion(
+            currentPosition, requestedPosition, timeSeconds, speedLimit, accelLimit, 1_mm);
+        if (move.distance > 0) {
+            if (stepper->isRunning()) {
+                move.acceleration = max(stepper->getAcceleration(), move.acceleration);
             }
-        } else {
-            ESP_LOGI("Streaming", "Spped or accel too slow, skipping moves");
+            stepper->setAcceleration(move.acceleration);
+            stepper->setSpeedInHz(move.speed);
+            stepper->moveToForOwner(move.targetPosition, safetyRevision, motorSafetyEventCurrent, false);
+
+            ESP_LOGI("Streaming", "P(%d): %ld -> %ld = %ld, T: %.3f, S: %lu, A: %lu, Q: %zu",
+                     targetPositionTime.position, static_cast<long>(currentPosition),
+                     static_cast<long>(move.targetPosition), static_cast<long>(move.distance),
+                     timeSeconds, static_cast<unsigned long>(move.speed),
+                     static_cast<unsigned long>(move.acceleration), targetQueue.size());
         }
         vTaskDelay(1);
     }
@@ -181,4 +148,4 @@ void startStreaming() {
     }
 }
 
-}  // namespace simple_penetration
+}  // namespace streaming

@@ -389,7 +389,8 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             document["hardwareStopVerified"] = safety.hardwareStopVerified;
             document["gpioStopVerified"] = safety.gpioStopVerified;
             document["uartTimerStopVerified"] = safety.uartTimerStopVerified;
-            document["stopMethod"] = safety.uartTimerStopVerified ? "uart-timer" :
+            document["stopMethod"] = safety.externalGuard ? "external-guard" :
+                safety.uartTimerStopVerified ? "uart-timer" :
                 safety.gpioStopVerified ? "gpio-ena" : "unqualified";
             document["prepared"] = safety.prepared;
             document["enabled"] = safety.enabled;
