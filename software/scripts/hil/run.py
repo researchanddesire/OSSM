@@ -123,12 +123,23 @@ def load_fixture(path, repository):
     return devices
 
 
+def usb_path(location):
+    """Physical hub/port path of a USB location, without the interface suffix.
+
+    Windows reports the same port as '1-4.3.4.2' or '1-4.3.4.2:x.0' depending on
+    how the device enumerated at boot. The path identifies the socket; the
+    suffix names an interface of whatever is plugged into it.
+    """
+    return location.split(':', 1)[0] if isinstance(location, str) else location
+
+
 def find_port(device):
     from serial.tools import list_ports
     matches = [p.device for p in list_ports.comports()
                if p.vid == device['usb_vid'] and p.pid == device['usb_pid']
                and (p.serial_number == device['usb_serial'] if device.get('usb_serial')
-                    else p.location == device['usb_location'])]
+                    else usb_path(p.location) is not None
+                    and usb_path(p.location) == usb_path(device['usb_location']))]
     if len(matches) != 1:
         raise RuntimeError('expected exactly one USB identity match')
     return matches[0]
