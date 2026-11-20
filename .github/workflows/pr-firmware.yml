@@ -2,8 +2,8 @@ name: PR firmware validation
 on:
   pull_request:
     branches: [staging, main]
-    # No `edited`: a title or body edit must not start a second rig run.
-    types: [opened, synchronize, reopened, ready_for_review]
+    # Drafts validate on open. Marking one ready must not repeat its rig run.
+    types: [opened, synchronize, reopened]
 permissions:
   contents: read
 env:
