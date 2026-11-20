@@ -1,0 +1,35 @@
+name: Reconcile firmware queue
+on:
+  workflow_run:
+    workflows: ["PR firmware validation"]
+    types: [completed]
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  reconcile:
+    if: >-
+      vars.FIRMWARE_VALIDATION_QUEUE_ENV != '' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts/firmware_queue.py
+          sparse-checkout-cone-mode: false
+      - name: Check unfinished queue entries against GitHub
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUEUE_ENVIRONMENT: ${{ vars.FIRMWARE_VALIDATION_QUEUE_ENV }}
+          QUEUE_ACTION: ${{ github.event_name == 'workflow_run' && 'reconcile' || 'sweep' }}
+          TARGET_RUN_ID: ${{ github.event.workflow_run.id }}
+          TARGET_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: python3 .github/scripts/firmware_queue.py "$QUEUE_ACTION"
