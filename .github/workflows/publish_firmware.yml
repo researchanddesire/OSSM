@@ -45,7 +45,8 @@ jobs:
   publish:
     needs: detect_auto_version
     if: ${{ needs.detect_auto_version.outputs.skip != 'true' }}
-    runs-on: ubuntu-latest
+    # The QRCode library in the native tests requires a compiler with a pre-C23 default.
+    runs-on: ubuntu-24.04
     environment:
       name: ${{ github.ref_name == 'main' && 'firmware-production' || 'firmware-staging' }}
     env:
