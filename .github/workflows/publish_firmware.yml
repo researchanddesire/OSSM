@@ -14,6 +14,7 @@ on:
       - "software/firmware/**"
 
 permissions:
+  actions: read
   contents: write
   pull-requests: read
 
@@ -95,12 +96,15 @@ jobs:
                 repo: context.repo.repo,
                 commit_sha: context.sha,
               });
-            const title = pulls.find(
+            const merged = pulls.find(
               (pull) =>
                 pull.merged_at !== null &&
                 pull.base.ref === process.env.GITHUB_REF_NAME,
-            )?.title ?? "";
-            core.setOutput("title", title);
+            );
+            core.setOutput("title", merged?.title ?? "");
+            const source = pulls.find(pull =>
+              pull.merged_at && pull.base.ref === process.env.GITHUB_REF_NAME && pull.merge_commit_sha === context.sha);
+            if (source) core.exportVariable("FIRMWARE_MERGED_PR", String(source.number));
 
       - name: Allocate and commit next version
         id: version
@@ -173,6 +177,27 @@ jobs:
           python .github/scripts/build_web_installer.py \
             --build-dir "software/firmware/.pio/build/$PIO_ENV" \
             --output "software/firmware/.pio/build/$PIO_ENV/web-installer.bin"
+
+      - name: Link the build and test logs
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const { data } = await github.rest.actions.listJobsForWorkflowRunAttempt({
+              ...context.repo, run_id: context.runId, attempt_number: Number(process.env.GITHUB_RUN_ATTEMPT),
+            });
+            const job = data.jobs.find(job => job.name === process.env.GITHUB_JOB);
+            if (!job) return;
+            const links = {};
+            for (const step of job.steps ?? []) {
+              if (step.conclusion !== "success") continue;
+              const url = job.html_url + "#step:" + step.number + ":1";
+              if (/^Build (application|R2 and R8 applications|V1, V2, and migration bridge applications)/.test(step.name)) links.build = url;
+              if (step.name === "Test and build V1 with the allocated version") links.v1 = url;
+              if (step.name === "Run native unit tests") links.unit = url;
+              if (/web installer/i.test(step.name) && /^Build/.test(step.name)) links.integration = url;
+            }
+            core.exportVariable("FIRMWARE_VALIDATION_LOG_LINKS", JSON.stringify(links));
 
       - name: Publish validating release
         id: publish
