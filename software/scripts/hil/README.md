@@ -10,10 +10,10 @@ validation` pass without work. Each repository's `FIRMWARE_PATHS` in
 
 | Repositories | Staging and production suffixes | Physical coverage |
 | --- | --- | --- |
-| Open-Source-Chastity-Lockbox_LKBX | r2, r8 | Both 16 MB ESP32-S3 boards, verified R2/R8 PSRAM |
-| Open-Source-Deepthroat-Trainer_DTT | v1, v2 | 4 MB and 16 MB profiles; actual chip capacities recorded separately |
+| lkbx | r2, r8 | Both 16 MB ESP32-S3 boards, verified R2/R8 PSRAM |
+| dtt | v1, v2 | 4 MB and 16 MB profiles; actual chip capacities recorded separately |
 | OSSM | 4mb, 16mb | One ESP32, selected by measured capacity |
-| Open-Source-Wireless-Remote_RADR | existing staging/production aliases | Enrolled 16 MB R8 remote, application and LittleFS |
+| radr | existing staging/production aliases | Enrolled 16 MB R8 remote, application and LittleFS |
 
 OSSM retains its original development/staging/production aliases. Its restored
 Software tree comes from this repository's main firmware; staging hardware and
