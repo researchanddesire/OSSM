@@ -1,11 +1,14 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import struct
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch, MagicMock
 from write import write_verified
@@ -296,6 +299,61 @@ class HostTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('another process owns', result.stderr)
             with rig_lock(path): pass
+
+    def test_lock_names_its_holder_and_forgets_it_on_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'ossm.lock'
+            holder = Path(directory)/'ossm.lock.holder'
+            with rig_lock(path, owner='bench session'):
+                note = json.loads(holder.read_text())
+                self.assertEqual((note['pid'], note['owner'], note['priority']), (os.getpid(), 'bench session', False))
+            self.assertFalse(holder.exists())
+
+    def test_pull_request_run_takes_the_fixture_from_a_manual_holder(self):
+        # The child stands in for a bench session; this test plays the rig watchdog.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'ossm.lock'
+            code = ('import sys, time; from pathlib import Path; from run import rig_lock\n'
+                    'with rig_lock(Path(sys.argv[1]), owner="bench session"):\n'
+                    '    print("held", flush=True); time.sleep(60)')
+            child = subprocess.Popen([sys.executable, '-c', code, str(path)], cwd=Path(__file__).parent,
+                                     stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), 'held')
+                preempt = Path(directory)/'ossm.lock.preempt'
+                seen = {}
+
+                def watchdog():
+                    for _ in range(100):
+                        if preempt.exists():
+                            seen['request'] = json.loads(preempt.read_text())
+                            seen['holder'] = json.loads((Path(directory)/'ossm.lock.holder').read_text())
+                            child.kill()
+                            return
+                        time.sleep(0.05)
+                thread = threading.Thread(target=watchdog); thread.start()
+                with rig_lock(path, priority=True, owner='researchanddesire/OSSM run 7-1', wait_s=20):
+                    thread.join()
+                    self.assertEqual(seen['request']['pid'], os.getpid())
+                    self.assertEqual(seen['holder']['pid'], child.pid)
+                    self.assertFalse(seen['holder']['priority'])
+                    self.assertFalse(preempt.exists())
+                    now = json.loads((Path(directory)/'ossm.lock.holder').read_text())
+                    self.assertTrue(now['priority'])
+            finally:
+                child.kill(); child.wait(); child.stdout.close()
+
+    def test_pull_request_run_gives_up_when_the_fixture_is_never_freed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'ossm.lock'
+            with rig_lock(path):
+                code = ('import sys; from pathlib import Path; from run import rig_lock\n'
+                        'with rig_lock(Path(sys.argv[1]), priority=True, wait_s=1.2): pass')
+                result = subprocess.run([sys.executable, '-c', code, str(path)], cwd=Path(__file__).parent,
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('another process owns', result.stderr)
+            self.assertFalse((Path(directory)/'ossm.lock.preempt').exists())
 
 
 if __name__ == '__main__':

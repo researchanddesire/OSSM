@@ -23,26 +23,70 @@ from ossm_guard import GuardWatch
 from video import Recorder
 
 
+# A pull-request run waits this long for the rig watchdog to free a fixture.
+PRIORITY_WAIT_S = 300.0
+
+
+def _note(path, **data):
+    """Best-effort sidecar beside a fixture lock; the OS lock alone decides ownership."""
+    try:
+        path.write_text(json.dumps(data), encoding='utf-8')
+    except OSError:
+        pass
+
+
+def _forget(path):
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
 @contextmanager
-def rig_lock(path):
+def rig_lock(path, *, priority=False, owner='manual', wait_s=0.0):
+    """Hold one physical fixture for the duration of the block.
+
+    Pull-request runs pass priority=True and take precedence. Finding the
+    fixture taken, such a run leaves <lock>.preempt; the rig watchdog then
+    terminates the holder named in <lock>.holder unless that holder is itself a
+    pull-request run, and the run waits up to wait_s for the lock. Everything
+    else fails at once, as before.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    holder = path.with_name(path.name + '.holder')
+    preempt = path.with_name(path.name + '.preempt')
     with path.open('a+b') as stream:
         stream.seek(0)
         if os.fstat(stream.fileno()).st_size == 0:
             stream.write(b'\0'); stream.flush()
-        stream.seek(0)
+        deadline = time.monotonic() + wait_s
+        announced = False
         try:
-            if os.name == 'nt':
-                import msvcrt
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as error:
-            raise RuntimeError('another process owns this physical fixture') from error
+            while True:
+                stream.seek(0)
+                try:
+                    if os.name == 'nt':
+                        import msvcrt
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as error:
+                    if not priority or time.monotonic() >= deadline:
+                        raise RuntimeError('another process owns this physical fixture') from error
+                    if not announced:
+                        _note(preempt, pid=os.getpid(), owner=owner, since=time.time())
+                        announced = True
+                    time.sleep(0.5)
+        finally:
+            if announced:
+                _forget(preempt)
+        _note(holder, pid=os.getpid(), owner=owner, priority=priority, since=time.time())
         try:
             yield
         finally:
+            _forget(holder)
             stream.seek(0)
             if os.name == 'nt':
                 msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
@@ -277,10 +321,13 @@ def main():
         devices = load_fixture(args.fixture, args.repository)
         product = manifest['product']
         with ExitStack() as stack:
-            stack.enter_context(rig_lock(args.lock_directory/(product+'.lock')))
+            # Pull-request runs take the fixture from any other holder.
+            owner = f'{args.repository} run {args.run_id}-{args.run_attempt}'
+            claim = dict(priority=True, owner=owner, wait_s=PRIORITY_WAIT_S)
+            stack.enter_context(rig_lock(args.lock_directory/(product+'.lock'), **claim))
             # Cooperate with the existing Lockbox runner during migration.
             if product == 'lockbox' and os.name == 'nt':
-                stack.enter_context(rig_lock(Path('C:/lkbx-hil/fixture.lock')))
+                stack.enter_context(rig_lock(Path('C:/lkbx-hil/fixture.lock'), **claim))
             # Resolve every target before any board is touched.
             ports = [find_port(d) for d in devices.values()]
             if len(set(ports)) != len(ports):
@@ -290,8 +337,15 @@ def main():
             recorder.start()
             if product == 'ossm':
                 # No OSSM image is written unless the RS-485 guard protects the motor.
-                guard = GuardWatch(args.fixture.with_name('rs485-guard')/'status.json', args.output)
-                guard.require()
+                guard = GuardWatch(args.fixture.with_name('rs485-guard')/'status.json', args.output,
+                                   args.lock_directory/'ossm-guard.request', owner)
+
+                def hold_in_loader():
+                    # A guard recovery hands the motor back: no OSSM may be sending pulses.
+                    for variant, device in devices.items():
+                        with (args.output/(variant+'-hold.log')).open('w', encoding='utf-8') as log:
+                            esptool(find_port(device), policy(manifest['repository'], variant), ['read_mac'], log)
+                guard.require(quiet=hold_in_loader)
             with ThreadPoolExecutor(max_workers=len(devices)) as pool:
                 futures = [pool.submit(test_device, v, d, manifest, args.bundle, args.output, recorder, guard)
                            for v, d in devices.items()]
