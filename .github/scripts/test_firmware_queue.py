@@ -8,8 +8,6 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
-import yaml
-
 import firmware_queue as queue
 from publish_immutable_firmware import validation_payload
 
@@ -22,8 +20,13 @@ def state(name):
 class QueueTests(unittest.TestCase):
     def test_pr_firmware_only_runs_for_open_reopen_or_code_updates(self):
         workflow = Path(__file__).resolve().parents[1] / "workflows" / "pr-firmware.yml"
-        triggers = yaml.load(workflow.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["on"]
-        self.assertCountEqual(triggers["pull_request"]["types"], ["opened", "reopened", "synchronize"])
+        lines = workflow.read_text(encoding="utf-8").splitlines()
+        declarations = [line.strip() for line in lines if line.startswith("    types:")]
+        self.assertEqual(len(declarations), 1)
+        events = declarations[0].removeprefix("types:").strip()
+        self.assertTrue(events.startswith("[") and events.endswith("]"))
+        self.assertCountEqual([event.strip() for event in events[1:-1].split(",")],
+                              ["opened", "reopened", "synchronize"])
 
     def run_action(self, action, replies):
         with patch.object(queue, "post", side_effect=replies) as post, patch.object(queue.time, "sleep"):
