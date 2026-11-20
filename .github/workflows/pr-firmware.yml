@@ -13,7 +13,7 @@ env:
   FIRMWARE_PATHS: '^software/firmware/'
   FIRMWARE_IGNORE: ''
   # Validation tooling also runs the rig so its own changes are exercised.
-  VALIDATION_PATHS: '^(software/scripts/hil/|\.github/workflows/(pr-firmware|hardware-run)\.yml$|\.github/scripts/hil_evidence\.py$)'
+  VALIDATION_PATHS: '^(software/scripts/hil/|\.github/workflows/(pr-firmware|hardware-run|pr-queue-reconcile)\.yml$|\.github/scripts/(hil_evidence|(test_)?firmware_queue)\.py$)'
 jobs:
   changes:
     name: Firmware changes
@@ -87,6 +87,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r software/scripts/hil/requirements.txt
       - run: python -m unittest discover -s software/scripts/hil -p 'test_*.py'
+      - run: python .github/scripts/test_firmware_queue.py
       - name: Test the Funscript Player streaming contract
         run: |
           python -m pip install platformio==6.2.0
@@ -194,14 +195,93 @@ jobs:
           if failed:
               raise SystemExit('Required jobs did not pass: ' + ', '.join(failed))
           PY
-  hardware:
+  queue_admission:
+    name: Hardware queue admission
     needs: [changes, build_required]
+    if: needs.changes.outputs.firmware == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    outputs:
+      attempt: ${{ steps.admitted.outputs.attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        if: vars.FIRMWARE_VALIDATION_QUEUE_ENV != ''
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/firmware_queue.py
+          sparse-checkout-cone-mode: false
+      - name: Wait for the Test Rig slot
+        if: vars.FIRMWARE_VALIDATION_QUEUE_ENV != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUEUE_ENVIRONMENT: ${{ vars.FIRMWARE_VALIDATION_QUEUE_ENV }}
+        run: python3 .github/scripts/firmware_queue.py wait
+      - name: Bind admission to this attempt
+        id: admitted
+        run: echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+  hardware:
+    needs: [changes, build_required, queue_admission]
     if: >-
       needs.changes.outputs.firmware == 'true' &&
+      needs.queue_admission.outputs.attempt == github.run_attempt &&
       github.event.pull_request.head.repo.full_name == github.repository
     # Use the exact reviewed wrapper commit allowed by the runner group.
     # Runner-group access is restricted to this full workflow path and ref.
     uses: researchanddesire/OSSM/.github/workflows/hardware-run.yml@1031e93b6caa98beea664e38ad81ed0928b1e111
+  queue_observer:
+    name: Track Test Rig slot
+    needs: queue_admission
+    if: vars.FIRMWARE_VALIDATION_QUEUE_ENV != '' && needs.queue_admission.outputs.attempt == github.run_attempt
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/firmware_queue.py
+          sparse-checkout-cone-mode: false
+      - name: Track the physical job
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUEUE_ENVIRONMENT: ${{ vars.FIRMWARE_VALIDATION_QUEUE_ENV }}
+        run: python3 .github/scripts/firmware_queue.py observe
+  queue_evidence:
+    name: Link Test Rig result
+    needs: [queue_admission, hardware_evidence]
+    if: >-
+      !cancelled() && vars.FIRMWARE_VALIDATION_QUEUE_ENV != '' &&
+      needs.queue_admission.outputs.attempt == github.run_attempt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts/firmware_queue.py
+          sparse-checkout-cone-mode: false
+      - name: Link the hardware evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          QUEUE_ENVIRONMENT: ${{ vars.FIRMWARE_VALIDATION_QUEUE_ENV }}
+        run: python3 .github/scripts/firmware_queue.py complete
   hardware_required:
     name: Hardware validation
     if: always()
