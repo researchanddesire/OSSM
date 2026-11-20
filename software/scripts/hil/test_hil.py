@@ -16,7 +16,7 @@ from write import write_verified
 from bundle import validate, package, merge, partition_rows, validate_partitions
 from catalog import PRODUCTS, REPOSITORIES, policy, regions, OSSM_4MB, physical_flash_allowed
 from monitor import HAT_PREFIX, Monitor, EvidenceError, PREFIX
-from run import load_fixture, rig_lock, safe_line, test_device, main
+from run import find_port, load_fixture, rig_lock, safe_line, test_device, main
 
 SHA = 'a'*40
 MAC = 'AABBCCDDEEFF'
@@ -66,16 +66,16 @@ class BundleTests(unittest.TestCase):
                 self.assertEqual(set(result['variants']), set(PRODUCTS[REPOSITORIES[repo]]['variants']))
 
     def test_rejects_wrong_repository_sha_run_and_attempt(self):
-        repo = 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT'
+        repo = 'researchanddesire/dtt'
         with tempfile.TemporaryDirectory() as directory:
             bundle = make_bundle(Path(directory), repo)
             for identity in [(repo, 'b'*40, '42', '1'), (repo, SHA, '43', '1'),
-                             (repo, SHA, '42', '2'), ('researchanddesire/Open-Source-Chastity-Lockbox_LKBX', SHA, '42', '1')]:
+                             (repo, SHA, '42', '2'), ('researchanddesire/lkbx', SHA, '42', '1')]:
                 with self.subTest(identity=identity), self.assertRaises(ValueError):
                     validate(bundle, *identity)
 
     def test_corruption_wrong_flash_chip_offset_or_missing_variant_fails(self):
-        repo = 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT'
+        repo = 'researchanddesire/dtt'
         for mutation in ('corrupt', 'flash', 'chip', 'offset', 'missing', 'overflow', 'partition'):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
                 bundle = make_bundle(Path(directory), repo)
@@ -178,7 +178,7 @@ class MonitorTests(unittest.TestCase):
 
 class HostTests(unittest.TestCase):
     def test_verified_connection_is_reused_without_loading_a_second_stub(self):
-        spec = policy('researchanddesire/Open-Source-Deepthroat-Trainer_DTT', 'v1')
+        spec = policy('researchanddesire/dtt', 'v1')
         connected = MagicMock()
         connected.run_stub.return_value = connected
         connected.CHIP_NAME = 'ESP32'
@@ -197,7 +197,7 @@ class HostTests(unittest.TestCase):
             self.assertEqual(connected.WRITE_FLASH_ATTEMPTS, 1)
 
     def test_nvs_change_after_write_fails_validation(self):
-        spec = policy('researchanddesire/Open-Source-Deepthroat-Trainer_DTT', 'v1')
+        spec = policy('researchanddesire/dtt', 'v1')
         connected = MagicMock()
         connected.run_stub.return_value = connected
         connected.read_flash.side_effect = [b'preserved identity', b'changed identity']
@@ -208,13 +208,13 @@ class HostTests(unittest.TestCase):
         connected._port.close.assert_called_once()
 
     def test_larger_trainer_requires_explicit_enrollment_exception(self):
-        spec = policy('researchanddesire/Open-Source-Deepthroat-Trainer_DTT', 'v1')
+        spec = policy('researchanddesire/dtt', 'v1')
         self.assertFalse(physical_flash_allowed(spec, 16777216))
         self.assertTrue(physical_flash_allowed(spec, 16777216, True))
         self.assertFalse(physical_flash_allowed(spec, 8388608, True))
         self.assertFalse(physical_flash_allowed(policy('researchanddesire/OSSM', '4mb'), 16777216, True))
     def test_swapped_device_cannot_reach_write_flash(self):
-        spec = policy('researchanddesire/Open-Source-Deepthroat-Trainer_DTT', 'v1')
+        spec = policy('researchanddesire/dtt', 'v1')
         connected = MagicMock()
         connected.run_stub.return_value = connected
         connected.CHIP_NAME = 'ESP32'
@@ -237,29 +237,29 @@ class HostTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)/'fixture.json'
             fixture.write_text('{"products": {"dtt": {}}}')
-            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT')
+            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/dtt')
 
     def test_wrong_capacity_or_duplicate_identity_fails_enrollment(self):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)/'fixture.json'
             devices = {}
             for n, variant in enumerate(('v1', 'v2')):
-                spec = policy('researchanddesire/Open-Source-Deepthroat-Trainer_DTT', variant)
+                spec = policy('researchanddesire/dtt', variant)
                 devices[variant] = dict(product='dtt', chip='esp32', flash_bytes=spec['flash_bytes'],
                                         psram=None, enrolled=True, device_id=f'AABBCCDDEE{n:02X}',
                                         usb_vid=0x10c4, usb_pid=0xea60, usb_location=f'usb-{n}')
             fixture.write_text(json.dumps(dict(schema=1, products=dict(dtt=devices))))
-            self.assertEqual(len(load_fixture(fixture, 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT')), 2)
+            self.assertEqual(len(load_fixture(fixture, 'researchanddesire/dtt')), 2)
             devices['v1']['flash_bytes'] = 16777216
             fixture.write_text(json.dumps(dict(schema=1, products=dict(dtt=devices))))
-            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT')
+            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/dtt')
             devices['v1']['flash_bytes'] = 4194304
             devices['v2']['device_id'] = devices['v1']['device_id']
             fixture.write_text(json.dumps(dict(schema=1, products=dict(dtt=devices))))
-            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT')
+            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/dtt')
 
     def test_flash_interruption_or_serial_failure_is_not_retried(self):
-        repo = 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT'
+        repo = 'researchanddesire/dtt'
         for stage in ('probe', 'flash', 'observe'):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -276,7 +276,7 @@ class HostTests(unittest.TestCase):
                     self.assertTrue((root/'v1-result.json').exists())
 
     def test_missing_device_prevents_all_writes_and_produces_junit(self):
-        repo = 'researchanddesire/Open-Source-Deepthroat-Trainer_DTT'
+        repo = 'researchanddesire/dtt'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bundle = make_bundle(root, repo)
@@ -288,6 +288,22 @@ class HostTests(unittest.TestCase):
                 self.assertEqual(main(), 1)
                 flash.assert_not_called()
                 self.assertIn('failures="1"', (root/'output/junit.xml').read_text())
+
+    def test_usb_location_matches_with_or_without_the_interface_suffix(self):
+        def port(device, location, serial_number=None, vid=4292, pid=60000):
+            return MagicMock(device=device, location=location, serial_number=serial_number, vid=vid, pid=pid)
+        ports = [port('COM6', '1-4.3.4.2:x.0'), port('COM5', '1-4.4:x.0'), port('COM7', '1-4.3.3:x.0'),
+                 port('COM4', '1-4.2', '0001'), port('COM10', None, 'D8:3B', 12346, 4097)]
+        fixture = lambda **identity: dict(usb_vid=4292, usb_pid=60000, **identity)
+        with patch('serial.tools.list_ports.comports', return_value=ports):
+            self.assertEqual(find_port(fixture(usb_location='1-4.3.4.2')), 'COM6')
+            self.assertEqual(find_port(fixture(usb_location='1-4.3.3:x.0')), 'COM7')
+            self.assertEqual(find_port(fixture(usb_serial='0001')), 'COM4')
+            # A deeper path is a different socket, and a port without a location never matches.
+            with self.assertRaisesRegex(RuntimeError, 'exactly one USB identity'):
+                find_port(fixture(usb_location='1-4.3.4'))
+            with self.assertRaisesRegex(RuntimeError, 'exactly one USB identity'):
+                find_port(dict(usb_vid=12346, usb_pid=4097, usb_location=None))
 
     def test_os_lock_blocks_another_repository_process(self):
         with tempfile.TemporaryDirectory() as directory:

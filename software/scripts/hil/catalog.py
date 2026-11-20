@@ -48,10 +48,10 @@ PRODUCTS = {
         'r8': lane('esp32s3', 16, S3_PARTITIONS, 'r8', filesystem=True)}},
 }
 REPOSITORIES = {
-    'researchanddesire/Open-Source-Chastity-Lockbox_LKBX': 'lockbox',
-    'researchanddesire/Open-Source-Deepthroat-Trainer_DTT': 'dtt',
+    'researchanddesire/lkbx': 'lockbox',
+    'researchanddesire/dtt': 'dtt',
     'researchanddesire/OSSM': 'ossm',
-    'researchanddesire/Open-Source-Wireless-Remote_RADR': 'radr',
+    'researchanddesire/radr': 'radr',
 }
 
 
