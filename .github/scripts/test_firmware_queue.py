@@ -3,9 +3,12 @@ import argparse
 import io
 import json
 import os
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
+
+import yaml
 
 import firmware_queue as queue
 from publish_immutable_firmware import validation_payload
@@ -17,6 +20,11 @@ def state(name):
 
 
 class QueueTests(unittest.TestCase):
+    def test_pr_firmware_only_runs_for_open_reopen_or_code_updates(self):
+        workflow = Path(__file__).resolve().parents[1] / "workflows" / "pr-firmware.yml"
+        triggers = yaml.load(workflow.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["on"]
+        self.assertCountEqual(triggers["pull_request"]["types"], ["opened", "reopened", "synchronize"])
+
     def run_action(self, action, replies):
         with patch.object(queue, "post", side_effect=replies) as post, patch.object(queue.time, "sleep"):
             queue.main(action)
