@@ -92,7 +92,8 @@
 - The reviewed harness and fixture inventory live outside the runner work directory.
 - Never infer product identity or flash capacity from a COM port or advertising name.
 - Follow software/scripts/hil/README.md for enrollment, shared-device locks, and rollout.
-- PR hardware runs take precedence on the Test Rig: they take a fixture from a bench session and have the OSSM guard clear its own latch before flashing. Hold fixtures only through `rig_lock`, and expect a bench session to be stopped when a PR run arrives.
+- When dashboard admission is enabled, PRs and merged firmware candidates share one priority queue. The rig finishes the active run before starting the next. Hold fixtures through `rig_lock`. A reviewed PR can still preempt a manual bench session. Its OSSM guard checks, including latch recovery before flashing, still apply.
+- Mirror the shared PR harness files in `software/scripts/hil/` across LKBX, DTT, OSSM and RADR. Install the dedicated release queue worker from LKBX with `install-release-queue.ps1`.
 - Keep Wi-Fi credentials, fixture identities, and raw device logs outside the repository.
 - A missing device or incomplete three-minute observation must fail validation.
 

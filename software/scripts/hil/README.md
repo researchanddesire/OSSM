@@ -159,16 +159,22 @@ using the read-only USB `hat` command. A reported latch fails immediately with
 its fault and bus mode in the evidence. The usual readiness and soak checks
 still apply.
 
-### Pull-request runs take precedence
+### Shared queue and fixture ownership
 
-A pull-request run does not fail because of what the bench was doing before it.
+The dashboard orders PR and release jobs together. Critical jobs can move ahead
+of queued jobs. A started run keeps its fixture until cleanup and no queue
+reorder interrupts a flash. After queue cutover, the installed launcher
+checks a fresh host receipt for the exact repository, run, attempt and SHA.
+Manual bench sessions still yield to a reviewed PR. The release queue uses
+the same fixture locks as the PR harness and protects a started release run
+from watchdog preemption.
 
 - **Fixture.** `rig_lock` records its holder in `<lock>.holder`. A pull-request
   run that finds a fixture taken leaves `<lock>.preempt` and waits up to five
   minutes. The rig watchdog (`C:\rad-hil\watchdog`, scheduled task
-  `RAD Rig Watchdog`) terminates the holder unless it is another pull-request
-  run; the single worker already serializes those. Bench sessions must hold the
-  fixture through `rig_lock` and expect to be stopped.
+  `RAD Rig Watchdog`) terminates a preemptible manual holder. PR and release jobs mark
+  their owned fixture as protected. Manual sessions must hold the fixture
+  through `rig_lock` and expect to be stopped.
 - **Guard.** When the OSSM guard is missing, latched or not handed back, the run
   first holds every OSSM in its ROM loader, so none sends pulses, then leaves
   `locks\ossm-guard.request`. The watchdog starts a missing guard. The guard
