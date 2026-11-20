@@ -16,7 +16,7 @@ from write import write_verified
 from bundle import validate, package, merge, partition_rows, validate_partitions
 from catalog import PRODUCTS, REPOSITORIES, policy, regions, OSSM_4MB, physical_flash_allowed
 from monitor import HAT_PREFIX, Monitor, EvidenceError, PREFIX
-from run import load_fixture, rig_lock, safe_line, test_device, main
+from run import find_port, load_fixture, rig_lock, safe_line, test_device, main
 
 SHA = 'a'*40
 MAC = 'AABBCCDDEEFF'
@@ -288,6 +288,22 @@ class HostTests(unittest.TestCase):
                 self.assertEqual(main(), 1)
                 flash.assert_not_called()
                 self.assertIn('failures="1"', (root/'output/junit.xml').read_text())
+
+    def test_usb_location_matches_with_or_without_the_interface_suffix(self):
+        def port(device, location, serial_number=None, vid=4292, pid=60000):
+            return MagicMock(device=device, location=location, serial_number=serial_number, vid=vid, pid=pid)
+        ports = [port('COM6', '1-4.3.4.2:x.0'), port('COM5', '1-4.4:x.0'), port('COM7', '1-4.3.3:x.0'),
+                 port('COM4', '1-4.2', '0001'), port('COM10', None, 'D8:3B', 12346, 4097)]
+        fixture = lambda **identity: dict(usb_vid=4292, usb_pid=60000, **identity)
+        with patch('serial.tools.list_ports.comports', return_value=ports):
+            self.assertEqual(find_port(fixture(usb_location='1-4.3.4.2')), 'COM6')
+            self.assertEqual(find_port(fixture(usb_location='1-4.3.3:x.0')), 'COM7')
+            self.assertEqual(find_port(fixture(usb_serial='0001')), 'COM4')
+            # A deeper path is a different socket, and a port without a location never matches.
+            with self.assertRaisesRegex(RuntimeError, 'exactly one USB identity'):
+                find_port(fixture(usb_location='1-4.3.4'))
+            with self.assertRaisesRegex(RuntimeError, 'exactly one USB identity'):
+                find_port(dict(usb_vid=12346, usb_pid=4097, usb_location=None))
 
     def test_os_lock_blocks_another_repository_process(self):
         with tempfile.TemporaryDirectory() as directory:
