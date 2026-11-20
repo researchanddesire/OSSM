@@ -63,6 +63,7 @@ void announceHat() {
     doc["guardLatched"] = safety.latched;
     doc["guardFault"] = safety.fault;
     doc["outputDisabled"] = safety.outputDisableVerified;
+    doc["externalGuard"] = getMotorSerialSafetyStatus().externalGuard;
     char frame[640] = "RAD_HAT ";
     const size_t size = serializeJson(doc, frame + 8, sizeof(frame) - 10);
     frame[size + 8] = '\n';

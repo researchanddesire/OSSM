@@ -90,6 +90,9 @@ uint64_t motorSafetySerialSession();
 bool motorSafetySerialCanMove(uint64_t session);
 struct MotorSerialSafetyStatus {
     bool selected = false;
+    // Receive-only HAT on a bus owned by another master: STEP/DIR motion,
+    // with that master as the independent monitor (shared_bus_logic.h).
+    bool externalGuard = false;
     bool hardwareStopVerified = false;
     bool gpioStopVerified = false;
     bool uartTimerStopVerified = false;
