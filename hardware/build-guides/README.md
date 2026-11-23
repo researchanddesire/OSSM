@@ -16,6 +16,10 @@ The toy mounting guide then shows how to mount a toy on the finished OSSM.
 | [remote-1.0.pdf](remote-1.0.pdf) | OSSM Wired Remote Guide, Remote V2 | 1.0.8 |
 | [toy-mounting-1.0.pdf](toy-mounting-1.0.pdf) | OSSM Toy Mounting Guide, flange plates and Vac-U-Lock | 1.0.3 |
 
+`stand-1.1.pdf` (cover version 1.1.0) is for the 1-Arm PitClamp stand with the
+keyed lower clamp base, which is not released yet. Build the stand with
+`stand-1.0.pdf`.
+
 ## Earlier hardware
 
 | File | Guide | Version on the cover |
