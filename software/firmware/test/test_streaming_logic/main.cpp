@@ -1,4 +1,6 @@
 #include <unity.h>
+#include "homing_logic.h"
+#include "simple_pen_logic.h"
 #include "streaming_logic.h"
 
 void setUp(void) {}
@@ -62,6 +64,52 @@ void test_scaleStreamPosition_50_percent(void) {
     int32_t depth = 2000;
     int32_t result = streaming_logic::scaleStreamPosition(50, maxStroke, depth);
     TEST_ASSERT_EQUAL_INT32(-4500, result);
+}
+
+// ─── Frame shared with homing and Simple Penetration ───
+
+// Regression: OSSM V2 1.0.60 scaled every Funscript position behind the homed
+// rest position, so playback pulled into the retracted stop and never
+// extended. Homing parks at counter 0 with extension negative, and Simple
+// Penetration strokes in that frame; every streaming target must stay inside
+// the same working range for any depth, stroke and position.
+void test_streaming_targets_stay_inside_the_homed_range(void) {
+    const float measured = 10000.0f;
+    TEST_ASSERT_EQUAL_INT32(
+        0, homing_logic::calculatePostHomingPosition(1, measured, 0.0f));
+    const int32_t deepest =
+        simple_pen_logic::calculateTarget(true, 100.0f, measured);
+    TEST_ASSERT_LESS_THAN_INT32(0, deepest);
+
+    for (int depth = 0; depth <= 100; depth += 5) {
+        for (int stroke = 0; stroke <= 100; stroke += 5) {
+            const int32_t maxStroke = streaming_logic::calculateMaxStroke(
+                stroke, depth, measured);
+            const int32_t offset = streaming_logic::calculateDepthOffset(
+                measured, maxStroke, depth);
+            for (int position = 0; position <= 100; position += 5) {
+                const int32_t target = streaming_logic::scaleStreamPosition(
+                    position, maxStroke, offset);
+                TEST_ASSERT_LESS_OR_EQUAL_INT32(0, target);
+                TEST_ASSERT_GREATER_OR_EQUAL_INT32(deepest, target);
+            }
+        }
+    }
+}
+
+// A deeper Funscript position (lower number) extends further than a
+// shallower one, in the same direction Simple Penetration extends.
+void test_lower_streaming_position_extends_further(void) {
+    const float measured = 10000.0f;
+    const int32_t maxStroke =
+        streaming_logic::calculateMaxStroke(50.0f, 80.0f, measured);
+    const int32_t offset =
+        streaming_logic::calculateDepthOffset(measured, maxStroke, 80.0f);
+    const int32_t deep =
+        streaming_logic::scaleStreamPosition(0, maxStroke, offset);
+    const int32_t shallow =
+        streaming_logic::scaleStreamPosition(100, maxStroke, offset);
+    TEST_ASSERT_LESS_THAN_INT32(shallow, deep);
 }
 
 // ─── planMotion ───
@@ -154,6 +202,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_scaleStreamPosition_100_percent);
     RUN_TEST(test_scaleStreamPosition_0_percent);
     RUN_TEST(test_scaleStreamPosition_50_percent);
+    RUN_TEST(test_streaming_targets_stay_inside_the_homed_range);
+    RUN_TEST(test_lower_streaming_position_extends_further);
 
     RUN_TEST(test_planMotion_short_distance_plenty_of_time);
     RUN_TEST(test_planMotion_distance_exceeds_max);
