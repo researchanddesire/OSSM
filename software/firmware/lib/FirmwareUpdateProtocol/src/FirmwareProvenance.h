@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include "FirmwareUpdateProtocol.h"
 
 #if defined(ARDUINO_ARCH_ESP32)
@@ -231,7 +232,29 @@ inline std::string readStored(const char *key) {
     return value.c_str();
 }
 
-inline std::string currentToken() { return readStored("current"); }
+// The current token is read for every state JSON (several times a second
+// over BLE, from the BLE host and RAD BLE tasks). Opening NVS each time
+// costs a flash read and logs "nvs_open failed: NOT_FOUND" on devices
+// without a token, so it is cached in RAM; writeStored() refreshes it.
+struct CurrentTokenCache {
+    std::mutex lock;
+    bool loaded = false;
+    std::string token;
+};
+inline CurrentTokenCache &currentTokenCache() {
+    static CurrentTokenCache cache;
+    return cache;
+}
+
+inline std::string currentToken() {
+    CurrentTokenCache &cache = currentTokenCache();
+    std::lock_guard<std::mutex> guard(cache.lock);
+    if (!cache.loaded) {
+        cache.token = readStored("current");
+        cache.loaded = true;
+    }
+    return cache.token;
+}
 inline std::string currentTokenId() {
     const auto token = currentToken();
     return token.empty() ? std::string{} : tokenId(token);
@@ -254,6 +277,12 @@ inline bool writeStored(const char *key, const std::string &value) {
     if (!preferences.begin("fw-prov", false)) return false;
     const bool stored = preferences.putString(key, value.c_str()) > 0;
     preferences.end();
+    if (stored && std::strcmp(key, "current") == 0) {
+        CurrentTokenCache &cache = currentTokenCache();
+        std::lock_guard<std::mutex> guard(cache.lock);
+        cache.token = value;
+        cache.loaded = true;
+    }
     return stored;
 }
 

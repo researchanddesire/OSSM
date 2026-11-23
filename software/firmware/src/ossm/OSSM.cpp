@@ -139,10 +139,10 @@ void OSSM::ble_click(String commandString) {
             break;
         case Commands::streamPosition:
             // Position (0-100)
-            targetQueue.push({
-                static_cast<uint8_t>(command.value),
-                static_cast<uint16_t>(command.time),
-                std::chrono::steady_clock::now()});
+            targetQueue.push({static_cast<uint8_t>(command.value),
+                              static_cast<uint16_t>(command.time),
+                              std::chrono::steady_clock::now()},
+                             true);
             break;
         case Commands::setWifi:
         case Commands::ignore:

@@ -1,6 +1,8 @@
 #include <ArduinoFake.h>
 #include <unity.h>
 
+#include <string>
+
 // Stub ESP-IDF logging macros (not available on native platform)
 #define ESP_LOGI(tag, fmt, ...)
 #define ESP_LOGW(tag, fmt, ...)
@@ -218,6 +220,94 @@ void test_parseWiFiCommand_wrongPrefix_returnsEmpty() {
 // Main
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Malformed, out-of-range and oversized input
+// ---------------------------------------------------------------------------
+
+void test_stream_time_is_bounded() {
+    // The streaming queue stores the time in 16 bits: 70000 ms used to
+    // wrap to 4464 ms. Longer moves than motion.position allows are refused.
+    auto atLimit = streamCommandValue(String("stream:50:60000"));
+    TEST_ASSERT_EQUAL(Commands::streamPosition, atLimit.command);
+    TEST_ASSERT_EQUAL(60000, atLimit.time);
+    TEST_ASSERT_EQUAL(Commands::ignore,
+                      streamCommandValue(String("stream:50:60001")).command);
+    TEST_ASSERT_EQUAL(Commands::ignore,
+                      streamCommandValue(String("stream:50:70000")).command);
+    TEST_ASSERT_EQUAL(Commands::ignore,
+                      streamCommandValue(String("stream:50:99999999999")).command);
+}
+
+void test_stream_rejects_non_numbers() {
+    const char* rejected[] = {"stream:abc:100", "stream:50:abc", "stream:50:",
+                              "stream::100",    "stream:5a:100", "stream:50:1e3",
+                              "stream:+5:100",  "stream:50:-0", "stream:1:2:3",
+                              "stream:4294967346:10"};
+    for (const char* cmd : rejected) {
+        TEST_ASSERT_EQUAL_MESSAGE(Commands::ignore,
+                                  commandFromString(String(cmd)).command, cmd);
+    }
+}
+
+void test_stream_accepts_leading_zeros() {
+    auto result = commandFromString(String("stream:050:0100"));
+    TEST_ASSERT_EQUAL(Commands::streamPosition, result.command);
+    TEST_ASSERT_EQUAL(50, result.value);
+    TEST_ASSERT_EQUAL(100, result.time);
+}
+
+void test_set_rejects_padded_signed_and_overflowing_values() {
+    const char* rejected[] = {"set:speed:050", "set:speed:+5", "set:speed: 5",
+                              "set:speed:5 ",  "set:speed:4294967346",
+                              "set:speed:1e2", "set:speed:5.5", "set:speed::5",
+                              "set::5",        "set:speed"};
+    for (const char* cmd : rejected) {
+        TEST_ASSERT_EQUAL_MESSAGE(Commands::ignore,
+                                  commandFromString(String(cmd)).command, cmd);
+    }
+}
+
+void test_oversized_commands_are_rejected() {
+    const std::string padding(2000, '9');
+    const std::string commands[] = {"set:speed:" + padding,
+                                    "stream:" + padding + ":" + padding,
+                                    "go:" + padding, padding};
+    for (const std::string& cmd : commands) {
+        TEST_ASSERT_FALSE(isValidBleCommand(cmd) &&
+                          commandFromString(String(cmd.c_str())).command !=
+                              Commands::ignore);
+        TEST_ASSERT_NOT_EQUAL(Commands::setSpeed,
+                              commandFromString(String(cmd.c_str())).command);
+        TEST_ASSERT_NOT_EQUAL(Commands::streamPosition,
+                              commandFromString(String(cmd.c_str())).command);
+    }
+}
+
+void test_grammar_rejects_control_characters_and_case() {
+    const char* rejected[] = {"go:menu\n", "go:menu\r", "GO:menu", "Go:menu",
+                              "go:Menu",   " go:menu",  "set:SPEED:5",
+                              "stream:5:5\n"};
+    for (const char* cmd : rejected) {
+        TEST_ASSERT_FALSE_MESSAGE(isValidBleCommand(cmd), cmd);
+    }
+}
+
+void test_every_valid_set_value_round_trips() {
+    const char* settings[] = {"speed", "stroke", "depth", "sensation", "buffer",
+                              "pattern"};
+    for (const char* setting : settings) {
+        for (int value = 0; value <= 100; value++) {
+            const std::string cmd =
+                std::string("set:") + setting + ":" + std::to_string(value);
+            TEST_ASSERT_TRUE_MESSAGE(isValidBleCommand(cmd), cmd.c_str());
+            const auto result = commandFromString(String(cmd.c_str()));
+            TEST_ASSERT_NOT_EQUAL_MESSAGE(Commands::ignore, result.command,
+                                          cmd.c_str());
+            TEST_ASSERT_EQUAL(value, result.value);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
 
@@ -257,6 +347,15 @@ int main(int argc, char** argv) {
     RUN_TEST(test_parseWiFiCommand_valid);
     RUN_TEST(test_parseWiFiCommand_noPipe_returnsEmpty);
     RUN_TEST(test_parseWiFiCommand_wrongPrefix_returnsEmpty);
+
+    // malformed, out-of-range and oversized input
+    RUN_TEST(test_stream_time_is_bounded);
+    RUN_TEST(test_stream_rejects_non_numbers);
+    RUN_TEST(test_stream_accepts_leading_zeros);
+    RUN_TEST(test_set_rejects_padded_signed_and_overflowing_values);
+    RUN_TEST(test_oversized_commands_are_rejected);
+    RUN_TEST(test_grammar_rejects_control_characters_and_case);
+    RUN_TEST(test_every_valid_set_value_round_trips);
 
     return UNITY_END();
 }
