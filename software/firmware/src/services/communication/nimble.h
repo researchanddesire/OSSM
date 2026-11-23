@@ -64,6 +64,12 @@
 
 extern NimBLEServer* pServer;
 
+// A valid legacy command (go:/set:/stream:) or a RAD BLE motion request
+// arrived on `connHandle` (0xffff when the sender is unknown). Motion
+// commands make that link the motion owner and cancel a running disconnect
+// ramp-down.
+void noteBleMotionCommand(uint16_t connHandle, const std::string& command);
+
 void nimbleLoop(void* pvParameters);
 void initNimble();
 
