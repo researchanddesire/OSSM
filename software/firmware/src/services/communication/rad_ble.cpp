@@ -240,7 +240,7 @@ radble::Result settingValue(const String& path) {
     return radble::Result::success(output);
 }
 
-radble::Result handleCommand(JsonObjectConst request, void*) {
+radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     if (ossm == nullptr || stateMachine == nullptr)
         return radble::Result::failure("not_ready", "OSSM is still starting");
 
@@ -947,6 +947,32 @@ String snapshot(radble::Surface surface, void*) {
     return output;
 }
 
+// Staging and development builds route every log call through a wrapped
+// log_printf (HIL observer, screen capture) that formats on the caller's
+// stack. Target transitions (Wi-Fi Setup, menu) overflowed the default 12 KB
+// server task there, so those builds get 16 KB and log each new low in the
+// task's remaining stack after a request. Production keeps the default.
+#if defined(RAD_HIL_VARIANT) || defined(VERSIONDEV)
+constexpr uint32_t kRadBleTaskStackBytes = 16384;
+#else
+constexpr uint32_t kRadBleTaskStackBytes = 0;  // library default (12288)
+#endif
+
+radble::Result handleCommand(JsonObjectConst request, void*) {
+    radble::Result result = handleCommandOnServerTask(request);
+#if defined(RAD_HIL_VARIANT) || defined(VERSIONDEV)
+    static uint32_t lowest = UINT32_MAX;
+    const uint32_t headroom = uxTaskGetStackHighWaterMark(nullptr);
+    if (headroom < lowest) {
+        lowest = headroom;
+        Serial.printf("[RAD BLE][OSSM] server task stack headroom %u of %u bytes\n",
+                      static_cast<unsigned>(headroom),
+                      static_cast<unsigned>(kRadBleTaskStackBytes));
+    }
+#endif
+    return result;
+}
+
 radble::Result prepareOta(bool starting, const char*, void*) {
     if (!starting) return radble::Result::success();
     disarmMotorSafety();
@@ -994,6 +1020,7 @@ bool initRadBle(NimBLEServer* server) {
             },
         },
         .context = nullptr,
+        .taskStackBytes = kRadBleTaskStackBytes,
     };
     return radBleServer.begin(server, config);
 }
