@@ -950,10 +950,12 @@ String snapshot(radble::Surface surface, void*) {
 // Staging and development builds route every log call through a wrapped
 // log_printf (HIL observer, screen capture) that formats on the caller's
 // stack. Target transitions (Wi-Fi Setup, menu) overflowed the default 12 KB
-// server task there, so those builds get 16 KB and log each new low in the
-// task's remaining stack after a request. Production keeps the default.
+// server task there: measured peak 12320 bytes on the Test Rig. Those builds
+// get 14 KB (about 2 KB headroom; 16 KB starved the staging TLS check) and
+// log each new low in the task's remaining stack after a request.
+// Production keeps the default.
 #if defined(RAD_HIL_VARIANT) || defined(VERSIONDEV)
-constexpr uint32_t kRadBleTaskStackBytes = 16384;
+constexpr uint32_t kRadBleTaskStackBytes = 14336;
 #else
 constexpr uint32_t kRadBleTaskStackBytes = 0;  // library default (12288)
 #endif
