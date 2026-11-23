@@ -51,7 +51,7 @@ static void startStreamingTask(void *pvParameters) {
     PositionTime lastPositionTime{};
 
     // Reset the queue to clear any existing commands
-    targetQueue = {};
+    targetQueue.clear();
 
     const uint32_t maxSpeed = Config::Driver::maxSpeedMmPerSecond * (1_mm);
     const uint32_t maxAccel = Config::Driver::maxAcceleration * (1_mm);
@@ -64,12 +64,12 @@ static void startStreamingTask(void *pvParameters) {
         if (!motorSafetyCanEnableOutputs()) break;
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
         // Wait for new command from BLE
-        if (targetQueue.empty()){
+        // Get next move
+        PositionTime targetPositionTime;
+        if (!targetQueue.peek(targetPositionTime)) {
             vTaskDelay(1);
             continue;
         }
-        // Get next move
-        PositionTime targetPositionTime = targetQueue.front();
         //Wait for previous command to finish if it isn't moving in the same direction.
         const int positionDelta = targetPositionTime.position - lastPositionTime.position;
         targetPositionTime.direction = (positionDelta > 0) - (positionDelta < 0);
@@ -78,7 +78,7 @@ static void startStreamingTask(void *pvParameters) {
             vTaskDelay(1);
             continue;
         }
-        targetQueue.pop();
+        targetQueue.pop(targetPositionTime);
 
         float timeSeconds = targetPositionTime.inTime / 1000.0f;
 

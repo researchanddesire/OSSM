@@ -5,12 +5,15 @@
 #include <services/board.h>
 #include <services/tasks.h>
 
+#include <atomic>
+#include <mutex>
 #include <queue>
 
 #include "command.hpp"
 #include "command/commands.hpp"
 #include "config.hpp"
 #include "gpio.hpp"
+#include "motion_link.h"
 #include "ossm/OSSM.h"
 #include "pairing.hpp"
 #include "patterns.hpp"
@@ -28,10 +31,25 @@ NimBLECharacteristic* pSpeedKnobConfigCharacteristic = nullptr;
 NimBLECharacteristic* pLatencyCompensationConfigCharacteristic = nullptr;
 NimBLECharacteristic* pCommandCharacteristic = nullptr;
 
-static long lostConnectionTime = 0;
-static int speedOnLostConnection = 0;
+// Set by the BLE host task (disconnects), read by nimbleLoop.
+static std::atomic<long> lostConnectionTime{0};
+static std::atomic<int> speedOnLostConnection{0};
 static const unsigned long RAMP_DURATION_MS =
     2000;  // Duration for speed ramp to zero
+
+// Host task (legacy writes, disconnects) and RAD BLE task (motion requests).
+static std::mutex motionOwnerLock;
+static motion_link::Owner motionOwner;
+
+void noteBleMotionCommand(uint16_t connHandle, const std::string& command) {
+    if (!motion_link::isMotionCommand(command)) return;
+    {
+        std::lock_guard<std::mutex> guard(motionOwnerLock);
+        motionOwner.onMotionCommand(connHandle);
+    }
+    // Someone is driving again: the disconnect ramp must not fight them.
+    lostConnectionTime = 0;
+}
 
 void restartAdvertisingWithCurrentName() {
     const std::string deviceName = getDeviceName();
@@ -107,25 +125,40 @@ class ServerCallbacks : public NimBLEServerCallbacks {
         ESP_LOGI(NIMBLE_TAG, "Connection count: %d",
                  pServer->getConnectedCount());
 
+        const int remaining = pServer->getConnectedCount();
+        bool stopMotion;
+        {
+            std::lock_guard<std::mutex> guard(motionOwnerLock);
+            stopMotion = motionOwner.onDisconnect(connInfo.getConnHandle(),
+                                                  remaining);
+        }
+
         // Set BLE connection status to false when no connections remain
-        if (ossm && pServer->getConnectedCount() == 0) {
+        if (ossm && remaining == 0) {
             ossm->setBLEConnectionStatus(false);
+        }
+        // Stop when the last link went, or when the link that last drove
+        // motion went while another central (RAD App, dashboard) stays.
+        if (ossm && stopMotion) {
+            if (remaining > 0)
+                ESP_LOGW(NIMBLE_TAG,
+                         "Motion owner disconnected (%d links remain); stopping",
+                         remaining);
             ossm->ble_click("go:menu");
+            // Capture current speed when connection is lost
+            speedOnLostConnection = ossm->getSpeed();
+            ESP_LOGI(NIMBLE_TAG, "Speed on disconnect: %d",
+                     speedOnLostConnection.load());
+            lostConnectionTime = millis();
         }
         radBleServer.onDisconnect(connInfo.getConnHandle());
 
-        // Capture current speed when connection is lost
-        speedOnLostConnection = ossm->getSpeed();
-        ESP_LOGI(NIMBLE_TAG, "Speed on disconnect: %d", speedOnLostConnection);
-
         // Restart advertising when client disconnects
-        if (pServer->getConnectedCount() == 0) {
+        if (remaining == 0) {
             ESP_LOGI(NIMBLE_TAG,
                      "No connections remaining, restarting advertising");
             restartAdvertisingWithCurrentName();
         }
-
-        lostConnectionTime = millis();
     }
 
     void onMTUChange(uint16_t MTU, NimBLEConnInfo& connInfo) override {
@@ -149,7 +182,8 @@ class FTSCallbacks : public NimBLECharacteristicCallbacks {
                             static_cast<uint8_t>(value[2]);
 
             ESP_LOGI("NIMBLE", "FTS Command - Position: %d, Time: %d ms", position, time);
-            targetQueue.push({position, time, std::chrono::steady_clock::now()});
+            targetQueue.push({position, time, std::chrono::steady_clock::now()},
+                             true);
 
         } else {
             ESP_LOGW("NIMBLE", "FTS write - Invalid data length: %d bytes",
@@ -192,6 +226,45 @@ class FTSCallbacks : public NimBLECharacteristicCallbacks {
 } ftsCallbacks;
 #endif
 
+// One step of the 2 s ease-out of the BLE speed after a motion link dropped
+// (the first second waits). Ends by setting speed 0.
+static void stepLostConnectionRamp() {
+    const long lost = lostConnectionTime.load();
+    if (lost <= 0 || ossm == nullptr) return;
+    const int fromSpeed = speedOnLostConnection.load();
+    // Skip ramp-down if speed was already zero when connection was lost
+    if (fromSpeed <= 0) {
+        lostConnectionTime = 0;
+        return;
+    }
+
+    const unsigned long elapsed = millis() - (unsigned long)lost;
+    // Wait 1 second before starting easing
+    if (elapsed < 1000) return;
+
+    if (elapsed > 1000 + RAMP_DURATION_MS) {
+        ESP_LOGI(NIMBLE_TAG, "Speed ramp duration exceeded, setting speed to 0");
+        lostConnectionTime = 0;
+        speedOnLostConnection = 0;
+        ossm->ble_click("set:speed:0");
+        return;
+    }
+
+    // Calculate easing factor (0 to 1) over ramp duration
+    const double progress =
+        constrain((elapsed - 1000) / (double)RAMP_DURATION_MS, 0.0, 1.0);
+    const double t = easeInOutSine(progress);
+
+    // Ramp from current speed to zero
+    const int targetSpeed = (int)(fromSpeed * (1.0 - t));
+    ESP_LOGI(NIMBLE_TAG, "Target speed: %d (from %d, progress: %.2f)",
+             targetSpeed, fromSpeed, progress);
+    ossm->ble_click("set:speed:" + String(targetSpeed));
+
+    // Stop processing when easing is complete
+    if (t >= 1) lostConnectionTime = 0;
+}
+
 void nimbleLoop(void* pvParameters) {
     NimBLEServer* pServer = (NimBLEServer*)pvParameters;
     /** Loop here and send notifications to connected peers */
@@ -199,7 +272,17 @@ void nimbleLoop(void* pvParameters) {
     String lastState = "";
     int lastConnCount = 0;
     int lastMessageTime = 0;
+    uint32_t lastRampStepMs = 0;
     while (true) {
+        // Ramp the BLE speed down after the link that drove motion dropped.
+        // This also runs while other centrals stay connected (see
+        // ServerCallbacks::onDisconnect); a new motion command cancels it.
+        const bool ramping = lostConnectionTime.load() > 0;
+        if (ramping && millis() - lastRampStepMs >= 50) {
+            lastRampStepMs = millis();
+            stepLostConnectionRamp();
+        }
+
         // Check if we should be advertising (no connections)
         if (pServer->getConnectedCount() == 0) {
             // If not advertising and no connections, restart advertising
@@ -210,56 +293,7 @@ void nimbleLoop(void* pvParameters) {
                 restartAdvertisingWithCurrentName();
             }
 
-            if (lostConnectionTime > 0) {
-                // Skip ramp-down if speed was already zero when connection was
-                // lost
-                if (speedOnLostConnection <= 0) {
-                    lostConnectionTime = 0;
-                    continue;
-                }
-
-                unsigned long elapsed = millis() - lostConnectionTime;
-
-                // Wait 1 second before starting easing
-                if (elapsed < 1000) {
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                    continue;
-                }
-
-                if (elapsed > 1000 + RAMP_DURATION_MS) {
-                    ESP_LOGI(
-                        NIMBLE_TAG,
-                        "Speed ramp duration exceeded, setting speed to 0");
-                    lostConnectionTime = 0;
-                    speedOnLostConnection = 0;
-                    ossm->ble_click("set:speed:0");
-                    continue;
-                }
-
-                // Calculate easing factor (0 to 1) over ramp duration
-                double progress = constrain(
-                    (elapsed - 1000) / (double)RAMP_DURATION_MS, 0.0, 1.0);
-                double t = easeInOutSine(progress);
-
-                // Ramp from current speed to zero
-                int targetSpeed = (int)(speedOnLostConnection * (1.0 - t));
-                ESP_LOGI(NIMBLE_TAG,
-                         "Target speed: %d (from %d, progress: %.2f)",
-                         targetSpeed, speedOnLostConnection, progress);
-
-                ossm->ble_click("set:speed:" + String(targetSpeed));
-
-                // Stop processing when easing is complete
-                if (t >= 1) {
-                    lostConnectionTime = 0;
-                    continue;
-                }
-
-                vTaskDelay(pdMS_TO_TICKS(50));
-                continue;
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(lostConnectionTime.load() > 0 ? 50 : 200));
             continue;
         }
 
@@ -287,9 +321,8 @@ void nimbleLoop(void* pvParameters) {
         }
 
         // mannage message queue
-        while (!messageQueue.empty()) {
-            String cmd = messageQueue.front();
-            messageQueue.pop();
+        String cmd;
+        while (messageQueue.pop(cmd)) {
             ossm->ble_click(cmd);
 
             // Trigger LED communication pulse for command processing

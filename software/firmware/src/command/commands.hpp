@@ -86,6 +86,18 @@ inline CommandValue setCommandValue(const String& str) {
     }
 }
 
+// Longest move a stream:<pos>:<time> command may ask for.
+constexpr int kMaxStreamTimeMs = 60000;
+
+// 1..maxDigits decimal digits (leading zeros allowed).
+inline bool isDecimal(const String& text, unsigned maxDigits) {
+    if (text.length() == 0 || text.length() > maxDigits) return false;
+    for (unsigned i = 0; i < text.length(); i++) {
+        if (text[i] < '0' || text[i] > '9') return false;
+    }
+    return true;
+}
+
 inline CommandValue streamCommandValue(const String& str) {
     // Format: stream:pos:time
     // pos = 0-100 (position percentage)
@@ -100,15 +112,18 @@ inline CommandValue streamCommandValue(const String& str) {
     // Extract position (between first and last colon)
     String posStr = str.substring(firstColon + 1, lastColon);
     int pos = posStr.toInt();
-    if (pos < 0 || pos > 100) {
+    if (!isDecimal(posStr, 3) || pos < 0 || pos > 100) {
         ESP_LOGI("COMMANDS", "Invalid stream position: %s", str.c_str());
         return {Commands::ignore, 0, 0};
     }
 
-    // Extract time (after last colon)
+    // Extract time (after last colon). The streaming queue keeps it in 16
+    // bits, so a longer time used to wrap (70000 ms became 4464 ms); the
+    // bound matches RAD BLE motion.position. Digits only, so an overflowing
+    // number cannot turn into an arbitrary value either.
     String timeStr = str.substring(lastColon + 1);
     int time = timeStr.toInt();
-    if (time < 0) {
+    if (!isDecimal(timeStr, 5) || time < 0 || time > kMaxStreamTimeMs) {
         ESP_LOGI("COMMANDS", "Invalid stream time: %s", str.c_str());
         return {Commands::ignore, 0, 0};
     }
