@@ -59,8 +59,11 @@ class SpeedKnobConfigCallbacks : public NimBLECharacteristicCallbacks {
 
 inline NimBLECharacteristic* initSpeedKnobConfigCharacteristic(NimBLEService* pService,
                                                         NimBLEUUID uuid) {
+    // XToys disables the knob limit with a write without response; accept
+    // both write types, as the command characteristic does.
     NimBLECharacteristic* pSpeedKnobConfigChar = pService->createCharacteristic(
-        uuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ);
+        uuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR |
+                  NIMBLE_PROPERTY::READ);
 
     pSpeedKnobConfigChar->setCallbacks(&speedKnobConfigCallbacks);
     // Use PROGMEM strings for initial value
@@ -126,7 +129,8 @@ class LatencyCompensationConfigCallbacks : public NimBLECharacteristicCallbacks 
 inline NimBLECharacteristic* initLatencyCompensationConfigCharacteristic(NimBLEService* pService,
                                                         NimBLEUUID uuid) {
     NimBLECharacteristic* pLatencyCompensationConfigChar = pService->createCharacteristic(
-        uuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ);
+        uuid, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR |
+                  NIMBLE_PROPERTY::READ);
 
     pLatencyCompensationConfigChar->setCallbacks(&latencyCompensationConfigCallbacks);
     // Use PROGMEM strings for initial value
