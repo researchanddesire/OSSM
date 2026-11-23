@@ -948,17 +948,15 @@ String snapshot(radble::Surface surface, void*) {
 }
 
 // Staging and development builds route every log call through a wrapped
-// log_printf (HIL observer, screen capture) that formats on the caller's
-// stack. Target transitions (Wi-Fi Setup, menu) overflowed the default 12 KB
-// server task there: measured peak 12320 bytes on the Test Rig. Those builds
-// get 14 KB (about 2 KB headroom; 16 KB starved the staging TLS check) and
-// log each new low in the task's remaining stack after a request.
-// Production keeps the default.
-#if defined(RAD_HIL_VARIANT) || defined(VERSIONDEV)
-constexpr uint32_t kRadBleTaskStackBytes = 14336;
-#else
+// log_printf (HIL observer, screen capture). Wi-Fi Setup and menu
+// transitions over RAD BLE peaked at 12320 bytes on the rad-ble-v1 task on a
+// staging build (Test Rig) with RAD BLE 1.2.0, just over the 12288-byte
+// default. A bigger stack costs internal RAM that the staging TLS health
+// check needs (14 and 16 KB both failed it). RAD BLE 1.2.1 keeps about
+// 2.3 KB less of its own frames live under this handler, so the stack stays
+// at the library default and these builds log each new low in the task's
+// remaining stack after a request.
 constexpr uint32_t kRadBleTaskStackBytes = 0;  // library default (12288)
-#endif
 
 radble::Result handleCommand(JsonObjectConst request, void*) {
     radble::Result result = handleCommandOnServerTask(request);
@@ -969,7 +967,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
         lowest = headroom;
         Serial.printf("[RAD BLE][OSSM] server task stack headroom %u of %u bytes\n",
                       static_cast<unsigned>(headroom),
-                      static_cast<unsigned>(kRadBleTaskStackBytes));
+                      static_cast<unsigned>(radble::DEFAULT_TASK_STACK_BYTES));
     }
 #endif
     return result;
