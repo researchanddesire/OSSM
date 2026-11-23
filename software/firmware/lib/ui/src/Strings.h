@@ -105,7 +105,7 @@ namespace ui {
         // ============================================================
         static const char wifiSetup[] PROGMEM = "Wi-Fi Setup";
         static const char wifiBody[] PROGMEM =
-            "Connect to\n'Ossm Setup'";
+            "Connect to\n'OSSM Setup'";
         static const char wifiBottom[] PROGMEM = "Restart";
         static const char wifiQr[] PROGMEM =
             "WIFI:S:OSSM Setup;T:nopass;;";
