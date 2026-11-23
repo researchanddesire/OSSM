@@ -78,7 +78,15 @@ static void startStreamingTask(void *pvParameters) {
             vTaskDelay(1);
             continue;
         }
+        // Take the target off the queue. A full queue may have dropped the
+        // peeked one meanwhile, so work the direction out again from what
+        // was actually taken.
         targetQueue.pop(targetPositionTime);
+        {
+            const int takenDelta =
+                targetPositionTime.position - lastPositionTime.position;
+            targetPositionTime.direction = (takenDelta > 0) - (takenDelta < 0);
+        }
 
         float timeSeconds = targetPositionTime.inTime / 1000.0f;
 
