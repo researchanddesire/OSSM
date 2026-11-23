@@ -25,7 +25,7 @@ inline bool isMotionCommand(const std::string &command) {
 class Owner {
   public:
     // A motion command arrived on `connection` (kNoConnection when the
-    // transport cannot say which, as for RAD BLE requests).
+    // sender is unknown, which clears ownership).
     void onMotionCommand(uint16_t connection) { owner_ = connection; }
 
     // `connection` dropped and `remaining` links stay. True when motion

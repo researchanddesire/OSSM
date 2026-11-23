@@ -604,7 +604,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (value < 0.0f || value > 100.0f)
                 return radble::Result::failure("invalid_value",
                                                "BLE speed must be 0..100");
-            noteBleMotionCommand(0xffff, "set:speed:");
+            noteBleMotionCommand(radBleServer.currentRequestConnection(), "set:speed:");
             settings.speedBLE = value;
             return settingValue(path);
         }
@@ -644,8 +644,8 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             else if (path == "motion.buffer") command = "set:buffer:" + String(value);
             else return radble::Result::failure("unknown_path", "Unknown setting path");
         }
-        // RAD BLE does not tell us which link sent this.
-        noteBleMotionCommand(0xffff, command.c_str());
+        noteBleMotionCommand(radBleServer.currentRequestConnection(),
+                             command.c_str());
         ossm->ble_click(command);
         Serial.printf("[RAD BLE][OSSM] applied %s\n", command.c_str());
         return settingValue(path);
@@ -700,7 +700,8 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
                                     ? Menu::StrokeEngine
                                     : Menu::Streaming;
             const String targetState = path.substring(strlen("target."));
-            noteBleMotionCommand(0xffff, std::string("go:") + targetState.c_str());
+            noteBleMotionCommand(radBleServer.currentRequestConnection(),
+                                 std::string("go:") + targetState.c_str());
             if (state.startsWith(targetState)) {
                 handled = true;
             } else if (state.startsWith("homing")) {
@@ -781,7 +782,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (!state.startsWith("streaming"))
                 return radble::Result::failure(
                     "invalid_state", "Position targets require streaming mode");
-            noteBleMotionCommand(0xffff, "stream:");
+            noteBleMotionCommand(radBleServer.currentRequestConnection(), "stream:");
             ossm->ble_click("stream:" + String(position) + ":" + String(duration));
             handled = true;
         } else return radble::Result::failure("unknown_path", "Unknown target path");
