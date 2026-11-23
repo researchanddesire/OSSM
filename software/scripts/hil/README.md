@@ -10,10 +10,10 @@ validation` pass without work. Each repository's `FIRMWARE_PATHS` in
 
 | Repositories | Staging and production suffixes | Physical coverage |
 | --- | --- | --- |
-| Open-Source-Chastity-Lockbox_LKBX | r2, r8 | Both 16 MB ESP32-S3 boards, verified R2/R8 PSRAM |
-| Open-Source-Deepthroat-Trainer_DTT | v1, v2 | 4 MB and 16 MB profiles; actual chip capacities recorded separately |
+| lkbx | r2, r8 | Both 16 MB ESP32-S3 boards, verified R2/R8 PSRAM |
+| dtt | v1, v2 | 4 MB and 16 MB profiles; actual chip capacities recorded separately |
 | OSSM | 4mb, 16mb | One ESP32, selected by measured capacity |
-| Open-Source-Wireless-Remote_RADR | existing staging/production aliases | Enrolled 16 MB R8 remote, application and LittleFS |
+| radr | existing staging/production aliases | Enrolled 16 MB R8 remote, application and LittleFS |
 
 OSSM retains its original development/staging/production aliases. Its restored
 Software tree comes from this repository's main firmware; staging hardware and
@@ -144,9 +144,77 @@ be under 5 s old, stream bench telemetry at 30 Hz or more, hold a verified stop
 path, report no fault, and be in `collision-only` mode with a verified handback,
 which lets the firmware home within the guard's hard-stop contact limits. The
 harness watches the guard throughout the run and fails it on any guard fault,
-latch or stale status. It never clears a latch or hands the motor back; a latched
-guard waits for human review. The guard's before/after state is
+latch or stale status. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
+
+The enrolled OSSM carries an RS-485 HAT on the motor bus the guard polls. The
+guard's polling keeps that HAT receive-only, so the firmware homes on STEP/DIR
+and treats the guard as its independent monitor. Twice a second the guard reads
+the full block from register 0; the firmware lowers ENA only while those reads
+show the drive in STEP/DIR control. See
+[Shared PC safety bus](../../firmware/docs/ossm-hat.md#shared-pc-safety-bus).
+
+After verifying the running image, the harness reads the OSSM's onboard guard
+using the read-only USB `hat` command. A reported latch fails immediately with
+its fault and bus mode in the evidence. The usual readiness and soak checks
+still apply.
+
+### Shared queue and fixture ownership
+
+The dashboard orders PR and release jobs together. Critical jobs can move ahead
+of queued jobs. A started run keeps its fixture until cleanup and no queue
+reorder interrupts a flash. After queue cutover, the installed launcher
+checks a fresh host receipt for the exact repository, run, attempt and SHA.
+Manual bench sessions still yield to a reviewed PR. The release queue uses
+the same fixture locks as the PR harness and protects a started release run
+from watchdog preemption.
+
+- **Fixture.** `rig_lock` records its holder in `<lock>.holder`. A pull-request
+  run that finds a fixture taken leaves `<lock>.preempt` and waits up to five
+  minutes. The rig watchdog (`C:\rad-hil\watchdog`, scheduled task
+  `RAD Rig Watchdog`) terminates a preemptible manual holder. PR and release jobs mark
+  their owned fixture as protected. Manual sessions must hold the fixture
+  through `rig_lock` and expect to be stopped.
+- **Guard.** When the OSSM guard is missing, latched or not handed back, the run
+  first holds every OSSM in its ROM loader, so none sends pulses, then leaves
+  `locks\ossm-guard.request`. The watchdog starts a missing guard. The guard
+  checks that the motor is idle, healthy and between its measured stops, moves
+  it slowly to mid-rail, hands it back and clears its latch. It refuses, and the
+  run fails before any write, if those checks fail.
+- **Record.** The fault that was cleared stays in the guard's `events.jsonl` and
+  `latch.cleared.json`, in `results/rs485-guard.json`, and in the "Before
+  flashing" line of the PR comment.
+
+The firmware's own stop latch on a guarded bus is not stored, so the reset that
+follows flashing clears it.
+
+### OSSM Funscript playback
+
+The required PR build runs `test_funscript_streaming` for firmware and validation
+changes. It opens the standard JSON
+[`bench.funscript`](../../firmware/test/test_funscript_streaming/fixtures/bench.funscript),
+forms the R+D Funscript Player's `stream:<next position>:<timestamp difference in ms>`
+commands, and passes them through the firmware's BLE validator, command parser and
+motion planner. The fixture includes a reversal, a repeated position, and a move
+too short to execute at the test speed. Run it locally with
+`pio test -d software/firmware -e test -f test_funscript_streaming`.
+
+For a powered playback check, use the same fixture in the R+D Funscript Player
+with a local media clip longer than six seconds. Use the unloaded, identified
+OSSM on the Test Rig and take the OSSM fixture lock. Keep the independent RS-485
+guard active with a fresh stationary baseline, verified stop and measured interior
+travel bounds before connecting. Turn off **Simplified** and **Reverse**, start
+at low speed, and constrain depth and stroke to the verified range. Compare the
+player's transmitted commands with the independently measured rail position.
+Check that it moves in both directions within the range, holds at the repeat,
+never moves opposite the short target, and returns to rest after disconnect.
+Keep the regular unattended HIL run at idle.
+
+The guard's `status.json` carries the last three seconds of encoder positions at
+50 Hz in `trace`; merge successive snapshots for the independent record, and
+read the file at most eight times a second. On hardware the 50 ms waypoint is
+reached rather than held when the firmware's latency buffer lengthens it; it
+must still never move the rail away from its target.
 
 ## Installation and runner migration
 
@@ -173,7 +241,8 @@ guard waits for human review. The guard's before/after state is
    lock directories; grant read/execute access to the harness and fixture.
 5. Hardware jobs do not cancel in-progress flashing. One worker serializes jobs
    across repositories; OS locks additionally cover shared product families and
-   the legacy Lockbox `C:\lkbx-hil\fixture.lock`. Within a job both required
+   the legacy Lockbox `C:\lkbx-hil\fixture.lock`, and a pull-request run takes
+   them from a bench session (see above). Within a job both required
    variants flash and observe in parallel. A killed flash is a failure and needs
    explicit recovery; it never becomes a passing run on retry.
 6. Run real PRs against both persistent branches for each product, plus a

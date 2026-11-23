@@ -18,31 +18,75 @@ import xml.etree.ElementTree as ET
 
 from bundle import validate, partition_rows
 from catalog import PRODUCTS, REPOSITORIES, policy, regions, physical_flash_allowed
-from monitor import Monitor, PREFIX
+from monitor import HAT_PREFIX, Monitor, PREFIX, parse_hat_status
 from ossm_guard import GuardWatch
 from video import Recorder
 
 
+# A pull-request run waits this long for the rig watchdog to free a fixture.
+PRIORITY_WAIT_S = 300.0
+
+
+def _note(path, **data):
+    """Best-effort sidecar beside a fixture lock; the OS lock alone decides ownership."""
+    try:
+        path.write_text(json.dumps(data), encoding='utf-8')
+    except OSError:
+        pass
+
+
+def _forget(path):
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
 @contextmanager
-def rig_lock(path):
+def rig_lock(path, *, priority=False, owner='manual', wait_s=0.0):
+    """Hold one physical fixture for the duration of the block.
+
+    Pull-request runs pass priority=True and take precedence. Finding the
+    fixture taken, such a run leaves <lock>.preempt; the rig watchdog then
+    terminates the holder named in <lock>.holder unless that holder is itself a
+    pull-request run, and the run waits up to wait_s for the lock. Everything
+    else fails at once, as before.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
+    holder = path.with_name(path.name + '.holder')
+    preempt = path.with_name(path.name + '.preempt')
     with path.open('a+b') as stream:
         stream.seek(0)
         if os.fstat(stream.fileno()).st_size == 0:
             stream.write(b'\0'); stream.flush()
-        stream.seek(0)
+        deadline = time.monotonic() + wait_s
+        announced = False
         try:
-            if os.name == 'nt':
-                import msvcrt
-                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as error:
-            raise RuntimeError('another process owns this physical fixture') from error
+            while True:
+                stream.seek(0)
+                try:
+                    if os.name == 'nt':
+                        import msvcrt
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as error:
+                    if not priority or time.monotonic() >= deadline:
+                        raise RuntimeError('another process owns this physical fixture') from error
+                    if not announced:
+                        _note(preempt, pid=os.getpid(), owner=owner, since=time.time())
+                        announced = True
+                    time.sleep(0.5)
+        finally:
+            if announced:
+                _forget(preempt)
+        _note(holder, pid=os.getpid(), owner=owner, priority=priority, since=time.time())
         try:
             yield
         finally:
+            _forget(holder)
             stream.seek(0)
             if os.name == 'nt':
                 msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
@@ -79,12 +123,23 @@ def load_fixture(path, repository):
     return devices
 
 
+def usb_path(location):
+    """Physical hub/port path of a USB location, without the interface suffix.
+
+    Windows reports the same port as '1-4.3.4.2' or '1-4.3.4.2:x.0' depending on
+    how the device enumerated at boot. The path identifies the socket; the
+    suffix names an interface of whatever is plugged into it.
+    """
+    return location.split(':', 1)[0] if isinstance(location, str) else location
+
+
 def find_port(device):
     from serial.tools import list_ports
     matches = [p.device for p in list_ports.comports()
                if p.vid == device['usb_vid'] and p.pid == device['usb_pid']
                and (p.serial_number == device['usb_serial'] if device.get('usb_serial')
-                    else p.location == device['usb_location'])]
+                    else usb_path(p.location) is not None
+                    and usb_path(p.location) == usb_path(device['usb_location']))]
     if len(matches) != 1:
         raise RuntimeError('expected exactly one USB identity match')
     return matches[0]
@@ -160,7 +215,12 @@ def safe_line(line):
               'provisioning.wifiSettings', 'update', 'wifiSettings'}
     if line.startswith('RAD_STATE ') and line[10:] in states:
         return line
-    # Only the structured, credential-free health protocol is retained verbatim.
+    if line.startswith(HAT_PREFIX):
+        hat = parse_hat_status(line)
+        if hat is not None:
+            return HAT_PREFIX+json.dumps(hat, separators=(',', ':'))
+        return '[malformed or unexpected HAT record redacted]'
+    # Retain the structured, credential-free health protocol.
     # Normal firmware logs may contain request bodies, Wi-Fi keys or pairing codes.
     if PREFIX in line:
         try:
@@ -196,17 +256,23 @@ def safe_line(line):
 def observe(device, port_name, monitor, log, guard=None):
     import serial
     from esptool.reset import HardReset
-    port = serial.Serial(port=None, baudrate=115200, timeout=.25)
+    port = serial.Serial(port=None, baudrate=115200, timeout=.25, write_timeout=1)
     port.dtr = False; port.rts = False; port.port = port_name
     port.open()
     try:
         port.reset_input_buffer()
         HardReset(port, uses_usb=device['usb_vid'] == 0x303a and device['usb_pid'] == 0x1001)()
         pending = bytearray()
+        next_hat_poll = 0.0
         while not monitor.passed:
-            monitor.tick(time.monotonic())
+            now = time.monotonic()
+            monitor.tick(now)
             if guard:
                 guard.check()
+            if (monitor.expected['product'] == 'ossm' and monitor.boot_id is not None
+                    and now >= next_hat_poll):
+                port.write(b'\nhat\n')
+                next_hat_poll = now + 5
             pending.extend(port.read(port.in_waiting or 1))
             if len(pending) > 65536:
                 raise RuntimeError('serial line exceeded bounded framing')
@@ -266,10 +332,13 @@ def main():
         devices = load_fixture(args.fixture, args.repository)
         product = manifest['product']
         with ExitStack() as stack:
-            stack.enter_context(rig_lock(args.lock_directory/(product+'.lock')))
+            # Pull-request runs take the fixture from any other holder.
+            owner = f'{args.repository} run {args.run_id}-{args.run_attempt}'
+            claim = dict(priority=True, owner=owner, wait_s=PRIORITY_WAIT_S)
+            stack.enter_context(rig_lock(args.lock_directory/(product+'.lock'), **claim))
             # Cooperate with the existing Lockbox runner during migration.
             if product == 'lockbox' and os.name == 'nt':
-                stack.enter_context(rig_lock(Path('C:/lkbx-hil/fixture.lock')))
+                stack.enter_context(rig_lock(Path('C:/lkbx-hil/fixture.lock'), **claim))
             # Resolve every target before any board is touched.
             ports = [find_port(d) for d in devices.values()]
             if len(set(ports)) != len(ports):
@@ -279,8 +348,15 @@ def main():
             recorder.start()
             if product == 'ossm':
                 # No OSSM image is written unless the RS-485 guard protects the motor.
-                guard = GuardWatch(args.fixture.with_name('rs485-guard')/'status.json', args.output)
-                guard.require()
+                guard = GuardWatch(args.fixture.with_name('rs485-guard')/'status.json', args.output,
+                                   args.lock_directory/'ossm-guard.request', owner)
+
+                def hold_in_loader():
+                    # A guard recovery hands the motor back: no OSSM may be sending pulses.
+                    for variant, device in devices.items():
+                        with (args.output/(variant+'-hold.log')).open('w', encoding='utf-8') as log:
+                            esptool(find_port(device), policy(manifest['repository'], variant), ['read_mac'], log)
+                guard.require(quiet=hold_in_loader)
             with ThreadPoolExecutor(max_workers=len(devices)) as pool:
                 futures = [pool.submit(test_device, v, d, manifest, args.bundle, args.output, recorder, guard)
                            for v, d in devices.items()]
