@@ -1,5 +1,6 @@
 #include "menu.h"
 #include "services/radHil.h"
+#include "services/ossmHealth.h"
 
 #include <WiFi.h>
 
@@ -41,8 +42,13 @@ static void drawMenuTask(void *pvParameters) {
         return stateMachine->is("menu"_s) || stateMachine->is("menu.idle"_s);
     };
 
+    bool firstPass = true;
     while (isInCorrectState()) {
         radHilProgress(stateMachine->is("menu.idle"_s));
+        // Report this loop's own progress: a heartbeat from another task
+        // alone must not hide a frozen menu task.
+        if (!firstPass && stateMachine->is("menu.idle"_s)) ossmHealthMenuProgress();
+        firstPass = false;
         wl_status_t newWifiState = WiFiClass::status();
 
         bool shouldRedraw = isFirstDraw || encoder.encoderChanged() ||

@@ -15,6 +15,7 @@
 #include "services/led.h"
 #include "services/stepper.h"
 #include "services/ossmHat.h"
+#include "services/ossmHealth.h"
 #include "services/wm.h"
 #include "utils/firmware_md5.h"
 #include "utils/update.h"
@@ -78,6 +79,11 @@ void __attribute__((weak)) setup() {
     // state machine can start homing: hashing the image stalls everything
     // outside IRAM, including the OSSM HAT readings homing stops on.
     cacheSketchMd5();
+
+    // The production health boot record hashes the running image too, so it
+    // belongs here, before homing. It registers its Wi-Fi hook before the
+    // communication task below starts Wi-Fi.
+    ossmHealthBoot();
 
     // Initialize state machine after global state is set up
     initStateMachine();

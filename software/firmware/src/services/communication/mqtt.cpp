@@ -6,6 +6,7 @@
 #include <utils/random.h>
 #include "FirmwareProvenance.h"
 #include "constants/Version.h"
+#include "services/ossmHealth.h"
 
 // Define the global variables here
 bool mqttConnected = false;
@@ -45,6 +46,7 @@ void event_connected_handler(void* handler_args, esp_event_base_t base,
                              int32_t event_id, void* event_data) {
     ESP_LOGD("MQTT", "Connected to MQTT broker");
     mqttConnected = true;
+    ossmHealthMqttConnected(MQTT_SERVER);
     const auto token = firmware::provenance::currentToken();
     JsonDocument document;
     document["provenanceCapability"] = 1;

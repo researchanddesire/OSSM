@@ -12,6 +12,7 @@
 #include "constants/Config.h"
 #include "constants/Pins.h"
 #include "hat_logic.h"
+#include "services/ossmHatMode.h"
 #include "services/stepper.h"
 #include "services/motorMotion.h"
 #include "services/tasks.h"
@@ -177,6 +178,14 @@ bool begin() {
     // Build without HAT support (or a board that uses IO22 for its display).
     return false;
 #else
+    if (ossmHatOff()) {
+        // Serial `hat off`: no probe is sent and the transceiver's driver
+        // stays off; motion and homing use the board alone.
+        digitalWrite(Pins::Hat::de, LOW);
+        pinMode(Pins::Hat::de, OUTPUT);
+        ESP_LOGW("HAT", "HAT off (serial setting): RS-485 unused; send hat auto to restore");
+        return false;
+    }
     pulseStepper = getMotorPulseStepper();
     if (pulseStepper == nullptr) return false;
     // A motor powered up with the board may need a moment before it answers.

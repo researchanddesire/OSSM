@@ -23,6 +23,7 @@
 #include "services/motorMotion.h"
 #include "services/ossmHat.h"
 #include "services/ossmHatEmergency.h"
+#include "services/ossmHatMode.h"
 #include "services/stepper.h"
 
 namespace {
@@ -131,6 +132,9 @@ bool required() {
     // The serial guard protects serial motion. A receive-only HAT cannot send
     // any, so the shared-bus interlock below applies instead.
     if (shared_bus::active(sharedBusObservation())) return false;
+    // A serial `hat off` boot deliberately runs without the HAT, so the HAT
+    // remembered from earlier boots is not required; `hat auto` restores it.
+    if (ossmHatOff()) return false;
     return rememberedHat || ossmHatDetected();
 #endif
 }

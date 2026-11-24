@@ -36,7 +36,9 @@
 - `publish_firmware.yml` runs after a firmware merge into `main`.
   It allocates the next version through the dashboard, builds and tests the
   firmware, and publishes immutable `validating` releases: V2 (16 MB) and
-  V1 (4 MB, from the pinned Bluetooth-capable legacy source). `finalize_release.yml` tags a production release only after its
+  V1 (4 MB), both from the current source: V2 from the `production` profile
+  and V1 from `production-4mb`, which must fit the 4 MB OTA slot and keep
+  Bluetooth. `finalize_release.yml` tags a production release only after its
   persisted gates pass.
 - Releases reach Supabase only through the dashboard firmware API. Do not add
   GitHub Pages, S3, release-asset, or storage-alias publishing, and do not
@@ -108,6 +110,8 @@
 - All firmware tracks expose the read-only boot/`info` identity described in docs/serial-identity.md.
 - Keep one serial input reader; development screen commands register with it.
 - Report target memory and measured memory separately; a label never authorizes flashing or motion.
+- The only serial setting is the HAT switch (`hat off` / `hat auto`, next boot). Keep it serial-only; no BLE or app setting.
+- Every build prints the `OSSM_HEALTH` record (boot, Wi-Fi, MQTT, heartbeat) that release hardware validation reads. Keep its fields stable and free of secrets; the staging-only `RAD_HEALTH` observer is separate.
 
 ## Development Safety
 
