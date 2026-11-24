@@ -77,8 +77,15 @@ class PairingCallbacks : public NimBLECharacteristicCallbacks {
         String ssid = rest.substring(0, sep);
         String password = rest.substring(sep + 1);
 
-        if (ssid.length() == 0) {
+        // Same limits as the Wi-Fi config characteristic (802.11: SSID up
+        // to 32 bytes, WPA passphrase 8..63; empty for an open network).
+        if (ssid.length() == 0 || ssid.length() > 32) {
             pCharacteristic->setValue("fail:invalid_ssid");
+            return;
+        }
+        if (password.length() != 0 &&
+            (password.length() < 8 || password.length() > 63)) {
+            pCharacteristic->setValue("fail:invalid_password");
             return;
         }
 

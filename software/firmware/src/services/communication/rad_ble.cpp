@@ -1,4 +1,5 @@
 #include "rad_ble.h"
+#include "nimble.h"
 
 #include <Preferences.h>
 #include <WiFi.h>
@@ -240,7 +241,7 @@ radble::Result settingValue(const String& path) {
     return radble::Result::success(output);
 }
 
-radble::Result handleCommand(JsonObjectConst request, void*) {
+radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     if (ossm == nullptr || stateMachine == nullptr)
         return radble::Result::failure("not_ready", "OSSM is still starting");
 
@@ -603,6 +604,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (value < 0.0f || value > 100.0f)
                 return radble::Result::failure("invalid_value",
                                                "BLE speed must be 0..100");
+            noteBleMotionCommand(radBleServer.currentRequestConnection(), "set:speed:");
             settings.speedBLE = value;
             return settingValue(path);
         }
@@ -642,6 +644,8 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             else if (path == "motion.buffer") command = "set:buffer:" + String(value);
             else return radble::Result::failure("unknown_path", "Unknown setting path");
         }
+        noteBleMotionCommand(radBleServer.currentRequestConnection(),
+                             command.c_str());
         ossm->ble_click(command);
         Serial.printf("[RAD BLE][OSSM] applied %s\n", command.c_str());
         return settingValue(path);
@@ -696,6 +700,8 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
                                     ? Menu::StrokeEngine
                                     : Menu::Streaming;
             const String targetState = path.substring(strlen("target."));
+            noteBleMotionCommand(radBleServer.currentRequestConnection(),
+                                 std::string("go:") + targetState.c_str());
             if (state.startsWith(targetState)) {
                 handled = true;
             } else if (state.startsWith("homing")) {
@@ -776,6 +782,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
             if (!state.startsWith("streaming"))
                 return radble::Result::failure(
                     "invalid_state", "Position targets require streaming mode");
+            noteBleMotionCommand(radBleServer.currentRequestConnection(), "stream:");
             ossm->ble_click("stream:" + String(position) + ":" + String(duration));
             handled = true;
         } else return radble::Result::failure("unknown_path", "Unknown target path");
@@ -947,6 +954,32 @@ String snapshot(radble::Surface surface, void*) {
     return output;
 }
 
+// Staging and development builds route every log call through a wrapped
+// log_printf (HIL observer, screen capture). Wi-Fi Setup and menu
+// transitions over RAD BLE peaked at 12320 bytes on the rad-ble-v1 task on a
+// staging build (Test Rig) with RAD BLE 1.2.0, just over the 12288-byte
+// default. A bigger stack costs internal RAM that the staging TLS health
+// check needs (14 and 16 KB both failed it). RAD BLE 1.2.1 keeps about
+// 2.3 KB less of its own frames live under this handler, so the stack stays
+// at the library default and these builds log each new low in the task's
+// remaining stack after a request.
+constexpr uint32_t kRadBleTaskStackBytes = 0;  // library default (12288)
+
+radble::Result handleCommand(JsonObjectConst request, void*) {
+    radble::Result result = handleCommandOnServerTask(request);
+#if defined(RAD_HIL_VARIANT) || defined(VERSIONDEV)
+    static uint32_t lowest = UINT32_MAX;
+    const uint32_t headroom = uxTaskGetStackHighWaterMark(nullptr);
+    if (headroom < lowest) {
+        lowest = headroom;
+        Serial.printf("[RAD BLE][OSSM] server task stack headroom %u of %u bytes\n",
+                      static_cast<unsigned>(headroom),
+                      static_cast<unsigned>(radble::DEFAULT_TASK_STACK_BYTES));
+    }
+#endif
+    return result;
+}
+
 radble::Result prepareOta(bool starting, const char*, void*) {
     if (!starting) return radble::Result::success();
     disarmMotorSafety();
@@ -994,6 +1027,7 @@ bool initRadBle(NimBLEServer* server) {
             },
         },
         .context = nullptr,
+        .taskStackBytes = kRadBleTaskStackBytes,
     };
     return radBleServer.begin(server, config);
 }

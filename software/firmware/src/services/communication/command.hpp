@@ -10,6 +10,7 @@
 #include "queue.h"
 #include "command/command_pattern.hpp"
 #include "rad_ble.h"
+#include "nimble.h"
 #include "services/led.h"
 
 
@@ -39,7 +40,16 @@ class CharacteristicCallbacks : public NimBLECharacteristicCallbacks {
             pCharacteristic->setValue("fail:" + String(cmd.c_str()));
             return;
         }
-        messageQueue.push(String(cmd.c_str()));
+        noteBleMotionCommand(connInfo.getConnHandle(), cmd);
+        if (!messageQueue.push(String(cmd.c_str()))) {
+            if (cmd == "go:menu") {
+                // A stop is never dropped behind a flood of other commands.
+                messageQueue.replaceAll(String(cmd.c_str()));
+            } else {
+                ESP_LOGW("NIMBLE_COMMAND", "Command queue full; dropped %s",
+                         cmd.c_str());
+            }
+        }
 
         // Trigger LED communication pulse for received command
         pulseForCommunication();
