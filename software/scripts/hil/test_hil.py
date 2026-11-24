@@ -14,9 +14,10 @@ from unittest.mock import patch, MagicMock
 from write import write_verified
 
 from bundle import validate, package, merge, partition_rows, validate_partitions
-from catalog import PRODUCTS, REPOSITORIES, policy, regions, OSSM_4MB, physical_flash_allowed
+from catalog import (PRODUCTS, REPOSITORIES, policy, regions, DTT_V1, OSSM_4MB, OSSM_16MB,
+                     installed_layout_allowed, physical_flash_allowed)
 from monitor import HAT_PREFIX, Monitor, EvidenceError, PREFIX
-from run import find_port, load_fixture, rig_lock, safe_line, test_device, main
+from run import find_port, load_fixture, probe, rig_lock, safe_line, test_device, main
 
 SHA = 'a'*40
 MAC = 'AABBCCDDEEFF'
@@ -213,6 +214,111 @@ class HostTests(unittest.TestCase):
         self.assertTrue(physical_flash_allowed(spec, 16777216, True))
         self.assertFalse(physical_flash_allowed(spec, 8388608, True))
         self.assertFalse(physical_flash_allowed(policy('researchanddesire/OSSM', '4mb'), 16777216, True))
+
+    def test_only_the_16mb_ossm_may_also_serve_the_smaller_lane(self):
+        self.assertTrue(physical_flash_allowed(policy('researchanddesire/OSSM', '16mb'), 16777216))
+        self.assertTrue(physical_flash_allowed(policy('researchanddesire/OSSM', '16mb'), 16777216, True))
+        self.assertFalse(physical_flash_allowed(policy('researchanddesire/OSSM', '16mb'), 16777216, 'yes'))
+        self.assertFalse(physical_flash_allowed(policy('researchanddesire/OSSM', '16mb'), 4194304, True))
+        self.assertFalse(physical_flash_allowed(policy('researchanddesire/dtt', 'v2'), 16777216, True))
+        self.assertFalse(physical_flash_allowed(policy('researchanddesire/lkbx', 'r2'), 16777216, True))
+        self.assertFalse(physical_flash_allowed(policy('researchanddesire/radr', 'r8'), 16777216, True))
+
+    def test_dual_lane_ossm_enrolls_as_one_16mb_board(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)/'fixture.json'
+            device = dict(product='ossm', chip='esp32', flash_bytes=16777216, psram=None, enrolled=True,
+                          device_id=MAC, usb_vid=4292, usb_pid=60000, usb_location='1-4.3.4.2',
+                          allow_larger_flash=True)
+            fixture.write_text(json.dumps(dict(schema=1, products=dict(ossm={'16mb': device}))))
+            self.assertEqual(list(load_fixture(fixture, 'researchanddesire/OSSM')), ['16mb'])
+            # The flag never relabels the board as a 4 MB fixture or adds a second capacity.
+            fixture.write_text(json.dumps(dict(schema=1, products=dict(ossm={'4mb': device}))))
+            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/OSSM')
+            fixture.write_text(json.dumps(dict(schema=1, products=dict(ossm={'4mb': device, '16mb': device}))))
+            with self.assertRaises(ValueError): load_fixture(fixture, 'researchanddesire/OSSM')
+
+    def test_dual_lane_ossm_may_restore_its_layout_after_a_v1_release(self):
+        spec = policy('researchanddesire/OSSM', '16mb')
+        self.assertTrue(installed_layout_allowed(spec, OSSM_16MB))
+        self.assertTrue(installed_layout_allowed(spec, OSSM_4MB, True))
+        self.assertFalse(installed_layout_allowed(spec, OSSM_4MB))
+        self.assertFalse(installed_layout_allowed(spec, DTT_V1, True))
+        self.assertFalse(installed_layout_allowed(policy('researchanddesire/OSSM', '4mb'), OSSM_16MB, True))
+        self.assertFalse(installed_layout_allowed(policy('researchanddesire/dtt', 'v2'), DTT_V1, True))
+        # Both reviewed OSSM layouts keep NVS in place, so the write's NVS check still holds.
+        self.assertEqual([r for r in OSSM_4MB if r[0] == 'nvs'], [r for r in OSSM_16MB if r[0] == 'nvs'])
+
+    def test_write_replaces_the_v1_layout_only_on_the_dual_lane_ossm(self):
+        spec = policy('researchanddesire/OSSM', '16mb')
+        table = b''.join(struct.pack('<HBBII16sI', 0x50aa, row[1], row[2], row[3], row[4], row[0].encode(), 0)
+                         for row in OSSM_4MB)+b'\xff'*32
+        def connected_board():
+            connected = MagicMock()
+            connected.run_stub.return_value = connected
+            connected.CHIP_NAME = 'ESP32'
+            connected.read_mac.return_value = bytes.fromhex(MAC)
+            connected.flash_id.return_value = 24 << 16
+            connected.read_flash.side_effect = lambda offset, size: table if offset == 0x8000 else b'nvs'
+            return connected
+        for allowed in (True, False):
+            with self.subTest(allowed=allowed), patch('write.esptool.detect_chip', return_value=connected_board()), \
+                 patch('write.esptool.main') as writer:
+                if allowed:
+                    write_verified('COM99', spec, MAC, Path('bundle'), 16777216, True)
+                    offsets = writer.call_args.args[0]
+                    self.assertIn('0x8000', offsets)
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'installed partitions changed'):
+                        write_verified('COM99', spec, MAC, Path('bundle'), 16777216, False)
+                    writer.assert_not_called()
+
+    def test_probe_accepts_the_v1_layout_only_on_the_dual_lane_ossm(self):
+        spec = policy('researchanddesire/OSSM', '16mb')
+        table = b''.join(struct.pack('<HBBII16sI', 0x50aa, row[1], row[2], row[3], row[4], row[0].encode(), 0)
+                         for row in OSSM_4MB)+b'\xff'*32
+        def esptool(port, spec, args, log, timeout=90):
+            if args[0] == 'read_flash':
+                Path(args[3]).write_bytes(table)
+                return ''
+            return 'MAC: aa:bb:cc:dd:ee:ff\nDetected flash size: 16MB\n'
+        device = dict(device_id=MAC, flash_bytes=16777216)
+        with patch('run.esptool', side_effect=esptool):
+            probe('COM99', spec, dict(device, allow_larger_flash=True), None)
+            with self.assertRaisesRegex(RuntimeError, 'installed partition layout differs'):
+                probe('COM99', spec, device, None)
+
+    def test_production_and_main_track_health_lines_are_kept(self):
+        boot = {'event': 'boot', 'boot_id': 7, 'uptime_ms': 812, 'build_sha': 'a'*40, 'track': 'main',
+                'variant': '4mb', 'device_id': MAC, 'image_sha256': 'b'*64, 'reset_reason': 1, 'hat_mode': 'off'}
+        heartbeat = {'event': 'heartbeat', 'boot_id': 7, 'uptime_ms': 5000, 'main_menu': True,
+                     'menu_age_ms': 12, 'hat': False, 'homed': True}
+        for prefix in ('LKBX_HEALTH ', 'OSSM_HEALTH ', 'DTT_HEALTH ', 'RADR_HEALTH '):
+            for record in (boot, heartbeat, {'event': 'wifi_connected', 'boot_id': 7, 'uptime_ms': 9, 'ip': '10.0.0.4'},
+                           {'event': 'cloud_ok', 'boot_id': 7, 'uptime_ms': 9},
+                           {'event': 'heartbeat', 'boot_id': 7, 'uptime_ms': 9, 'ram_free': 4, 'ram_largest': 2}):
+                line = prefix+json.dumps(record)
+                self.assertEqual(json.loads(safe_line('I (12) x: '+line).split(prefix, 1)[1]), record)
+        broker = {'event': 'mqtt_connected', 'boot_id': 7, 'uptime_ms': 9,
+                  'broker': 'mqtts://te9acc16.ala.us-east-1.emqxsl.com'}
+        self.assertIn('emqxsl.com', safe_line('OSSM_HEALTH '+json.dumps(broker)))
+        for unsafe in ({**broker, 'broker': 'mqtts://user:secret-value@host'}, {**boot, 'password': 'secret-value'},
+                       {**boot, 'track': 'secret-value'}, {**heartbeat, 'hat': 'secret-value'}):
+            self.assertNotIn('secret-value', safe_line('OSSM_HEALTH '+json.dumps(unsafe)))
+        self.assertNotIn('secret-value', safe_line('OSSM_HEALTH {"event":"boot","note":"secret-value"'))
+        staging = {'event': 'boot', 'boot_id': 1, 'uptime_ms': 2, 'track': 'main', 'product': 'ossm'}
+        self.assertEqual(json.loads(safe_line(PREFIX+json.dumps(staging))[len(PREFIX):]), staging)
+
+    def test_hat_switch_reply_and_mode_are_kept(self):
+        reply = {'mode': 'off', 'applies': 'next_boot'}
+        self.assertEqual(json.loads(safe_line(HAT_PREFIX+json.dumps(reply))[len(HAT_PREFIX):]), reply)
+        self.assertNotIn('secret-value', safe_line(HAT_PREFIX+json.dumps({**reply, 'x': 'secret-value'})))
+        self.assertNotIn('secret-value', safe_line(HAT_PREFIX+json.dumps({'mode': 'secret-value', 'applies': 'next_boot'})))
+        status = dict(detected=True, fresh=True, passive=True, guardReady=True, guardArmed=False,
+                      guardLatched=False, outputDisabled=True, guardFault=0)
+        kept = json.loads(safe_line(HAT_PREFIX+json.dumps({**status, 'mode': 'auto', 'ageMs': 3}))[len(HAT_PREFIX):])
+        self.assertEqual(kept, {**status, 'mode': 'auto'})
+
     def test_swapped_device_cannot_reach_write_flash(self):
         spec = policy('researchanddesire/dtt', 'v1')
         connected = MagicMock()
