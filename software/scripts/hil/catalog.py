@@ -75,10 +75,27 @@ def regions(spec):
     return result
 
 
+def serves_smaller_lane(spec):
+    """The one enrolled 16 MB OSSM also runs the 4 MB V1 release lane on the same chip."""
+    return spec['product'] == 'ossm' and spec['variant'] == '16mb'
+
+
 def physical_flash_allowed(spec, measured, allow_larger=False):
     if measured == spec['flash_bytes']:
-        return not allow_larger
+        # On the 16 MB OSSM the flag says this board also serves the 4 MB lane.
+        return not allow_larger or (allow_larger is True and serves_smaller_lane(spec))
     # Explicit bench substitution authorized by the fixture owner. The binary
     # and partitions still use the 4 MB V1 limits; evidence reports actual 16 MB.
     return (allow_larger is True and spec['product'] == 'dtt' and
             spec['variant'] == 'v1' and measured == 16*MIB)
+
+
+def installed_layout_allowed(spec, rows, allow_larger=False):
+    """Whether a write may replace the installed partition table with this variant's."""
+    if rows == spec['partitions']:
+        return True
+    # A release V1 job leaves the reviewed 4 MB OSSM layout on the dual-lane
+    # board, and the next 16 MB write puts this one back. Both keep NVS,
+    # otadata and app0 at the same offsets (the write verifies NVS), and the
+    # OSSM keeps nothing in its filesystem or coredump partitions.
+    return allow_larger is True and serves_smaller_lane(spec) and rows == OSSM_4MB

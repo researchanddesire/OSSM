@@ -17,7 +17,7 @@ import time
 import xml.etree.ElementTree as ET
 
 from bundle import validate, partition_rows
-from catalog import PRODUCTS, REPOSITORIES, policy, regions, physical_flash_allowed
+from catalog import PRODUCTS, REPOSITORIES, installed_layout_allowed, policy, regions, physical_flash_allowed
 from monitor import HAT_PREFIX, Monitor, PREFIX, parse_hat_status
 from ossm_guard import GuardWatch
 from video import Recorder
@@ -182,7 +182,7 @@ def probe(port, spec, device, log):
         esptool(port, spec, ['read_flash', '0x8000', '0x1000', str(path)], log)
         # Never overwrite an existing layout implicitly. Enrollment/migration
         # is a separate reviewed operation that preserves persistent storage.
-        if partition_rows(path.read_bytes()) != spec['partitions']:
+        if not installed_layout_allowed(spec, partition_rows(path.read_bytes()), device.get('allow_larger_flash', False)):
             raise RuntimeError('installed partition layout differs; enrollment/migration required')
 
 
@@ -203,6 +203,51 @@ def flash(port, spec, device, bundle, log):
         raise RuntimeError('verified flash failed; no retry is permitted')
 
 
+# Ordinary production health lines (always compiled in) and the staging-only
+# RAD_HEALTH line. Only these fields, with these shapes, are kept in logs.
+PRODUCTION_PREFIXES = ('LKBX_HEALTH ', 'OSSM_HEALTH ', 'DTT_HEALTH ', 'RADR_HEALTH ')
+TRACKS = 'staging|main'
+HEALTH_FIELDS = {
+    PREFIX: (
+        {'event': 'boot|heartbeat', 'product': 'lockbox|dtt|ossm|radr',
+         'variant': 'r2|r8|v1|v2|4mb|16mb', 'build_sha': '[0-9a-f]{40}',
+         'image_sha256': '[0-9a-f]{64}', 'device_id': '[0-9A-F]{12}', 'track': TRACKS},
+        {'boot_id', 'uptime_ms', 'schema', 'flash_bytes', 'app_age_ms', 'network_age_ms', 'disconnects'},
+        {'ready', 'wifi', 'bench_wifi', 'internet'}),
+    'production': (
+        {'event': 'boot|wifi_connected|mqtt_connected|cloud_ok|heartbeat',
+         'variant': 'r2|r8|v1|v2|4mb|16mb', 'build_sha': '[0-9a-f]{40}',
+         'image_sha256': '[0-9a-f]{64}', 'device_id': '[0-9A-F]{12}', 'track': TRACKS,
+         'hat_mode': 'auto|off',
+         # A broker URL without credentials, as the firmware configures it.
+         'broker': r'mqtts?://[a-z0-9.-]+(?::[0-9]{1,5})?'},
+        {'boot_id', 'uptime_ms', 'reset_reason', 'menu_age_ms', 'ram_free', 'ram_largest'},
+        {'main_menu', 'hat', 'homed'}),
+}
+
+
+def _safe_health(line, prefix, fields):
+    patterns, numeric, boolean = fields
+    try:
+        record = json.loads(line.split(prefix, 1)[1])
+        def safe_value(key, value):
+            if key in patterns:
+                return isinstance(value, str) and re.fullmatch(patterns[key], value)
+            if key in numeric:
+                return type(value) is int and 0 <= value < 2**64
+            if key in boolean:
+                return type(value) is bool
+            if key == 'ip' and isinstance(value, str):
+                ipaddress.IPv4Address(value)
+                return True
+            return False
+        if isinstance(record, dict) and all(safe_value(k, v) for k, v in record.items()):
+            return prefix+json.dumps(record, separators=(',', ':'))
+    except ValueError:
+        pass
+    return '[malformed or unexpected health record redacted]'
+
+
 def safe_line(line):
     # Staging Trainer diagnostics contain only fixed application state names.
     states = {'init', 'init.idle', 'init.preflight', 'pairing', 'play',
@@ -217,37 +262,26 @@ def safe_line(line):
         return line
     if line.startswith(HAT_PREFIX):
         hat = parse_hat_status(line)
+        try:
+            data = json.loads(line[len(HAT_PREFIX):])
+        except ValueError:
+            data = None
+        mode = data.get('mode') if isinstance(data, dict) else None
         if hat is not None:
+            if mode in ('auto', 'off'):
+                hat['mode'] = mode
             return HAT_PREFIX+json.dumps(hat, separators=(',', ':'))
+        # The OSSM's reply to `hat auto` / `hat off`.
+        if isinstance(data, dict) and mode in ('auto', 'off') and data == {'mode': mode, 'applies': 'next_boot'}:
+            return HAT_PREFIX+json.dumps(data, separators=(',', ':'))
         return '[malformed or unexpected HAT record redacted]'
-    # Retain the structured, credential-free health protocol.
+    # Retain the structured, credential-free health protocols.
     # Normal firmware logs may contain request bodies, Wi-Fi keys or pairing codes.
     if PREFIX in line:
-        try:
-            record = json.loads(line.split(PREFIX, 1)[1])
-            patterns = {'event': 'boot|heartbeat', 'product': 'lockbox|dtt|ossm|radr',
-                        'variant': 'r2|r8|v1|v2|4mb|16mb', 'build_sha': '[0-9a-f]{40}',
-                        'image_sha256': '[0-9a-f]{64}', 'device_id': '[0-9A-F]{12}',
-                        'track': 'staging'}
-            numeric = {'boot_id', 'uptime_ms', 'schema', 'flash_bytes', 'app_age_ms',
-                       'network_age_ms', 'disconnects'}
-            boolean = {'ready', 'wifi', 'bench_wifi', 'internet'}
-            def safe_value(key, value):
-                if key in patterns:
-                    return isinstance(value, str) and re.fullmatch(patterns[key], value)
-                if key in numeric:
-                    return type(value) is int and 0 <= value < 2**64
-                if key in boolean:
-                    return type(value) is bool
-                if key == 'ip' and isinstance(value, str):
-                    ipaddress.IPv4Address(value)
-                    return True
-                return False
-            if isinstance(record, dict) and all(safe_value(k, v) for k, v in record.items()):
-                return PREFIX+json.dumps(record, separators=(',', ':'))
-        except ValueError:
-            pass
-        return '[malformed or unexpected health record redacted]'
+        return _safe_health(line, PREFIX, HEALTH_FIELDS[PREFIX])
+    for prefix in PRODUCTION_PREFIXES:
+        if prefix in line:
+            return _safe_health(line, prefix, HEALTH_FIELDS['production'])
     categories = ['ESP-ROM:', 'rst:0x', 'Guru Meditation', 'panic', 'watchdog', 'Brownout', 'Rebooting']
     hits = [term for term in categories if term.lower() in line.lower()]
     return '[device log redacted'+(': '+', '.join(hits) if hits else '')+']'

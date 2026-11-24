@@ -25,6 +25,10 @@ OSSM's 4 MB profiles use the standard 4 MB min_spiffs layout and size optimizati
 Measured capacity alone does not authorize a partition migration. A 16 MB fixture
 still carrying the older 4 MB table fails preflight until a separately reviewed,
 storage-preserving migration has been completed. Never relabel it as a 4 MB board.
+The one exception is the dual-lane OSSM below: release V1 jobs leave the reviewed
+4 MB OSSM table on it, and the next 16 MB write puts its own table back. Both
+tables keep NVS, otadata and app0 at the same offsets, the write verifies NVS
+byte for byte, and the OSSM stores nothing in its filesystem or coredump partitions.
 
 ## Interfaces and trust boundary
 
@@ -68,7 +72,10 @@ reading its factory MAC/chip/flash, and verifying PSRAM where relevant. The owne
 has authorized a 16 MB Trainer to exercise the 4 MB V1 image/partition profile.
 That V1 fixture must retain `flash_bytes: 16777216` and explicitly set
 `allow_larger_flash: true`; boot evidence still verifies the actual 16 MB chip.
-This is profile coverage, not evidence of testing a physically 4 MB chip. The
+This is profile coverage, not evidence of testing a physically 4 MB chip.
+The single enrolled 16 MB OSSM may set `allow_larger_flash: true` too. It stays
+the one `16mb` OSSM fixture (one capacity, one guard) and then serves both
+release lanes, `ossm:v1` and `ossm:v2`; PR runs still flash it as `16mb`. The
 exception is refused for every other product/variant or capacity. Missing, duplicate, ambiguous,
 or incompatible fixtures fail before writes. Every write rechecks chip, MAC,
 flash and PSRAM and reads the installed partition table. A different table

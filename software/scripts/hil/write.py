@@ -6,10 +6,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import esptool
 from bundle import partition_rows
-from catalog import policy, regions, physical_flash_allowed
+from catalog import installed_layout_allowed, policy, regions, physical_flash_allowed
 
 
-def verify_connected(esp, spec, device_id, physical_flash_bytes=None):
+def verify_connected(esp, spec, device_id, physical_flash_bytes=None, allow_larger_flash=False):
     if esp.CHIP_NAME.lower().replace('-', '') != spec['chip']:
         raise RuntimeError('connected chip differs from the enrolled target')
     if bytes(esp.read_mac()).hex().upper() != device_id:
@@ -24,7 +24,7 @@ def verify_connected(esp, spec, device_id, physical_flash_bytes=None):
         variant = 'r2' if power == 0 and capacity in (1, 2) else 'r8' if power == 1 and capacity == 1 else 'unknown'
         if variant != spec['psram']:
             raise RuntimeError('PSRAM identity changed before writing')
-    if partition_rows(esp.read_flash(0x8000, 0x1000)) != spec['partitions']:
+    if not installed_layout_allowed(spec, partition_rows(esp.read_flash(0x8000, 0x1000)), allow_larger_flash):
         raise RuntimeError('installed partitions changed before writing')
 
 
@@ -35,7 +35,7 @@ def write_verified(port, spec, device_id, bundle, physical_flash_bytes=None, all
     esp = esptool.detect_chip(port=port, baud=115200, connect_attempts=3)
     try:
         esp = esp.run_stub()
-        verify_connected(esp, spec, device_id, physical_flash_bytes)
+        verify_connected(esp, spec, device_id, physical_flash_bytes, allow_larger_flash)
         # Never let esptool reconnect and retry a failed write behind the
         # fixture identity checks. A fresh reviewed run is required instead.
         esp.WRITE_FLASH_ATTEMPTS = 1
