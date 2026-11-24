@@ -56,6 +56,18 @@ reads skip them because `analogRead()` can change UART pin modes. The alternate
 `AJ_DEVELOPMENT_HARDWARE` display uses GPIO22; HAT initialization is disabled for
 that conflicting pinout.
 
+## Turning the HAT off
+
+The serial command `hat off` (see `docs/serial-identity.md` in the repository
+root) makes the next boot run as a board without a HAT, as an
+`OSSM_HAT_DISABLED` build does: no reader task or discovery, DE held LOW so
+nothing is sent on the bus, and homing on the board's analog current sensor.
+GPIO2/22/33 stay reserved. The HAT requirement remembered from earlier boots is
+not applied while the HAT is off, and it is kept for when `hat auto` turns
+detection back on. Builds with `OSSM_HAT_REQUIRE_SAFETY` still require the HAT,
+so they refuse to home with it off. The ALT board skips its HAT probe the same
+way.
+
 ## Shared PC safety bus
 
 Modbus RTU does not arbitrate between masters. A HAT that observes another

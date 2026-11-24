@@ -82,46 +82,33 @@ jobs:
             software/firmware/.pio/build/production/web-installer.bin
           retention-days: 14
 
-      - name: Checkout legacy 4 MB firmware with Bluetooth
-        uses: actions/checkout@v4
-        with:
-          ref: 065c1c70d8be0b6ebe3edf536051ca542b793d70 # main 1.0.39
-          path: legacy-4mb
-
-      - name: Pin legacy 4 MB dependencies
-        # The pinned legacy source asks for FastLED ^3.6.0; newer releases no
-        # longer compile against it. 3.10.3 matches the current firmware.
+      - name: Build V1 (4 MB) firmware
+        # Mirrors the V1 release build: the current source's production-4mb
+        # profile, which must fit the 4 MB OTA slot and keep Bluetooth.
+        working-directory: software/firmware
         run: |
-          sed -i 's#fastled/FastLED@^3.6.0#fastled/FastLED@3.10.3#' legacy-4mb/Software/platformio.ini
-          grep -qx '    fastled/FastLED@3.10.3' legacy-4mb/Software/platformio.ini
-
-      - name: Test and build legacy 4 MB firmware
-        run: |
-          VERSION="$(python software/scripts/release_version.py read --header software/firmware/src/constants/Version.h)"
-          python software/scripts/release_version.py write --version "$VERSION" \
-            --header legacy-4mb/Software/src/constants/Version.h --version-json legacy-4mb/version.json
-          pio test --project-dir legacy-4mb/Software -e test
-          RELEASE_BUILD_SHA=$(git rev-parse HEAD) pio run --project-dir legacy-4mb/Software -e production -t buildprog
-          grep -aFq "$(git rev-parse HEAD)" legacy-4mb/Software/.pio/build/production/firmware.bin
-          grep -aFq "$VERSION" legacy-4mb/Software/.pio/build/production/firmware.bin
-          test "$(stat --format=%s legacy-4mb/Software/.pio/build/production/firmware.bin)" -le $((0x1E0000 - 0x4000))
-          grep -qx 'CONFIG_BT_ENABLED=y' legacy-4mb/Software/sdkconfig.production
-          grep -qx 'CONFIG_ESPTOOLPY_FLASHSIZE="4MB"' legacy-4mb/Software/sdkconfig.production
+          VERSION="$(python ../scripts/release_version.py read --header src/constants/Version.h)"
+          RELEASE_BUILD_SHA=$(git rev-parse HEAD) pio run -e production-4mb
+          build=.pio/build/production-4mb
+          grep -aFq "$(git rev-parse HEAD)" "$build/firmware.bin"
+          grep -aFq "$VERSION" "$build/firmware.bin"
+          test "$(stat --format=%s "$build/firmware.bin")" -le $((0x1E0000 - 0x4000))
+          grep -qx 'CONFIG_BT_ENABLED=y' .pio/sdkconfig.production-4mb
+          grep -qx 'CONFIG_ESPTOOLPY_FLASHSIZE="4MB"' .pio/sdkconfig.production-4mb
           ~/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-nm \
-            legacy-4mb/Software/.pio/build/production/firmware.elf | grep -E 'NimBLEServer' > /dev/null
-          python .github/scripts/build_web_installer.py --flash-size 4MB \
-            --build-dir legacy-4mb/Software/.pio/build/production \
-            --output legacy-4mb/Software/.pio/build/production/web-installer.bin
+            "$build/firmware.elf" | grep -E 'NimBLEServer' > /dev/null
+          python ../../.github/scripts/build_web_installer.py --flash-size 4MB \
+            --build-dir "$build" --output "$build/web-installer.bin"
 
-      - name: Upload legacy 4 MB firmware artifact
+      - name: Upload V1 (4 MB) firmware artifact
         uses: actions/upload-artifact@v4
         with:
           name: firmware-v1
           path: |
-            legacy-4mb/Software/.pio/build/production/firmware.bin
-            legacy-4mb/Software/.pio/build/production/partitions.bin
-            legacy-4mb/Software/.pio/build/production/bootloader.bin
-            legacy-4mb/Software/.pio/build/production/web-installer.bin
+            software/firmware/.pio/build/production-4mb/firmware.bin
+            software/firmware/.pio/build/production-4mb/partitions.bin
+            software/firmware/.pio/build/production-4mb/bootloader.bin
+            software/firmware/.pio/build/production-4mb/web-installer.bin
           if-no-files-found: error
           retention-days: 1
 

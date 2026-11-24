@@ -5,6 +5,8 @@
 #include "constants/Version.h"
 #include "serialIdentityProtocol.h"
 #include "services/ossmHat.h"
+#include "services/ossmHatMode.h"
+#include "services/ossmHealth.h"
 #include "services/motorFeedback.h"
 #include "services/motorSafety.h"
 #include <ArduinoJson.h>
@@ -27,11 +29,8 @@ std::atomic<void (*)()> developmentPoll{nullptr};
 #endif
 
 void announce() {
-    const uint64_t mac = ESP.getEfuseMac();
     char deviceId[13];
-    snprintf(deviceId, sizeof(deviceId), "%02X%02X%02X%02X%02X%02X",
-             unsigned(mac & 255), unsigned((mac >> 8) & 255), unsigned((mac >> 16) & 255),
-             unsigned((mac >> 24) & 255), unsigned((mac >> 32) & 255), unsigned((mac >> 40) & 255));
+    serialIdentityDeviceId(deviceId);
     const serialIdentity::Info info{RAD_ID_PRODUCT, RAD_ID_MODEL, VERSION, FIRMWARE_TRACK,
         FIRMWARE_BUILD_SHA, deviceId, RAD_ID_FLASH_BYTES, RAD_ID_PSRAM_BYTES,
         ESP.getFlashChipSize(), ESP.getPsramSize()};
@@ -64,10 +63,25 @@ void announceHat() {
     doc["guardFault"] = safety.fault;
     doc["outputDisabled"] = safety.outputDisableVerified;
     doc["externalGuard"] = getMotorSerialSafetyStatus().externalGuard;
+    // The serial setting in effect for this boot.
+    doc["mode"] = ossm_hat_mode::name(ossmHatBootMode());
     char frame[640] = "RAD_HAT ";
     const size_t size = serializeJson(doc, frame + 8, sizeof(frame) - 10);
     frame[size + 8] = '\n';
     Serial.write(reinterpret_cast<const uint8_t *>(frame), size + 9);
+}
+
+// `hat off` / `hat auto`: stored for the next boot, answered with one line.
+void setHatMode(ossm_hat_mode::Mode mode) {
+    const char* error = nullptr;
+    // Flash writes stall the armed ESP32 motor guard's observer, so the
+    // setting is not stored while that guard is armed.
+    if (getMotorSafetyStatus().armed) error = "motor_armed";
+    else if (!storeOssmHatMode(mode)) error = "storage";
+    char frame[96];
+    const size_t size = ossm_hat_mode::formatReply(
+        frame, sizeof(frame), error ? ossmHatStoredMode() : mode, error);
+    if (size) Serial.write(reinterpret_cast<const uint8_t*>(frame), size);
 }
 
 void console(void*) {
@@ -76,6 +90,7 @@ void console(void*) {
     announce();
     uint32_t lastAnnouncement = millis();
     serialIdentity::CommandBuffer parser;
+    ossm_hat_mode::Mode hatMode = ossm_hat_mode::Mode::Auto;
     for (;;) {
         // Bound serial flood work so application tasks still get scheduled.
         for (int count = 0; count < 128 && Serial.available(); ++count) {
@@ -88,6 +103,7 @@ void console(void*) {
                 }
             }
             else if (strcmp(command, "hat") == 0) announceHat();
+            else if (ossm_hat_mode::parseCommand(command, hatMode)) setHatMode(hatMode);
 #ifdef VERSIONDEV
             else if (const auto handler = developmentCommand.load()) handler(command);
 #endif
@@ -95,9 +111,17 @@ void console(void*) {
 #ifdef VERSIONDEV
         if (const auto poll = developmentPoll.load()) poll();
 #endif
+        ossmHealthHeartbeat();
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
+}
+
+void serialIdentityDeviceId(char (&deviceId)[13]) {
+    const uint64_t mac = ESP.getEfuseMac();
+    snprintf(deviceId, sizeof(deviceId), "%02X%02X%02X%02X%02X%02X",
+             unsigned(mac & 255), unsigned((mac >> 8) & 255), unsigned((mac >> 16) & 255),
+             unsigned((mac >> 24) & 255), unsigned((mac >> 32) & 255), unsigned((mac >> 40) & 255));
 }
 
 void configureSerialIdentityUsb() {
@@ -131,6 +155,7 @@ void setSerialDevelopmentHandler(void (*command)(const char*), void (*poll)()) {
 }
 #endif
 #else
+void serialIdentityDeviceId(char (&deviceId)[13]) { deviceId[0] = '\0'; }
 void configureSerialIdentityUsb() {}
 void startSerialIdentity() {}
 #ifdef VERSIONDEV

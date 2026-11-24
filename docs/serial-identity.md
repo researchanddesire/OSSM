@@ -26,3 +26,33 @@ changing VID/PID or the serial number. Espressif's hardware USB Serial/JTAG name
 is fixed; CP210x UART bridge strings belong to the separate bridge and require
 host-side vendor configuration, not ESP firmware. Do not switch USB transports
 or rewrite identities merely to change a display name.
+
+## OSSM HAT setting
+
+The OSSM also accepts `hat off` and `hat auto` on the same port. The setting is
+stored on the device and applies from the next boot; `auto` is the default. The
+reply is one line, for example `RAD_HAT {"mode":"off","applies":"next_boot"}`.
+If the setting cannot be stored, the reply adds `"error"` (`motor_armed` while
+the onboard motor guard is armed, or `storage`) and `mode` is the unchanged
+stored value. The `hat` status record reports the `mode` in effect for this
+boot.
+
+With `off`, the OSSM boots as if no HAT were fitted: it never starts the HAT
+reader, holds the RS-485 transmitter off so it never sends on the bus, and homes
+on the board's own current sensor. The HAT pins stay reserved. `hat auto`
+restores HAT detection on the next boot. There is no BLE or app equivalent.
+
+## OSSM health record
+
+Every OSSM build, production included, prints `OSSM_HEALTH` followed by one JSON
+object per line, for release hardware validation. It carries no tokens, Wi-Fi
+passwords or MQTT credentials.
+
+- `boot`, once per boot: `boot_id` (random per boot), `uptime_ms`, `build_sha`,
+  `track`, `variant` (`4mb` for V1, `16mb` for V2), `device_id` (as in
+  `RAD_ID`), `image_sha256` (the running image), `reset_reason` and `hat_mode`.
+- `wifi_connected`, on every Wi-Fi connection, with the `ip` address.
+- `mqtt_connected`, on every MQTT connection, with the configured `broker`.
+- `heartbeat`, every 5 seconds: `main_menu` (at the idle main menu, with its
+  task still running), `menu_age_ms` (since the menu task last ran), `hat` (HAT
+  detected) and `homed`.

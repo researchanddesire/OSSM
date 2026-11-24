@@ -11,6 +11,7 @@
 #include <soc/uart_struct.h>
 
 #include "constants/Pins.h"
+#include "ossmHatMode.h"
 #include "ossmHatProtocol.hpp"
 #include "ossmHatPositionProtocol.hpp"
 #include "ossmHatTxAudit.hpp"
@@ -36,6 +37,9 @@ OssmHatStopStatus publishedStop;
 bool pendingStop = false;
 bool stopInFlight = false;
 bool initialized = false;
+// `hat off` keeps TX/RX/DE away from the expansion-pin users (BLE GPIO writes
+// could otherwise raise DE) while the transmitter stays off.
+bool reservedWhileOff = false;
 ossm_hat::PositionQueue positionQueue;
 OssmHatPositionValidator positionValidator = nullptr;
 ossm_hat::LatePositionReply latePositionReply;
@@ -752,6 +756,19 @@ void initOssmHat() {
     publishedStatus.discoveryComplete = true;
     return;
 #endif
+    if (ossmHatOff()) {
+        // Serial `hat off`, as OSSM_HAT_DISABLED: no reader task, so nothing
+        // is ever sent on the RS-485 bus; discovery completes with nothing
+        // detected and homing uses the board's current sensor.
+        digitalWrite(Pins::Hat::direction, LOW);
+        pinMode(Pins::Hat::direction, OUTPUT);
+        reservedWhileOff = true;
+        portENTER_CRITICAL(&stateMux);
+        publishedStatus.discoveryComplete = true;
+        portEXIT_CRITICAL(&stateMux);
+        ESP_LOGW(tag, "HAT off (serial setting): RS485 unused; send hat auto to restore");
+        return;
+    }
     if (Pins::Hat::tx == Pins::Remote::displayClock ||
         Pins::Hat::rx == Pins::Remote::displayClock) {
         ESP_LOGW(tag, "HAT UART conflicts with this development display pinout");
@@ -853,8 +870,8 @@ bool clearOssmHatStopAfterReview() {
 }
 
 bool ossmHatOwnsPin(int pin) {
-    return initialized && (pin == Pins::Hat::tx || pin == Pins::Hat::rx ||
-                           pin == Pins::Hat::direction);
+    return (initialized || reservedWhileOff) &&
+           (pin == Pins::Hat::tx || pin == Pins::Hat::rx || pin == Pins::Hat::direction);
 }
 
 void setOssmHatPositionValidator(OssmHatPositionValidator validator) {
