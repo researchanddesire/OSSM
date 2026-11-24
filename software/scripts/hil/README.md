@@ -154,6 +154,25 @@ harness watches the guard throughout the run and fails it on any guard fault,
 latch or stale status. The guard's before/after state is
 `results/rs485-guard.json`, and the comment shows motor stills from camera 2.
 
+The rig's Radar is held in its ROM loader for the whole OSSM run. A running
+Radar connects to a booting OSSM over BLE and asks for a mode, which starts a
+second homing that the guard latches on. The run takes `radr.lock` with the
+usual PR precedence and holds the enrolled Radar before any OSSM is flashed or
+reset, checking its factory MAC; a Radar that cannot be held fails the run
+before any write. At the end, on every path, each OSSM is parked in its ROM
+loader first and the Radar is then reset into its application; if an OSSM cannot
+be parked, the Radar stays held. The timeline and `results.json` (`radar`) record
+each step, and `results/radar-hold.log` keeps the esptool output. A rig without
+an enrolled Radar skips the hold and says so in the log.
+
+The guard allows one homing (two hard-stop contacts, lower and upper) per homing
+session, and ends a session only after 10 seconds without motion. Two homings
+inside one session trip "Unexpected repeated hard-stop contact". Flashing leaves
+the OSSM in its loader; before its observed boot the run waits, for 30 seconds
+at most, until the guard reports no contacts and the carriage has been still for
+longer than that. The boot's homing is then the only one in its session. If the
+session never clears, the run fails before the reset.
+
 The enrolled OSSM carries an RS-485 HAT on the motor bus the guard polls. The
 guard's polling keeps that HAT receive-only, so the firmware homes on STEP/DIR
 and treats the guard as its independent monitor. Twice a second the guard reads
