@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -17,7 +18,7 @@ from bundle import validate, package, merge, partition_rows, validate_partitions
 from catalog import (PRODUCTS, REPOSITORIES, policy, regions, DTT_V1, OSSM_4MB, OSSM_16MB,
                      installed_layout_allowed, physical_flash_allowed)
 from monitor import HAT_PREFIX, Monitor, EvidenceError, PREFIX
-from run import find_port, load_fixture, probe, rig_lock, safe_line, test_device, main
+from run import RadarHold, find_port, load_fixture, probe, rig_lock, safe_line, test_device, main
 
 SHA = 'a'*40
 MAC = 'AABBCCDDEEFF'
@@ -476,6 +477,153 @@ class HostTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('another process owns', result.stderr)
             self.assertFalse((Path(directory)/'ossm.lock.preempt').exists())
+
+
+
+RADAR_DEVICE = dict(product='radr', enrolled=True, chip='esp32s3', flash_bytes=16777216, psram='r8',
+                    device_id='A4CB8FC2DCB8', usb_vid=4292, usb_pid=60000, usb_serial='0001')
+OSSM_DEVICE = dict(product='ossm', enrolled=True, chip='esp32', flash_bytes=16777216, psram=None,
+                   device_id='4CC3821011DC', usb_vid=4292, usb_pid=60000, usb_location='1-4.3.4.2')
+
+
+class RadarIsolationTests(unittest.TestCase):
+    """OSSM PR runs keep the rig's Radar in its ROM loader, then park the OSSM before releasing it."""
+    def setUp(self):
+        self.calls, self.failing, self.macs = [], set(), {}
+
+    def esptool(self, port, spec, args, log, timeout=90, after='no_reset'):
+        self.calls.append((port, args[0], after))
+        if port in self.failing:
+            raise RuntimeError('esptool failed: '+args[0])
+        mac = self.macs.get(port, {'COM4': RADAR_DEVICE, 'COM6': OSSM_DEVICE}[port]['device_id'])
+        return 'MAC: ' + ':'.join(mac[i:i+2] for i in range(0, 12, 2)).lower() + '\n'
+
+    def port(self, device):
+        return 'COM4' if device['product'] == 'radr' else 'COM6'
+
+    def hold(self, directory, events):
+        return RadarHold(RADAR_DEVICE, {'16mb': OSSM_DEVICE}, 'researchanddesire/OSSM', Path(directory),
+                         lambda variant, name: events.append((variant, name)))
+
+    def test_the_ossm_is_parked_before_the_radar_is_released(self):
+        events = []
+        with tempfile.TemporaryDirectory() as directory, patch('run.esptool', side_effect=self.esptool), \
+             patch('run.find_port', side_effect=self.port):
+            hold = self.hold(directory, events)
+            hold.hold()
+            hold.release()
+            hold.release()  # idempotent
+            self.assertTrue(Path(directory, 'radar-hold.log').exists())
+        self.assertEqual(self.calls, [('COM4', 'read_mac', 'no_reset'), ('COM6', 'read_mac', 'no_reset'),
+                                      ('COM4', 'read_mac', 'hard_reset')])
+        self.assertEqual(hold.record, dict(enrolled=True, held=True, ossm_parked=True, released=True, errors=[]))
+        self.assertEqual([variant for variant, _ in events], ['radr', '16mb', 'radr'])
+
+    def test_the_radar_stays_held_when_the_ossm_cannot_be_parked(self):
+        events = []
+        self.failing.add('COM6')
+        with tempfile.TemporaryDirectory() as directory, patch('run.esptool', side_effect=self.esptool), \
+             patch('run.find_port', side_effect=self.port):
+            hold = self.hold(directory, events)
+            hold.hold()
+            hold.release()
+        self.assertNotIn(('COM4', 'read_mac', 'hard_reset'), self.calls)
+        self.assertFalse(hold.record['released'])
+        self.assertIn('the Radar stays held', hold.record['errors'][0])
+        self.assertEqual(events[-1], ('radr', 'left in its ROM loader: the OSSM could not be parked'))
+
+    def test_a_wrong_board_on_either_port_is_not_accepted(self):
+        self.macs['COM4'] = 'AABBCCDDEEFF'
+        with tempfile.TemporaryDirectory() as directory, patch('run.esptool', side_effect=self.esptool), \
+             patch('run.find_port', side_effect=self.port):
+            with self.assertRaisesRegex(RuntimeError, 'factory MAC'):
+                self.hold(directory, []).hold()
+            untouched = self.hold(directory, [])
+            untouched.release()  # never held: nothing to park or release
+        self.assertEqual(self.calls, [('COM4', 'read_mac', 'no_reset')])
+
+    def run_main(self, repository='researchanddesire/OSSM', radar_enrolled=True):
+        product = REPOSITORIES[repository]
+        devices = {'16mb': OSSM_DEVICE} if product == 'ossm' else {'v1': {'port': 'COM7'}, 'v2': {'port': 'COM8'}}
+        self.timeline, self.locks, self.fixtures = [], [], []
+        def fixtures(path, repo):
+            self.fixtures.append(repo)
+            if repo == 'researchanddesire/radr':
+                if not radar_enrolled:
+                    raise ValueError('fixture does not cover every required variant')
+                return {'r8': RADAR_DEVICE}
+            return devices
+        def lock(path, **kwargs):
+            self.locks.append(Path(path).name)
+            return MagicMock()
+        def esptool(port, spec, args, log, timeout=90, after='no_reset'):
+            self.timeline.append(f'esptool {port} {after}')
+            return self.esptool(port, spec, args, log, timeout, after)
+        class Recorder:
+            def __init__(rec, *args): pass
+            def start(rec): pass
+            def stop(rec): pass
+            def event(rec, variant, name): self.timeline.append(f'event {variant}: {name}')
+        class Guard:
+            def __init__(guard, *args): pass
+            def require(guard, quiet=None): self.timeline.append('guard')
+            def close(guard): pass
+        def device(variant, *args):
+            self.timeline.append('test_device')
+            return dict(variant=variant, status='passed')
+        manifest = dict(repository=repository, product=product)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            argv = ['run.py', '--repository', repository, '--build-sha', SHA, '--run-id', '42', '--run-attempt', '1',
+                    '--bundle', str(root/'bundle'), '--fixture', str(root/'fixture.json'),
+                    '--output', str(root/'output'), '--lock-directory', str(root/'locks')]
+            with patch('sys.argv', argv), patch('run.validate', return_value=manifest), \
+                 patch('run.load_fixture', side_effect=fixtures), patch('run.rig_lock', side_effect=lock), \
+                 patch('run.find_port', side_effect=lambda d: d.get('port') or self.port(d)), \
+                 patch('run.esptool', side_effect=esptool), patch('run.Recorder', Recorder), \
+                 patch('run.GuardWatch', Guard), patch('run.test_device', side_effect=device):
+                code = main()
+            report = json.loads((root/'output'/'results.json').read_text())
+        return code, report
+
+    def test_an_ossm_pr_run_holds_the_radar_for_the_whole_run(self):
+        code, report = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.locks, ['ossm.lock', 'radr.lock'])
+        line = self.timeline
+        self.assertLess(line.index('esptool COM4 no_reset'), line.index('guard'))
+        self.assertLess(line.index('guard'), line.index('test_device'))
+        self.assertLess(line.index('test_device'), line.index('esptool COM6 no_reset'))
+        self.assertLess(line.index('esptool COM6 no_reset'), line.index('esptool COM4 hard_reset'))
+        self.assertEqual(report['radar'], dict(enrolled=True, held=True, ossm_parked=True, released=True, errors=[]))
+        self.assertIn('event radr: held in its ROM loader so it cannot connect to the OSSM', line)
+
+    def test_a_rig_without_a_radar_runs_the_ossm_and_says_so(self):
+        out = io.StringIO()
+        with patch('sys.stdout', out):
+            code, report = self.run_main(radar_enrolled=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.locks, ['ossm.lock'])
+        self.assertFalse(any('COM4' in step for step in self.timeline))
+        self.assertEqual(report['radar'], dict(enrolled=False))
+        self.assertIn('radar: not enrolled on this rig', out.getvalue())
+
+    def test_a_radar_that_cannot_be_held_stops_the_ossm_run_before_any_write(self):
+        self.failing.add('COM4')
+        code, report = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertEqual(report['devices'][0]['variant'], 'preflight')
+        self.assertIn('refusing to run the OSSM beside it', report['devices'][0]['error'])
+        self.assertNotIn('guard', self.timeline)
+        self.assertNotIn('test_device', self.timeline)
+        self.assertFalse(report['radar']['held'])
+
+    def test_other_products_never_touch_the_radar(self):
+        code, report = self.run_main('researchanddesire/dtt')
+        self.assertEqual(code, 0)
+        self.assertEqual(self.fixtures, ['researchanddesire/dtt'])
+        self.assertNotIn('radr.lock', self.locks)
+        self.assertNotIn('radar', report)
 
 
 if __name__ == '__main__':

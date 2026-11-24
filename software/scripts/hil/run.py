@@ -145,15 +145,85 @@ def find_port(device):
     return matches[0]
 
 
-def esptool(port, spec, args, log, timeout=90):
+def esptool(port, spec, args, log, timeout=90, after='no_reset'):
     command = [sys.executable, '-m', 'esptool', '--chip', spec['chip'], '--port', port,
-               '--baud', '460800', '--after', 'no_reset', *args]
+               '--baud', '460800', '--after', after, *args]
     completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True, encoding='utf-8', errors='replace', timeout=timeout)
     log.write(completed.stdout); log.flush()
     if completed.returncode:
         raise RuntimeError('esptool failed: '+args[0])
     return completed.stdout
+
+
+def answered_mac(output):
+    macs = re.findall(r'MAC:\s*([0-9a-fA-F:]{17})', output)
+    return macs[-1].replace(':', '').upper() if macs else None
+
+
+def park(device, spec, log):
+    """Hold an enrolled board in its ROM loader (no pulses, no radio) and check it answered."""
+    if answered_mac(esptool(find_port(device), spec, ['read_mac'], log)) != device['device_id']:
+        raise RuntimeError('the board on the enrolled port did not answer with its factory MAC')
+
+
+RADAR = 'researchanddesire/radr'
+
+
+def enrolled_radar(fixture):
+    """The rig's Radar fixture, or None where it is not enrolled."""
+    try:
+        return next(iter(load_fixture(fixture, RADAR).values()))
+    except (KeyError, ValueError, OSError, StopIteration):
+        return None
+
+
+class RadarHold:
+    """Keep the rig's Radar in its ROM loader for a whole OSSM run.
+
+    A running Radar connects to a booting OSSM over BLE and asks for a mode,
+    which starts a second homing that the RS-485 guard latches on. At the end
+    every OSSM is parked in its ROM loader first, so the Radar, reset into its
+    application afterwards, has nothing to connect to. If an OSSM cannot be
+    parked, the Radar stays held.
+    """
+    FAILURES = (RuntimeError, OSError, subprocess.SubprocessError)
+
+    def __init__(self, radar, ossm, repository, output, event):
+        self.radar, self.ossm, self.repository = radar, ossm, repository
+        self.log_path = output/'radar-hold.log'
+        self.event = event
+        self.attempted = self.done = False
+        self.record = dict(enrolled=True, held=False, ossm_parked=False, released=False, errors=[])
+
+    def hold(self):
+        self.attempted = True
+        with self.log_path.open('a', encoding='utf-8') as log:
+            park(self.radar, policy(RADAR, 'r8'), log)
+        self.record['held'] = True
+        self.event('radr', 'held in its ROM loader so it cannot connect to the OSSM')
+
+    def release(self):
+        """Idempotent and never raises, so the rest of the cleanup still runs."""
+        if self.done or not self.attempted:
+            return
+        self.done = True
+        with self.log_path.open('a', encoding='utf-8') as log:
+            try:
+                for variant, device in self.ossm.items():
+                    park(device, policy(self.repository, variant), log)
+                    self.event(variant, 'parked in its ROM loader before the Radar was released')
+                self.record['ossm_parked'] = True
+            except self.FAILURES as error:
+                self.record['errors'].append(f'OSSM not parked, so the Radar stays held: {error}')
+                self.event('radr', 'left in its ROM loader: the OSSM could not be parked')
+                return
+            try:
+                esptool(find_port(self.radar), policy(RADAR, 'r8'), ['read_mac'], log, after='hard_reset')
+                self.record['released'] = True
+                self.event('radr', 'released into its application')
+            except self.FAILURES as error:
+                self.record['errors'].append(f'Radar not reset into its application: {error}')
 
 
 def probe(port, spec, device, log):
@@ -361,6 +431,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     results = []
     recorder = guard = None
+    radar_record = None
     try:
         manifest = validate(args.bundle, args.repository, args.build_sha, args.run_id, args.run_attempt)
         devices = load_fixture(args.fixture, args.repository)
@@ -373,6 +444,13 @@ def main():
             # Cooperate with the existing Lockbox runner during migration.
             if product == 'lockbox' and os.name == 'nt':
                 stack.enter_context(rig_lock(Path('C:/lkbx-hil/fixture.lock'), **claim))
+            radar = enrolled_radar(args.fixture) if product == 'ossm' else None
+            if product == 'ossm' and radar is None:
+                radar_record = dict(enrolled=False)
+                print('radar: not enrolled on this rig, so it is not held during the OSSM run', flush=True)
+            elif radar is not None:
+                # The same precedence as the product lock: a PR run takes it from a manual holder.
+                stack.enter_context(rig_lock(args.lock_directory/'radr.lock', **claim))
             # Resolve every target before any board is touched.
             ports = [find_port(d) for d in devices.values()]
             if len(set(ports)) != len(ports):
@@ -380,6 +458,17 @@ def main():
             # Evidence video never decides a result; the camera map is host-only.
             recorder = Recorder(args.fixture.with_name('cameras.json'), product, list(devices), args.output)
             recorder.start()
+            if radar is not None:
+                # Before any OSSM is flashed or reset; released after every OSSM is parked.
+                radar_hold = RadarHold(radar, devices, manifest['repository'], args.output, recorder.event)
+                radar_record = radar_hold.record
+                stack.callback(radar_hold.release)
+                try:
+                    radar_hold.hold()
+                except RadarHold.FAILURES as error:
+                    radar_record['errors'].append(str(error))
+                    raise RuntimeError(f'the rig Radar could not be held in its ROM loader ({error}); '
+                                       'refusing to run the OSSM beside it') from error
             if product == 'ossm':
                 # No OSSM image is written unless the RS-485 guard protects the motor.
                 guard = GuardWatch(args.fixture.with_name('rs485-guard')/'status.json', args.output,
@@ -402,9 +491,13 @@ def main():
             guard.close()
         if recorder:
             recorder.stop()
+    if radar_record is not None:
+        print('radar: ' + json.dumps(radar_record), flush=True)
     report = dict(schema=2, repository=args.repository, build_sha=args.build_sha,
                   run_id=args.run_id, run_attempt=args.run_attempt,
                   completed_at=datetime.now(timezone.utc).isoformat(), devices=results)
+    if radar_record is not None:
+        report['radar'] = radar_record
     (args.output/'results.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
     failures = sum(r['status'] != 'passed' for r in results)
     suite = ET.Element('testsuite', name='Hardware validation', tests=str(len(results)), failures=str(failures))
