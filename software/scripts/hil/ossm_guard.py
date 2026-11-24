@@ -25,6 +25,15 @@ MAX_SAMPLE_AGE_MS = 500.0
 # A recovery moves the carriage up to the rail's length at 20 mm/s, then settles.
 RECOVERY_WAIT_S = 180.0
 RECOVERY_SETTLE_S = 20.0
+# The guard allows two hard-stop contacts (lower, upper) per homing session and
+# ends a session only after SESSION_IDLE_S without motion (hat_guard.py). A second
+# homing inside an open session trips "Unexpected repeated hard-stop contact".
+SESSION_IDLE_S = 10.0
+SESSION_CLEAR_WAIT_S = 30.0
+COUNTS_PER_MM = 32768 / 40
+LOADED_A = 1.5
+# The guard's quiet carriage moves under 1 mm/s; this is half a second of that.
+STILL_COUNTS = int(0.5 * COUNTS_PER_MM)
 
 
 def read_status(path):
@@ -152,6 +161,38 @@ class GuardWatch:
         self._faults = status.get('faultCount', 0)
         self._thread = threading.Thread(target=self._watch, daemon=True)
         self._thread.start()
+
+    def wait_session_clear(self, timeout=SESSION_CLEAR_WAIT_S, idle=SESSION_IDLE_S + 1.0,
+                           clock=time.monotonic, sleep=time.sleep):
+        """Before an OSSM boot that homes: wait until the guard's homing session is empty.
+
+        The OSSM must already be parked in its ROM loader. Returns once the guard
+        reports no contacts and the carriage has been still for longer than the
+        guard's idle limit; raises RuntimeError after `timeout`.
+        """
+        started = clock()
+        last = quiet_since = None
+        while True:
+            self.check()
+            status, reason = self._inspect()
+            if status is None:
+                raise RuntimeError('RS-485 safety guard: ' + reason)
+            now = clock()
+            sample = status.get('latest') or {}
+            position = sample.get('position')
+            current = abs(sample.get('current') or 0)
+            still = (isinstance(position, (int, float)) and last is not None and abs(position - last) <= STILL_COUNTS
+                     and current <= LOADED_A and not status.get('activeContact'))
+            last = position if isinstance(position, (int, float)) else None
+            quiet_since = (quiet_since if quiet_since is not None else now) if still else None
+            contacts = status.get('contacts') or []
+            if still and not contacts and now - quiet_since >= idle:
+                return
+            if now - started >= timeout:
+                raise RuntimeError(
+                    f"RS-485 safety guard: its homing session did not clear within {timeout:.0f} s of parking the OSSM "
+                    f"(contacts: {', '.join(map(str, contacts)) or 'none'}; carriage {'still' if still else 'moving'})")
+            sleep(0.5)
 
     def _watch(self):
         while not self._stop.wait(1.0):

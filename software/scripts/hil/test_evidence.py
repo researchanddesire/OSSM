@@ -158,6 +158,58 @@ class GuardTests(unittest.TestCase):
             watch.close()
 
 
+class SessionClearTests(unittest.TestCase):
+    """Before an OSSM boot that homes, the guard's homing session must be empty and the carriage still."""
+    def wait(self, statuses, timeout=30.0, idle=11.0):
+        clock = iter(i * 0.5 for i in range(10_000))
+        watch = GuardWatch(Path('status.json'), '.')
+        samples = iter(statuses)
+        def inspect():
+            status = guard_status(**next(samples))
+            return status, None
+        with patch.object(watch, '_inspect', side_effect=inspect):
+            now = []
+            def tick():
+                now.append(next(clock))
+                return now[-1]
+            watch.wait_session_clear(timeout=timeout, idle=idle, clock=tick, sleep=lambda s: None)
+        return now[-1]
+
+    @staticmethod
+    def still(contacts=(), position=-83000, current=0.01, **changes):
+        return {'contacts': list(contacts), 'latest': dict(position=position, current=current),
+                'activeContact': None, **changes}
+
+    def test_waits_for_the_session_reset_and_more_than_the_idle_time(self):
+        # Contacts from an interrupted homing until the guard resets the session, then still.
+        statuses = [self.still(['lower'])] * 21 + [self.still()] * 40
+        # Samples every 0.5 s from 0.5 s. The first cannot show stillness, so the
+        # still window starts at 1.0 s; the session resets at 11.0 s; done at 12.0 s.
+        self.assertEqual(self.wait(statuses), 12.0)
+
+    def test_motion_restarts_the_still_window(self):
+        moving = [self.still(position=-83000 + 2000 * i) for i in range(10)]
+        finished = self.wait(moving + [self.still()] * 40)
+        self.assertGreaterEqual(finished, 5.0 + 11.0)
+
+    def test_a_loaded_motor_or_open_contact_is_not_still(self):
+        statuses = ([self.still(current=2.0)] * 10 + [self.still(activeContact=dict(end='lower'))] * 10
+                    + [self.still()] * 40)
+        self.assertGreaterEqual(self.wait(statuses), 10.0 + 11.0)
+
+    def test_a_session_that_never_clears_fails_with_its_contacts(self):
+        with self.assertRaisesRegex(RuntimeError, r'did not clear within 30 s of parking the OSSM \(contacts: lower'):
+            self.wait([self.still(['lower'])] * 100)
+        with self.assertRaisesRegex(RuntimeError, 'carriage moving'):
+            self.wait([self.still(position=-83000 + 2000 * i) for i in range(100)])
+
+    def test_a_guard_fault_ends_the_wait(self):
+        watch = GuardWatch(Path('status.json'), '.')
+        watch.failure = 'RS-485 safety guard: guard stopped the motor'
+        with self.assertRaisesRegex(RuntimeError, 'guard stopped the motor'):
+            watch.wait_session_clear(clock=lambda: 0.0, sleep=lambda s: None)
+
+
 class VideoTests(unittest.TestCase):
     def test_presets_are_validated(self):
         self.assertIn('hflip,vflip', view_filter(dict(crop=[0.1, 0.1, 0.5, 0.5], rotate=180), clock=False))

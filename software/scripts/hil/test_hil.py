@@ -618,6 +618,25 @@ class RadarIsolationTests(unittest.TestCase):
         self.assertNotIn('test_device', self.timeline)
         self.assertFalse(report['radar']['held'])
 
+    def test_an_ossm_pr_run_boots_only_after_the_guard_session_clears(self):
+        steps = []
+        guard = MagicMock()
+        guard.wait_session_clear.side_effect = lambda: steps.append('wait clear')
+        manifest = dict(repository='researchanddesire/OSSM', build_sha=SHA,
+                        variants={'16mb': dict(image_sha256='b'*64)})
+        with tempfile.TemporaryDirectory() as directory, patch('run.find_port', return_value='COM6'), \
+             patch('run.probe', side_effect=lambda *a: steps.append('probe')), \
+             patch('run.flash', side_effect=lambda *a: steps.append('flash')), \
+             patch('run.observe', side_effect=lambda *a: steps.append('observe')):
+            test_device('16mb', OSSM_DEVICE, manifest, Path(directory), Path(directory), None, guard)
+            self.assertEqual(steps, ['probe', 'flash', 'wait clear', 'observe'])
+            steps.clear()
+            guard.wait_session_clear.side_effect = RuntimeError('RS-485 safety guard: its homing session did not clear')
+            result = test_device('16mb', OSSM_DEVICE, manifest, Path(directory), Path(directory), None, guard)
+        self.assertEqual(steps, ['probe', 'flash'])
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('did not clear', result['error'])
+
     def test_other_products_never_touch_the_radar(self):
         code, report = self.run_main('researchanddesire/dtt')
         self.assertEqual(code, 0)

@@ -165,6 +165,14 @@ be parked, the Radar stays held. The timeline and `results.json` (`radar`) recor
 each step, and `results/radar-hold.log` keeps the esptool output. A rig without
 an enrolled Radar skips the hold and says so in the log.
 
+The guard allows one homing (two hard-stop contacts, lower and upper) per homing
+session, and ends a session only after 10 seconds without motion. Two homings
+inside one session trip "Unexpected repeated hard-stop contact". Flashing leaves
+the OSSM in its loader; before its observed boot the run waits, for 30 seconds
+at most, until the guard reports no contacts and the carriage has been still for
+longer than that. The boot's homing is then the only one in its session. If the
+session never clears, the run fails before the reset.
+
 The enrolled OSSM carries an RS-485 HAT on the motor bus the guard polls. The
 guard's polling keeps that HAT receive-only, so the firmware homes on STEP/DIR
 and treats the guard as its independent monitor. Twice a second the guard reads

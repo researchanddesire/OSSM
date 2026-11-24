@@ -407,6 +407,11 @@ def test_device(variant, device, manifest, bundle, output, recorder=None, guard=
                         build_sha=manifest['build_sha'], track='staging',
                         image_sha256=manifest['variants'][variant]['image_sha256'])
         monitor = Monitor(expected, time.monotonic())
+        if guard:
+            # The OSSM is still in its loader after flashing. Its boot must be the
+            # only homing in the guard's session, so wait for an earlier one to end.
+            guard.wait_session_clear()
+            event(variant, 'guard homing session clear')
         event(variant, 'reset and observe')
         with (output/(variant+'-serial.log')).open('w', encoding='utf-8') as log:
             observe(device, port, monitor, log, guard)
