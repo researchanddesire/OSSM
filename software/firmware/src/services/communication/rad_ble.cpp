@@ -12,6 +12,8 @@
 #include "ossm/Events.h"
 #include "ossm/OSSM.h"
 #include "ossm/state/actions.h"
+#include "ossm/streaming/saved_pattern.h"
+#include "ossm/streaming/drawn_pattern.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/motion.h"
 #include "ossm/state/settings.h"
@@ -92,6 +94,8 @@ const radble::Resource RESOURCES[] = {
     {"gpio4", "analog.expansion4", "analog", "int", "raw", RWT, ""},
     {"position", "motion.position", "motion", "float", "mm", RWST,
      "{\"min\":0,\"max\":100}"},
+    {"drawn_pattern", "pattern.play", "motion", "object", "", RWS,
+     R"({"version":1,"minSamples":16,"maxSamples":128,"timeUnit":"ms"})"},
     {"homed", "motion.homed", "motion", "bool", "", RS, ""},
     {"speed", "motion.speed", "setting", "int", "percent", RWST,
      "{\"min\":0,\"max\":100}"},
@@ -241,6 +245,60 @@ radble::Result settingValue(const String& path) {
     return radble::Result::success(output);
 }
 
+radble::Result patternStatus() {
+    JsonDocument status;
+    status["version"] = 1;
+    status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
+    status["active"] = streaming::drawnPatternActive();
+    status["periodMs"] = streaming::drawnPatternPeriodMs();
+    status["stored"] = streaming::hasSavedPattern();
+    String output;
+    serializeJson(status, output);
+    return radble::Result::success(output);
+}
+
+radble::Result handlePatternCommand(const String &operation, JsonObjectConst args) {
+    using namespace streaming;
+    if (operation == "pattern.stop") {
+        cancelDrawnPattern();
+        return patternStatus();
+    }
+    if (operation == "pattern.keepalive") {
+        if (!renewBlePattern(radBleServer.currentRequestConnection()))
+            return radble::Result::failure("not_playing", "Pattern playback has stopped");
+        return patternStatus();
+    }
+    const bool save = operation == "pattern.save";
+    if (!save && operation != "pattern.play")
+        return radble::Result::failure("unsupported", "Unknown pattern command");
+    SavedPattern value;
+    if (!save && args.size() == 0) {
+        if (!getSavedPattern(value))
+            return radble::Result::failure("not_found", "No pattern saved on this OSSM");
+    } else {
+        const auto samples = args["samples"].as<JsonString>();
+        if (samples.isNull() || !args["periodMs"].is<uint32_t>() ||
+            !makeSavedPattern(value, samples.c_str(), samples.size(), args["periodMs"].as<uint32_t>()))
+            return radble::Result::failure("invalid_value", "Expected 16..128 hex-encoded samples and a 500..60000 ms period");
+    }
+    if (save) {
+        bool written = false;
+        if (!stateMachine->process_event(SavePattern{value, written}))
+            return radble::Result::failure("invalid_state", "Return to the menu to save a pattern");
+        if (!written)
+            return radble::Result::failure("save_failed", "The OSSM could not save the pattern");
+        return patternStatus();
+    }
+    const auto started = startBlePattern(radBleServer.currentRequestConnection(),
+                                         value.samples, value.length, value.periodMs);
+    if (started == PatternStart::Accepted) return patternStatus();
+    if (started == PatternStart::Busy)
+        return radble::Result::failure("busy", "Stop the current pattern before playing another");
+    if (started == PatternStart::Invalid)
+        return radble::Result::failure("invalid_value", "Invalid pattern");
+    return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");
+}
+
 radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     if (ossm == nullptr || stateMachine == nullptr)
         return radble::Result::failure("not_ready", "OSSM is still starting");
@@ -248,6 +306,13 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     const String operation = request["op"] | "";
     const String path = request["path"] | "";
     const JsonObjectConst args = request["args"].as<JsonObjectConst>();
+
+    if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
+    if (operation.startsWith("pattern.")) {
+        if (!request["args"].is<JsonObjectConst>() && operation == "pattern.play")
+            return radble::Result::failure("invalid_value", "Use an empty object to replay the saved pattern");
+        return handlePatternCommand(operation, args);
+    }
 
     if (operation == "ota.start" && String(args["transport"] | "") == "wifi") {
         if (WiFi.status() != WL_CONNECTED)
@@ -982,6 +1047,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
 
 radble::Result prepareOta(bool starting, const char*, void*) {
     if (!starting) return radble::Result::success();
+    streaming::cancelDrawnPattern();
     disarmMotorSafety();
     if (stepper != nullptr) ossmEmergencyStop();
     settings.speed = 0;
@@ -990,7 +1056,10 @@ radble::Result prepareOta(bool starting, const char*, void*) {
     return radble::Result::success();
 }
 
-void releaseDiagnosticOutputs(void*) { setLEDOff(); }
+void releaseDiagnosticOutputs(void*) {
+    streaming::cancelRemoteDrawnPattern();
+    setLEDOff();
+}
 
 }  // namespace
 

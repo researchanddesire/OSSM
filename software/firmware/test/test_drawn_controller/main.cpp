@@ -1,0 +1,147 @@
+#include <unity.h>
+#include <vector>
+#include "../../src/ossm/streaming/drawn_pattern.cpp"
+
+namespace io = streaming::pattern_motor;
+using namespace streaming;
+namespace {
+io::State motor;
+uint64_t revision;
+uint32_t clockMs;
+int stops;
+std::vector<int32_t> frames;
+io::Frame feedback;
+const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
+
+PatternStart start(bool local = false) { return startDrawnPattern(samples, 32, 2000, revision, local); }
+void tick(uint32_t count = 1) {
+    for (uint32_t i = 0; i < count; ++i) {
+        ++clockMs;
+        serviceDrawnPattern(revision);
+    }
+}
+}
+namespace streaming::pattern_motor {
+State read(uint64_t ticket) {
+    auto copy = motor;
+    copy.ready = copy.ready && ticket == revision;
+    return copy;
+}
+uint32_t now() { return clockMs; }
+bool current(uint64_t ticket) { return ticket == revision; }
+bool position(uint64_t ticket, int32_t target, const State &, bool) {
+    if (!read(ticket).ready) return false;
+    motor.position = target;
+    return true;
+}
+Frame submit(int32_t target, uint64_t ticket, bool) {
+    if (!read(ticket).ready) return Frame::Rejected;
+    if (feedback == Frame::Accepted) frames.push_back(target);
+    return feedback;
+}
+void stop(uint64_t ticket) { if (ticket == revision) ++stops; }
+}
+
+void setUp() {
+    ++revision;
+    motor = {true, false, false, false, -100, -2000, -1000, 0, 8000};
+    clockMs = 0;
+    frames.clear();
+    stops = 0;
+    feedback = io::Frame::Accepted;
+    setDrawnPatternReady(revision, true);
+}
+void tearDown() { setDrawnPatternReady(revision, false); }
+
+void test_zero_speed_arms_but_expiry_never_restarts() {
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(4999);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(frames.empty());
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_FALSE(renewDrawnPattern(revision));
+    motor.speed = 100;
+    tick(25);
+    TEST_ASSERT_TRUE(frames.empty());
+}
+
+void test_remote_renewal_zero_stop_and_no_automatic_restart() {
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(start()));
+    tick(4990);
+    TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+    motor.speed = 240;
+    tick(700);
+    TEST_ASSERT_FALSE(frames.empty());
+    for (int32_t v : frames) TEST_ASSERT_TRUE(v >= motor.from && v <= motor.to);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2000, drawnPatternPeriodMs());
+    motor.speed = 0;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(1, stops);
+    const auto emitted = frames.size();
+    motor.speed = 100;
+    tick(20);
+    TEST_ASSERT_EQUAL_UINT(emitted, frames.size());
+}
+
+void test_local_recall_survives_unrelated_remote_lease_but_obeys_user_controls() {
+    motor.speed = 130;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    tick(5300);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_FALSE(renewDrawnPattern(revision));
+    cancelRemoteDrawnPattern();
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    ++motor.from;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(1, stops);
+}
+
+void test_guard_rejection_and_stale_task_do_not_touch_a_new_owner() {
+    motor.speed = 100;
+    motor.moving = true;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(start()));
+    motor.moving = false;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    setDrawnPatternReady(revision - 1, false);
+    TEST_ASSERT_FALSE(renewDrawnPattern(revision - 1));
+    TEST_ASSERT_FALSE(serviceDrawnPattern(revision - 1));
+    tick(100);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    motor.ready = false;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::NotReady), int(start()));
+}
+
+void test_no_phase_catchup_after_backpressure_or_a_scheduling_gap() {
+    motor.speed = 200;
+    motor.serial = true;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(30);
+    TEST_ASSERT_EQUAL_UINT(1, frames.size());
+    feedback = io::Frame::Retry;
+    tick(100);
+    TEST_ASSERT_EQUAL_UINT(1, frames.size());
+    feedback = io::Frame::Accepted;
+    tick();
+    TEST_ASSERT_EQUAL_UINT(2, frames.size());
+    TEST_ASSERT_TRUE(std::abs(frames[1] - frames[0]) <= 4);
+    clockMs += 201;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(2, frames.size());
+}
+
+int main() {
+    UNITY_BEGIN();
+    RUN_TEST(test_zero_speed_arms_but_expiry_never_restarts);
+    RUN_TEST(test_remote_renewal_zero_stop_and_no_automatic_restart);
+    RUN_TEST(test_local_recall_survives_unrelated_remote_lease_but_obeys_user_controls);
+    RUN_TEST(test_guard_rejection_and_stale_task_do_not_touch_a_new_owner);
+    RUN_TEST(test_no_phase_catchup_after_backpressure_or_a_scheduling_gap);
+    return UNITY_END();
+}

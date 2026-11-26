@@ -3,6 +3,7 @@
 #include "FirmwareProvenance.h"
 
 #include "command/commands.hpp"
+#include "ossm/play_controls/play_controls.h"
 #include "ossm/state/ble.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/menu.h"
@@ -13,7 +14,6 @@
 #include "ossm/state_json.hpp"
 #include "services/communication/mqtt.h"
 #include "services/communication/queue.h"
-#include "services/encoder.h"
 #include "services/motor.h"
 #include "services/stepper.h"
 
@@ -115,24 +115,16 @@ void OSSM::ble_click(String commandString) {
             settings.speedBLE = command.value;
             break;
         case Commands::setStroke:
-            session.playControl = PlayControls::STROKE;
-            encoder.setEncoderValue(command.value);
-            settings.stroke = command.value;
+            play_controls::setRemoteControl(PlayControls::STROKE, command.value);
             break;
         case Commands::setDepth:
-            session.playControl = PlayControls::DEPTH;
-            encoder.setEncoderValue(command.value);
-            settings.depth = command.value;
+            play_controls::setRemoteControl(PlayControls::DEPTH, command.value);
             break;
         case Commands::setSensation:
-            session.playControl = PlayControls::SENSATION;
-            encoder.setEncoderValue(command.value);
-            settings.sensation = command.value;
+            play_controls::setRemoteControl(PlayControls::SENSATION, command.value);
             break;
         case Commands::setBuffer:
-            session.playControl = PlayControls::BUFFER;
-            encoder.setEncoderValue(command.value);
-            settings.buffer = command.value;
+            play_controls::setRemoteControl(PlayControls::BUFFER, command.value);
             break;
         case Commands::setPattern:
             settings.pattern = static_cast<StrokePatterns>(command.value % 7);

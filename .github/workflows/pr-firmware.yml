@@ -88,10 +88,10 @@ jobs:
       - run: python -m pip install -r software/scripts/hil/requirements.txt
       - run: python -m unittest discover -s software/scripts/hil -p 'test_*.py'
       - run: python .github/scripts/test_firmware_queue.py
-      - name: Test the Funscript Player streaming contract
+      - name: Test streaming, pattern playback and wired controls
         run: |
           python -m pip install platformio==6.2.0
-          pio test --project-dir software/firmware -e test -f test_funscript_streaming
+          pio test --project-dir software/firmware -e test -f test_funscript_streaming -f test_drawn_waveform -f test_drawn_controller -f test_encoder_click
   firmware:
     needs: changes
     if: needs.changes.outputs.firmware == 'true'

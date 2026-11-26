@@ -19,23 +19,27 @@ using namespace sml;
 
 namespace pattern_controls {
 
-static size_t numberOfDescriptions =
+static constexpr int numberOfDescriptions =
     sizeof(ui::strings::strokeEngineDescriptions) /
     sizeof(ui::strings::strokeEngineDescriptions[0]);
-static size_t numberOfPatterns = 7;
+static constexpr int numberOfPatterns =
+    sizeof(ui::strings::strokeEngineNames) / sizeof(ui::strings::strokeEngineNames[0]);
 
 static void drawPatternControlsTask(void *pvParameters) {
-    SettingPercents savedSettings = settings;
-
-    auto isInCorrectState = []() {
-        return stateMachine->is("strokeEngine.pattern"_s);
+    const TaskHandle_t screenTask = xTaskGetCurrentTaskHandle();
+    auto isInCorrectState = [screenTask]() {
+        return screenTask == Tasks::drawPatternControlsTaskH &&
+               stateMachine->is("strokeEngine.pattern"_s);
     };
 
-    int nextPattern = (int)settings.pattern;
+    if (!isInCorrectState()) {
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    uint32_t lastClick = encoderClick.snapshot();
+    int nextPattern = constrain(static_cast<int>(settings.pattern), 0, numberOfPatterns - 1);
     bool shouldUpdateDisplay = true;
-    const char *patternName = "nextPattern";
-    const char *patternDescription =
-        ui::strings::strokeEngineDescriptions[nextPattern];
 
     encoder.setAcceleration(10);
     encoder.setBoundaries(0, numberOfPatterns * 3 - 1, true);
@@ -44,7 +48,6 @@ static void drawPatternControlsTask(void *pvParameters) {
     showHeaderIcons = true;
 
     while (isInCorrectState()) {
-        nextPattern = encoder.readEncoder() / 3;
         float speed;
         float speedKnob = readSpeedKnobPercent();
         settings.speedKnob = speedKnob;
@@ -60,23 +63,38 @@ static void drawPatternControlsTask(void *pvParameters) {
             settings.speed = speed;
         }
 
-        shouldUpdateDisplay =
-            shouldUpdateDisplay || (int)settings.pattern != nextPattern;
-        if (!shouldUpdateDisplay) {
+        const uint32_t click = encoderClick.snapshot();
+        if (!EncoderClick::isIdle(click) || !isInCorrectState()) {
             vTaskDelay(100);
             continue;
         }
 
-        patternName = ui::strings::strokeEngineNames[nextPattern];
-
-        if (nextPattern < (int)numberOfDescriptions) {
-            patternDescription =
-                ui::strings::strokeEngineDescriptions[nextPattern];
-        } else {
-            patternDescription = ui::strings::noDescription;
+        const StrokePatterns selected = settings.pattern;
+        if (lastClick != click || nextPattern != static_cast<int>(selected)) {
+            // A complete click or remote selection can fall between UI polls.
+            nextPattern = constrain(static_cast<int>(selected), 0, numberOfPatterns - 1);
+            encoder.setEncoderValue(nextPattern * 3);
+            shouldUpdateDisplay = true;
+            lastClick = click;
+        }
+        const int encoderIndex = static_cast<int>(encoder.readEncoder() / 3);
+        const int encoderPattern = constrain(encoderIndex, 0, numberOfPatterns - 1);
+        if (!encoderClick.unchangedAndIdle(click) || !isInCorrectState() ||
+            settings.pattern != selected) {
+            vTaskDelay(100);
+            continue;
         }
 
-        settings.pattern = (StrokePatterns)nextPattern;
+        nextPattern = encoderPattern;
+        shouldUpdateDisplay |= nextPattern != static_cast<int>(selected);
+        if (!shouldUpdateDisplay) {
+            vTaskDelay(100);
+            continue;
+        }
+        settings.pattern = static_cast<StrokePatterns>(nextPattern);
+        const char *patternName = ui::strings::strokeEngineNames[nextPattern];
+        const char *patternDescription = nextPattern < numberOfDescriptions
+            ? ui::strings::strokeEngineDescriptions[nextPattern] : ui::strings::noDescription;
 
         if (xSemaphoreTake(displayMutex, 100) == pdTRUE) {
             ui::TextPage page;
@@ -87,6 +105,7 @@ static void drawPatternControlsTask(void *pvParameters) {
             ui::drawTextPage(display.getU8g2(), page);
             refreshPage(true, true);
             xSemaphoreGive(displayMutex);
+            shouldUpdateDisplay = false;
         }
 
         vTaskDelay(200);

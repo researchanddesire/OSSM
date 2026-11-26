@@ -2269,3 +2269,20 @@ void disarmMotorSafety() { cancelLegacyHoming(); }
 bool resetMotorSafetyAfterReview() { return false; }
 bool prepareMotorSafetyExternalControlAfterReview() { return false; }
 #endif
+
+
+// Serialize pattern submissions with the stop flush on both board families.
+// A concurrent stop revokes first, cuts output, then takes this same mutex.
+bool runMotorPatternCommand(uint64_t owner, MotorHomingAction action, void *context) {
+#if OSSM_HAT_SERIAL_BACKEND
+    const auto lock = homingCommandMutex;
+#else
+    const auto lock = legacyCommandMutex;
+#endif
+    if (lock == nullptr || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE) return false;
+    const bool allowed = motorSafetyEventCurrent(owner) && motorSafetyCanEnableOutputs() &&
+                         !motorHomingSessionActive();
+    const bool completed = allowed && action(context) && motorSafetyEventCurrent(owner);
+    xSemaphoreGive(lock);
+    return completed;
+}

@@ -3,9 +3,11 @@
 
 #include "AiEsp32RotaryEncoder.h"
 #include "constants/Pins.h"
+#include "encoder_click.h"
 
 // Declare the encoder as extern
 extern AiEsp32RotaryEncoder encoder;
+extern EncoderClick encoderClick;
 
 // Function declarations
 void IRAM_ATTR readEncoderISR();

@@ -84,6 +84,16 @@ void test_isStrokeTooShort_equal_to_min(void) {
     TEST_ASSERT_TRUE(homing_logic::isStrokeTooShortLogic(50.0f, 50.0f));
 }
 
+void test_sensorless_seek_requires_contact_before_travel_ends(void) {
+    using namespace homing_logic;
+    // Current rise and default threshold from the reported missed end stop.
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, true, 4.07f, 6) == SeekResult::Seeking);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, false, 4.07f, 6) == SeekResult::TravelEnded);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, false, 7, 6) == SeekResult::TravelEnded);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, true, 7, 6) == SeekResult::Contact);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(true, true, 7, 6) == SeekResult::TimedOut);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
 
@@ -98,6 +108,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_calculatePostHomingPosition_positive_sign);
     RUN_TEST(test_calculatePostHomingPosition_negative_sign);
 
+    RUN_TEST(test_sensorless_seek_requires_contact_before_travel_ends);
     RUN_TEST(test_isHomingTimedOut_not_timed_out);
     RUN_TEST(test_isHomingTimedOut_timed_out);
 

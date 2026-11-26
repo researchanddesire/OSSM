@@ -8,6 +8,10 @@
 
 namespace streaming_logic {
 
+inline int waypointDirection(int delta, int previous) {
+    return delta == 0 ? previous : (delta > 0 ? 1 : -1);
+}
+
 /// Compute max stroke in steps from user percentages and calibration.
 inline int32_t calculateMaxStroke(float strokePct, float depthPct,
                                   float measuredStrokeSteps) {

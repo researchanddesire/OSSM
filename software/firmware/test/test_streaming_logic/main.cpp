@@ -189,8 +189,24 @@ void test_planMotion_at_minimum_time_holds_position(void) {
     TEST_ASSERT_EQUAL_INT32(0, profile.targetPosition);
 }
 
+void test_first_hold_and_reversal_preserve_direction() {
+    TEST_ASSERT_EQUAL_INT(0, streaming_logic::waypointDirection(0, 0));
+    TEST_ASSERT_EQUAL_INT(1, streaming_logic::waypointDirection(0, 1));
+    TEST_ASSERT_EQUAL_INT(-1, streaming_logic::waypointDirection(0, -1));
+    TEST_ASSERT_EQUAL_INT(1, streaming_logic::waypointDirection(9, 0));
+    TEST_ASSERT_EQUAL_INT(-1, streaming_logic::waypointDirection(-9, 1));
+}
+
+void test_shortened_move_never_reverses_to_make_the_margin() {
+    const auto result = streaming_logic::planMotion(-350, -1000, .021f, 100, 1200, 20);
+    TEST_ASSERT_EQUAL_INT32(-350, result.targetPosition);
+    TEST_ASSERT_EQUAL_INT32(0, result.distance);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
+    RUN_TEST(test_first_hold_and_reversal_preserve_direction);
+    RUN_TEST(test_shortened_move_never_reverses_to_make_the_margin);
 
     RUN_TEST(test_calculateMaxStroke_stroke_less_than_depth);
     RUN_TEST(test_calculateMaxStroke_depth_less_than_stroke);

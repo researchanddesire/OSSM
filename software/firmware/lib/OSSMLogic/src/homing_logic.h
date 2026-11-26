@@ -16,6 +16,18 @@ inline bool isCurrentOverLimit(float currentReading, float offset,
     return (currentReading - offset) > threshold;
 }
 
+enum class SeekResult { Seeking, Contact, TravelEnded, TimedOut };
+
+// Legacy ADC homing only recognizes contact during a live seek. Current that
+// rises after the last step cannot establish an end-stop position.
+inline SeekResult evaluateSensorlessSeek(bool timedOut, bool running,
+                                         float currentRise, float threshold) {
+    if (timedOut) return SeekResult::TimedOut;
+    if (!running) return SeekResult::TravelEnded;
+    if (isCurrentOverLimit(currentRise, 0, threshold)) return SeekResult::Contact;
+    return SeekResult::Seeking;
+}
+
 /// Calculate the measured stroke from the stepper's current position,
 /// clamped to the maximum physical stroke.
 /// homing.cpp lines 116-118

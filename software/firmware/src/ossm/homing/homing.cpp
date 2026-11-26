@@ -44,10 +44,12 @@ bool mqttPausedForHoming = false;
 SemaphoreHandle_t mqttMutex = nullptr;
 std::atomic_bool taskCreationFailed{false};
 
-void failHatHoming(const HomingTaskContext &context, const char *message) {
+void failHoming(const HomingTaskContext &context, const char *message) {
     if (!commitMotorHomingState(context.ticket, [&] {
         digitalWrite(Pins::Driver::motorEnablePin, HIGH);
         calibration.isHomed = false;
+        calibration.justHomed = false;
+        calibration.measuredStrokeSteps = 0;
         setHomingActive(false, false);
         return true;
     })) return;
@@ -83,7 +85,7 @@ bool moveAndWait(const HomingTaskContext &context, int32_t target, bool markMoti
         if (context.useHat) {
             OssmHatTelemetry sample;
             if (!hatSampleReady(sample) || !motorSafetyCanEnableOutputs()) {
-                failHatHoming(context, "OSSM HAT feedback lost. Check motor power and RS485.");
+                failHoming(context, "OSSM HAT feedback lost. Check motor power and RS485.");
                 return false;
             }
         }
@@ -151,12 +153,12 @@ bool prepareHoming(const HomingTaskContext &context) {
 void runHomingPass(const HomingTaskContext &context) {
     if (!motorHomingTicketCurrent(context.ticket)) return;
     if (!pauseMqttForHoming(context.ticket)) {
-        failHatHoming(context, "Could not prepare homing network resources.");
+        failHoming(context, "Could not prepare homing network resources.");
         return;
     }
     if (!motorHomingTicketCurrent(context.ticket)) return;
     if (!prepareHoming(context)) {
-        failHatHoming(context, "Motor did not become stationary before homing setup.");
+        failHoming(context, "Motor did not become stationary before homing setup.");
         return;
     }
     if (!motorHomingTicketCurrent(context.ticket)) return;
@@ -170,49 +172,52 @@ void runHomingPass(const HomingTaskContext &context) {
     return;
 #endif
     if (!motorSafetyBeginHomingPass(context.pass, context.ticket)) {
-        failHatHoming(context, motorSafetyReason());
+        failHoming(context, motorSafetyReason());
         return;
     }
     if (!motorHomingTicketCurrent(context.ticket)) return;
     if (context.useHat) {
         OssmHatTelemetry sample;
         if (!hatSampleReady(sample) || !beginMotorFeedbackHomingPass(context.ticket)) {
-            failHatHoming(context, "OSSM HAT feedback unavailable. Check motor power and RS485.");
+            failHoming(context, "OSSM HAT feedback unavailable. Check motor power and RS485.");
             return;
         }
     } else if (ossmHatDetected()) {
-        failHatHoming(context, "OSSM HAT appeared during homing setup. Request a new home.");
+        failHoming(context, "OSSM HAT appeared during homing setup. Request a new home.");
         return;
     }
     if (!motorHomingTicketCurrent(context.ticket)) return;
     if (!enableMotorSafetyHomingOutputs(context.ticket)) {
-        failHatHoming(context, motorSafetyReason());
+        failHoming(context, motorSafetyReason());
         return;
     }
     const bool backward = context.pass == 2;
     const int16_t sign = backward ? 1 : -1;
     const int32_t target = round(sign * Config::Driver::maxStrokeSteps);
     if (!submitMove(context, target, true)) {
-        failHatHoming(context, motorSafetyReason());
+        failHoming(context, motorSafetyReason());
         return;
     }
     const TickType_t started = xTaskGetTickCount();
+    auto timedOut = [started] {
+        return homing_logic::isHomingTimedOut(
+            (xTaskGetTickCount() - started) * portTICK_PERIOD_MS, 40000);
+    };
+    float peakCurrentRise = 0;
     motor_feedback_logic::HatContactDetector hatContact;
     while (motorHomingTicketCurrent(context.ticket)) {
-        if (homing_logic::isHomingTimedOut(
-                (xTaskGetTickCount() - started) * portTICK_PERIOD_MS, 40000)) {
-            failHatHoming(context, ui::strings::homingTookTooLong);
-            return;
-        }
-        float current;
         bool overLimit;
         if (context.useHat) {
-            OssmHatTelemetry sample;
-            if (!hatSampleReady(sample)) {
-                failHatHoming(context, "OSSM HAT feedback lost. Check motor power and RS485.");
+            if (timedOut()) {
+                failHoming(context, ui::strings::homingTookTooLong);
                 return;
             }
-            current = sample.currentAmps;
+            OssmHatTelemetry sample;
+            if (!hatSampleReady(sample)) {
+                failHoming(context, "OSSM HAT feedback lost. Check motor power and RS485.");
+                return;
+            }
+            const float current = sample.currentAmps;
             // On STEP/DIR the pulses already sent keep pressing the stop
             // until they are taken back. React to the first loaded sample
             // and retreat quickly, as boards without a HAT do, so the contact
@@ -223,9 +228,21 @@ void runHomingPass(const HomingTaskContext &context) {
                       32768.0 / (Config::Driver::pulleyToothCount * Config::Driver::beltPitchMm))
                 : homing_logic::isCurrentOverLimit(current, 0, Config::Hat::homingCurrentAmps);
         } else {
-            current = motor::getCurrent();
-            overLimit = homing_logic::isCurrentOverLimit(current, 0,
-                motor::getHomingCurrentLimit());
+            const float current = motor::getCurrent();
+            const float limit = motor::getHomingCurrentLimit();
+            peakCurrentRise = std::max(peakCurrentRise, current);
+            using homing_logic::SeekResult;
+            const auto result = homing_logic::evaluateSensorlessSeek(
+                timedOut(), stepper->isRunning(), current, limit);
+            if (result == SeekResult::TravelEnded || result == SeekResult::TimedOut) {
+                const char *message = result == SeekResult::TravelEnded
+                    ? ui::strings::homingNoContact : ui::strings::homingTookTooLong;
+                failHoming(context, message);
+                ESP_LOGE("Homing", "Pass %u: %s Peak current %.2f%% above idle, limit %.2f%%.",
+                         context.pass, message, peakCurrentRise, limit);
+                return;
+            }
+            overLimit = result == SeekResult::Contact;
         }
         if (!motorHomingTicketCurrent(context.ticket)) return;
         if (!overLimit) { vTaskDelay(pdMS_TO_TICKS(10)); continue; }
@@ -237,7 +254,7 @@ void runHomingPass(const HomingTaskContext &context) {
             return true;
         })) return;
         if (!moveAndWait(context, retreat, true)) {
-            failHatHoming(context, motorSafetyReason());
+            failHoming(context, motorSafetyReason());
             return;
         }
         // The serial axis reads telemetry and takes its own short lock. Keep
@@ -250,7 +267,7 @@ void runHomingPass(const HomingTaskContext &context) {
         })) return;
         if (context.useHat) finishMotorFeedbackHomingPass(context.ticket);
         if (!motorSafetyEndHomingPass(context.ticket)) {
-            failHatHoming(context, motorSafetyReason());
+            failHoming(context, motorSafetyReason());
             return;
         }
         if (!runMotorHomingCommand(context.ticket, [] {
@@ -259,18 +276,18 @@ void runHomingPass(const HomingTaskContext &context) {
             return true;
         })) return;
         if (context.useHat && !rebaseMotorFeedbackAtHome(context.ticket) && backward) {
-            failHatHoming(context, "OSSM HAT position reference failed. Re-home before use.");
+            failHoming(context, "OSSM HAT position reference failed. Re-home before use.");
             return;
         }
         if (!motorHomingTicketCurrent(context.ticket)) return;
         if (backward && !motorSafetyBeginNormalOperation(context.ticket)) {
-            failHatHoming(context, motorSafetyReason());
+            failHoming(context, motorSafetyReason());
             return;
         }
         const int32_t rest = homing_logic::calculatePostHomingPosition(
             sign, calibration.measuredStrokeSteps, UserConfig::afterHomingPosition);
         if ((!context.useHat || backward) && !moveAndWait(context, rest)) {
-            failHatHoming(context, motorSafetyReason());
+            failHoming(context, motorSafetyReason());
             return;
         }
         if (!commitMotorHomingState(context.ticket, [] { setHomingActive(false, false); return true; })) return;
@@ -304,7 +321,7 @@ void createHomingTask(MotorHomingTicket ticket, uint8_t pass) {
     if (commitMotorHomingState(ticket, [] { taskCreationFailed.store(true); return true; })) {
         errorState.message = ui::strings::homingTookTooLong;
         const HomingTaskContext failed{ticket, pass, ossmHatDetected(), motorMotionUsesSerial()};
-        failHatHoming(failed, ui::strings::homingTookTooLong);
+        failHoming(failed, ui::strings::homingTookTooLong);
     }
 }
 

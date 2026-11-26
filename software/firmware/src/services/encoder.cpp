@@ -1,5 +1,7 @@
 #include "encoder.h"
 
+EncoderClick encoderClick;
+
 // Define the global encoder instance
 AiEsp32RotaryEncoder encoder(
     Pins::Remote::encoderA,
