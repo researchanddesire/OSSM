@@ -3,6 +3,7 @@
 #include "components/HeaderBar.h"
 #include "esp_log.h"
 #include "ossm/Events.h"
+#include "ossm/menu/menu.h"
 #include "ossm/streaming/saved_pattern.h"
 #include "ossm/OSSM.h"
 #include "ossm/pages/pairing.h"
@@ -93,7 +94,12 @@ void __attribute__((weak)) setup() {
     updateLEDForMachineStatus();  // Set initial LED state
 
     // // link functions to be called on events.
-    button.attachClick([]() { stateMachine->process_event(ButtonPress{}); });
+    button.attachClick([]() {
+        if (stateMachine->is("savedPatterns.idle"_s))
+            stateMachine->process_event(menu::WiredPatternChoice{});
+        else
+            stateMachine->process_event(ButtonPress{});
+    });
     button.attachDoubleClick([]() {
         // Only the physical switch may start a loop without a BLE lease.
         if (stateMachine->is("streaming.idle"_s)) {

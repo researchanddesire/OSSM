@@ -19,6 +19,7 @@ namespace ui {
         static const char error[] PROGMEM = "Error";
         static const char homing[] PROGMEM = "Homing";
         static const char idle[] PROGMEM = "Initializing";
+        static const char savedPatterns[] PROGMEM = "Saved patterns";
         static const char restart[] PROGMEM = "Restart";
         static const char settings[] PROGMEM = "Settings";
         static const char skip[] PROGMEM = "Click to exit";

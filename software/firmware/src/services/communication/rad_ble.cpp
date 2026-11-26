@@ -96,6 +96,8 @@ const radble::Resource RESOURCES[] = {
      "{\"min\":0,\"max\":100}"},
     {"drawn_pattern", "pattern.play", "motion", "object", "", RWS,
      R"({"version":1,"minSamples":16,"maxSamples":128,"timeUnit":"ms"})"},
+    {"pattern_library", "pattern.library", "motion", "object", "", R,
+     R"({"version":1,"capacity":4,"maxNameBytes":24})"},
     {"homed", "motion.homed", "motion", "bool", "", RS, ""},
     {"speed", "motion.speed", "setting", "int", "percent", RWST,
      "{\"min\":0,\"max\":100}"},
@@ -245,9 +247,29 @@ radble::Result settingValue(const String& path) {
     return radble::Result::success(output);
 }
 
+radble::Result patternLibrary() {
+    const auto catalog = streaming::getPatternCatalog();
+    JsonDocument status;
+    status["version"] = 1;
+    status["capacity"] = streaming::patternSlotCount;
+    status["selected"] = catalog.selected;
+    auto slots = status["slots"].to<JsonArray>();
+    for (int i = 0; i < streaming::patternSlotCount; ++i) {
+        if (!catalog.slots[i].periodMs) continue;
+        auto slot = slots.add<JsonObject>();
+        slot["slot"] = i;
+        slot["name"] = catalog.slots[i].name;
+        slot["periodMs"] = catalog.slots[i].periodMs;
+    }
+    String output;
+    serializeJson(status, output);
+    return radble::Result::success(output);
+}
+
 radble::Result patternStatus() {
     JsonDocument status;
     status["version"] = 1;
+    status["libraryVersion"] = 1;
     status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
     status["active"] = streaming::drawnPatternActive();
     status["periodMs"] = streaming::drawnPatternPeriodMs();
@@ -269,21 +291,44 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
         return patternStatus();
     }
     const bool save = operation == "pattern.save";
-    if (!save && operation != "pattern.play")
+    const bool select = operation == "pattern.select";
+    if (!save && !select && operation != "pattern.play")
         return radble::Result::failure("unsupported", "Unknown pattern command");
+    int slot = selectedPatternSlot;
+    if (args["slot"].is<JsonVariantConst>()) {
+        if (!args["slot"].is<uint8_t>() || args["slot"].as<unsigned>() >= patternSlotCount)
+            return radble::Result::failure("invalid_value", "Expected a slot from 0 to 3");
+        slot = args["slot"].as<int>();
+    }
+    if (select) {
+        if (slot == selectedPatternSlot || args.size() != 1)
+            return radble::Result::failure("invalid_value", "Select requires a slot");
+        if (!getPatternCatalog().slots[slot].periodMs)
+            return radble::Result::failure("not_found", "This pattern slot is empty");
+        bool written = false;
+        if (!stateMachine->process_event(SelectPattern{slot, written}))
+            return radble::Result::failure("invalid_state", "Return to the menu to select a pattern");
+        if (!written) return radble::Result::failure("save_failed", "Could not select this pattern");
+        return patternStatus();
+    }
     SavedPattern value;
-    if (!save && args.size() == 0) {
-        if (!getSavedPattern(value))
-            return radble::Result::failure("not_found", "No pattern saved on this OSSM");
+    if (!save && (args.size() == 0 || (args.size() == 1 && slot != selectedPatternSlot))) {
+        if (!getSavedPattern(value, slot))
+            return radble::Result::failure("not_found", "No pattern saved in this slot");
     } else {
         const auto samples = args["samples"].as<JsonString>();
-        if (samples.isNull() || !args["periodMs"].is<uint32_t>() ||
+        const bool named = slot != selectedPatternSlot;
+        if ((named && (!save || args.size() != 4)) ||
+            samples.isNull() || !args["periodMs"].is<uint32_t>() ||
             !makeSavedPattern(value, samples.c_str(), samples.size(), args["periodMs"].as<uint32_t>()))
-            return radble::Result::failure("invalid_value", "Expected 16..128 hex-encoded samples and a 500..60000 ms period");
+            return radble::Result::failure("invalid_value", "Expected samples, period and optional named destination");
     }
     if (save) {
+        const auto name = slot == selectedPatternSlot ? JsonString{} : args["name"].as<JsonString>();
+        if (slot != selectedPatternSlot && (name.isNull() || !validPatternName(name.c_str(), name.size())))
+            return radble::Result::failure("invalid_value", "Expected a 1..24 byte UTF-8 pattern name");
         bool written = false;
-        if (!stateMachine->process_event(SavePattern{value, written}))
+        if (!stateMachine->process_event(SavePattern{value, written, slot, name.c_str(), name.size()}))
             return radble::Result::failure("invalid_state", "Return to the menu to save a pattern");
         if (!written)
             return radble::Result::failure("save_failed", "The OSSM could not save the pattern");
@@ -307,6 +352,7 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     const String path = request["path"] | "";
     const JsonObjectConst args = request["args"].as<JsonObjectConst>();
 
+    if (operation == "sensor.read" && path == "pattern.library") return patternLibrary();
     if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
     if (operation.startsWith("pattern.")) {
         if (!request["args"].is<JsonObjectConst>() && operation == "pattern.play")

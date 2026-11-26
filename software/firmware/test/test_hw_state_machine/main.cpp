@@ -210,6 +210,24 @@ void test_menu_navigate_to_pairing(void) {
         "Should return to menu.idle from pairing via ButtonPress");
 }
 
+void test_saved_pattern_chooser_stays_stopped_and_exits_to_menu() {
+    TEST_ASSERT_TRUE(stateMachine->is("menu.idle"_s));
+    selectMenuOption(Menu::SavedPatterns);
+    TEST_ASSERT_TRUE(stateMachine->is("savedPatterns.idle"_s));
+    bool written = false;
+    TEST_ASSERT_FALSE(stateMachine->process_event(streaming::SelectPattern{0, written}));
+    TEST_ASSERT_FALSE(written);
+    TEST_ASSERT_FALSE(stateMachine->process_event(DoublePress{}));
+    TEST_ASSERT_FALSE(streaming::drawnPatternActive());
+    TEST_ASSERT_TRUE(stateMachine->process_event(ButtonPress{}));
+    TEST_ASSERT_TRUE(stateMachine->is("menu.idle"_s));
+    TEST_ASSERT_FALSE(streaming::drawnPatternActive());
+    selectMenuOption(Menu::SavedPatterns);
+    TEST_ASSERT_TRUE(stateMachine->process_event(menu::WiredPatternChoice{}));
+    TEST_ASSERT_TRUE(stateMachine->is("menu.idle"_s));
+    TEST_ASSERT_FALSE(streaming::drawnPatternActive());
+}
+
 /**
  * After navigating through multiple menu items, we should still be able
  * to return to menu.idle each time (state machine is stable).
@@ -257,6 +275,7 @@ void setup() {
     RUN_TEST(test_menu_navigate_to_update);
     RUN_TEST(test_menu_navigate_to_pairing);
     RUN_TEST(test_menu_round_trip_stability);
+    RUN_TEST(test_saved_pattern_chooser_stays_stopped_and_exits_to_menu);
 
     UNITY_END();
 }
