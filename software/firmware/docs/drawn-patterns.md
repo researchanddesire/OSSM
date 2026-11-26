@@ -4,6 +4,8 @@ In the Dashboard pattern editor, draw or edit one cycle, preview the loop and sa
 
 **Offline replay.** Return to the menu and select Save to OSSM in the Dashboard. The OSSM keeps four named slots across power cycles. Saving replaces the chosen slot. Select **Saved patterns** in the wired menu, turn the encoder to a name, then click to choose it. An asterisk marks the current selection. A long press or Back leaves the selector. Choosing a name returns to the menu with Streaming highlighted and the motor stopped. With the wired remote, select Streaming, complete its normal preflight and double-click the encoder to play the saved curve. Double-click again to stop. A long press returns to the menu. Booting or reconnecting leaves playback stopped. The ALT controller lacks the wired encoder and speed knob. Use the Dashboard’s saved-pattern playback with an explicit software speed on that controller.
 
+The optional BLE setting `setting.afterHomingPosition` sets the parking distance in millimetres from the retracted, backed-off reference after homing. Its range is 0–100 mm. The controller limits the target to the measured usable stroke. The default of 0 mm parks at the retracted reference. The setting is held in memory until reboot.
+
 ## BLE protocol
 
 Probe the OSSM with `sensor.read` at `pattern.play`. Version 1 returns `version`, `hasSpeedKnob`, `active`, `stored`, and `periodMs`. The effective period becomes available after the controller evaluates the curve against the calibrated travel and current motion limits.

@@ -192,6 +192,7 @@ void runHomingPass(const HomingTaskContext &context) {
         return;
     }
     const bool backward = context.pass == 2;
+    const float parkExtensionMm = UserConfig::afterHomingPositionMm.load();
     const int16_t sign = backward ? 1 : -1;
     const int32_t target = round(sign * Config::Driver::maxStrokeSteps);
     if (!submitMove(context, target, true)) {
@@ -285,7 +286,7 @@ void runHomingPass(const HomingTaskContext &context) {
             return;
         }
         const int32_t rest = homing_logic::calculatePostHomingPosition(
-            sign, calibration.measuredStrokeSteps, UserConfig::afterHomingPosition);
+            sign, calibration.measuredStrokeSteps, parkExtensionMm, Config::Driver::stepsPerMM);
         if ((!context.useHat || backward) && !moveAndWait(context, rest)) {
             failHoming(context, motorSafetyReason());
             return;

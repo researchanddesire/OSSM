@@ -222,7 +222,7 @@ radble::Result settingValue(const String& path) {
     else if (path == "setting.displayMetric")
         document["value"] = UserConfig::displayMetric;
     else if (path == "setting.afterHomingPosition")
-        document["value"] = UserConfig::afterHomingPosition;
+        document["value"] = UserConfig::afterHomingPositionMm.load();
     else if (path == "setting.mqttPublishFrequency")
         document["value"] = UserConfig::mqttPublishFrequencyHz;
     else if (path == "device.name") {
@@ -690,10 +690,10 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
                 return radble::Result::failure("invalid_value",
                                                "A numeric home position is required");
             const float value = args["value"] | -1.0f;
-            if (value < 0.0f || value > 100.0f)
+            if (!std::isfinite(value) || value < 0.0f || value > 100.0f)
                 return radble::Result::failure("invalid_value",
                                                "Home position must be 0..100 mm");
-            UserConfig::afterHomingPosition = value;
+            UserConfig::afterHomingPositionMm.store(value);
             return settingValue(path);
         }
         if (path == "setting.mqttPublishFrequency") {

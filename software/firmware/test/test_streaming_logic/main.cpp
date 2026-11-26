@@ -76,7 +76,7 @@ void test_scaleStreamPosition_50_percent(void) {
 void test_streaming_targets_stay_inside_the_homed_range(void) {
     const float measured = 10000.0f;
     TEST_ASSERT_EQUAL_INT32(
-        0, homing_logic::calculatePostHomingPosition(1, measured, 0.0f));
+        0, homing_logic::calculatePostHomingPosition(1, measured, 0.0f, 80.0f));
     const int32_t deepest =
         simple_pen_logic::calculateTarget(true, 100.0f, measured);
     TEST_ASSERT_LESS_THAN_INT32(0, deepest);
