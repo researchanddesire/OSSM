@@ -7,6 +7,7 @@
 
 #include "FirmwareProvenance.h"
 #include "constants/Pins.h"
+#include "pattern_catalog_json.h"
 #include "constants/UserConfig.h"
 #include "constants/Version.h"
 #include "ossm/Events.h"
@@ -247,20 +248,11 @@ radble::Result settingValue(const String& path) {
     return radble::Result::success(output);
 }
 
-radble::Result patternLibrary() {
+radble::Result patternLibrary(JsonObjectConst request) {
     const auto catalog = streaming::getPatternCatalog();
     JsonDocument status;
-    status["version"] = 1;
-    status["capacity"] = streaming::patternSlotCount;
-    status["selected"] = catalog.selected;
-    auto slots = status["slots"].to<JsonArray>();
-    for (int i = 0; i < streaming::patternSlotCount; ++i) {
-        if (!catalog.slots[i].periodMs) continue;
-        auto slot = slots.add<JsonObject>();
-        slot["slot"] = i;
-        slot["name"] = catalog.slots[i].name;
-        slot["periodMs"] = catalog.slots[i].periodMs;
-    }
+    if (!streaming::writePatternCatalog(status, request, catalog))
+        return radble::Result::failure("invalid_value", "Expected an optional slot from 0 to 3");
     String output;
     serializeJson(status, output);
     return radble::Result::success(output);
@@ -270,6 +262,7 @@ radble::Result patternStatus() {
     JsonDocument status;
     status["version"] = 1;
     status["libraryVersion"] = 1;
+    status["libraryPageSize"] = 1;
     status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
     status["active"] = streaming::drawnPatternActive();
     status["periodMs"] = streaming::drawnPatternPeriodMs();
@@ -352,7 +345,7 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     const String path = request["path"] | "";
     const JsonObjectConst args = request["args"].as<JsonObjectConst>();
 
-    if (operation == "sensor.read" && path == "pattern.library") return patternLibrary();
+    if (operation == "sensor.read" && path == "pattern.library") return patternLibrary(request);
     if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
     if (operation.startsWith("pattern.")) {
         if (!request["args"].is<JsonObjectConst>() && operation == "pattern.play")

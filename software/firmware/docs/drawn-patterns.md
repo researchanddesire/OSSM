@@ -26,7 +26,7 @@ Historical prototypes and design discussions are available in the [original patt
 
 ## Named slots
 
-When the pattern status advertises `libraryVersion: 1`, read `sensor.read` at `pattern.library`. It returns `version`, `capacity` (4), `selected` (0–3, initially 0), and an array `slots` of occupied entries with `slot`, `name` and `periodMs`. Names use 1–24 UTF-8 bytes. Trim surrounding spaces and omit control characters.
+When the pattern status advertises `libraryVersion: 1`, read `sensor.read` at `pattern.library`. It returns `version`, `capacity` (4), `selected` (0–3, initially 0), and an array `slots` of occupied entries with `slot`, `name` and `periodMs`. When the status also reports `libraryPageSize: 1`, send `{"slot":0}` through `{"slot":3}` as the read arguments. Each response uses the same fields and contains only the requested entry. An empty slot returns an empty array. Reading one slot per request keeps even fully escaped names within the BLE response limit. Names use 1–24 UTF-8 bytes. Trim surrounding spaces and omit control characters.
 
 | Operation | Arguments | Behavior |
 | --- | --- | --- |

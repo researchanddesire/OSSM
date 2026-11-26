@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include "saved_pattern_library.h"
+#include "pattern_catalog_json.h"
 
 using namespace streaming;
 namespace {
@@ -146,6 +147,74 @@ void test_storage_requires_stationary_current_feedback_when_available() {
     TEST_ASSERT_FALSE(state.stopped());
 }
 
+void test_catalog_optional_slot_preserves_full_and_empty_entries() {
+    PatternCatalog catalog;
+    catalog.selected = 3;
+    catalog.slots[0] = {500, "First"};
+    catalog.slots[3] = {60000, "Last"};
+    for (const char *query : {"{}", "{\"args\":{}}"}) {
+        JsonDocument request, result;
+        TEST_ASSERT_FALSE(deserializeJson(request, query));
+        TEST_ASSERT_TRUE(writePatternCatalog(result, request.as<JsonObjectConst>(), catalog));
+        TEST_ASSERT_EQUAL_UINT(2, result["slots"].size());
+        TEST_ASSERT_EQUAL_STRING("First", result["slots"][0]["name"].as<const char *>());
+        TEST_ASSERT_EQUAL_UINT(3, result["slots"][1]["slot"].as<unsigned>());
+    }
+    for (unsigned i = 0; i < patternSlotCount; ++i) {
+        JsonDocument request, result;
+        request["args"]["slot"] = i;
+        TEST_ASSERT_TRUE(writePatternCatalog(result, request.as<JsonObjectConst>(), catalog));
+        TEST_ASSERT_EQUAL_UINT(1, result["version"].as<unsigned>());
+        TEST_ASSERT_EQUAL_UINT(4, result["capacity"].as<unsigned>());
+        TEST_ASSERT_EQUAL_UINT(3, result["selected"].as<unsigned>());
+        const bool occupied = i == 0 || i == 3;
+        TEST_ASSERT_EQUAL_UINT(occupied ? 1 : 0, result["slots"].size());
+        if (occupied) TEST_ASSERT_EQUAL_UINT(i, result["slots"][0]["slot"].as<unsigned>());
+    }
+}
+
+void test_catalog_rejects_invalid_page_without_returning_other_entries() {
+    PatternCatalog catalog;
+    for (const char *args : {"null", "[]", "1", "{\"slot\":null}", "{\"slot\":true}",
+                             "{\"slot\":-1}", "{\"slot\":4}", "{\"slot\":0.5}",
+                             "{\"slot\":\"1\"}", "{\"page\":1}", "{\"slot\":1,\"extra\":0}"}) {
+        JsonDocument request, result;
+        TEST_ASSERT_FALSE(deserializeJson(request, std::string("{\"args\":") + args + "}"));
+        TEST_ASSERT_FALSE(writePatternCatalog(result, request.as<JsonObjectConst>(), catalog));
+        TEST_ASSERT_TRUE(result.isNull());
+    }
+}
+
+void test_catalog_escaped_maximum_names_fit_correlated_ble_response_when_paged() {
+    PatternCatalog catalog;
+    for (auto &slot : catalog.slots) {
+        std::memset(slot.name, '"', maxPatternNameBytes);
+        slot.periodMs = 60000;
+    }
+    JsonDocument request;
+    for (unsigned i = 0; i < patternSlotCount; ++i) {
+        JsonDocument result;
+        request["args"]["slot"] = i;
+        TEST_ASSERT_TRUE(writePatternCatalog(result, request.as<JsonObjectConst>(), catalog));
+        std::string json;
+        serializeJson(result, json);
+        TEST_ASSERT_EQUAL_UINT(135, json.size());
+        // Worst-case request ID and two generous 64-byte state names in the
+        // pinned 509-byte RAD BLE terminal response envelope.
+        JsonDocument envelope;
+        envelope["v"] = 1;
+        envelope["id"] = UINT32_MAX;
+        envelope["stage"] = "completed";
+        envelope["ok"] = true;
+        envelope["code"] = "ok";
+        envelope["stateBefore"] = std::string(64, 's');
+        envelope["stateAfter"] = std::string(64, 's');
+        envelope["result"] = result.as<JsonObjectConst>();
+        TEST_ASSERT_EQUAL_UINT(371, measureJson(envelope));
+        TEST_ASSERT_LESS_OR_EQUAL_UINT(509, measureJson(envelope));
+    }
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_legacy_blob_loads_without_writing_or_starting_and_survives_upgrade);
@@ -153,5 +222,8 @@ int main() {
     RUN_TEST(test_failed_or_repeated_transactions_preserve_selection_and_slot);
     RUN_TEST(test_bounded_names_slots_and_corrupt_flash);
     RUN_TEST(test_storage_requires_stationary_current_feedback_when_available);
+    RUN_TEST(test_catalog_optional_slot_preserves_full_and_empty_entries);
+    RUN_TEST(test_catalog_rejects_invalid_page_without_returning_other_entries);
+    RUN_TEST(test_catalog_escaped_maximum_names_fit_correlated_ble_response_when_paged);
     return UNITY_END();
 }
