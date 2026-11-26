@@ -58,6 +58,13 @@ public:
         return (((s.a * u + s.b) * u + s.c) * u + s.d) / 255.0;
     }
 
+    // Authored position grows with physical extension. Native step counts
+    // decrease from the shallow end toward the deep end of the travel window.
+    int32_t nativeTarget(double phase, int32_t deepest, int32_t shallowest) const {
+        const double travel = static_cast<double>(shallowest) - deepest;
+        return shallowest - static_cast<int32_t>(std::lround(travel * position(phase)));
+    }
+
     uint32_t safePeriodMs(double span, double speed, double acceleration) const {
         if (!(speed > 0 && acceleration > 0 && span >= 0)) return 0;
         const double velocityTime = span * peakSlope_ * count_ / (255.0 * speed);

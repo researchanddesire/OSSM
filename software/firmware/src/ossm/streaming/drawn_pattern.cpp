@@ -36,10 +36,6 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     effectivePeriod = 0;
 }
 
-int32_t target(double p) {
-    return lower + static_cast<int32_t>(std::lround((upper - lower) * curve.position(p)));
-}
-
 void service(uint32_t now) {
     if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const auto caps = pattern_motor::read(owner);
@@ -58,7 +54,7 @@ void service(uint32_t now) {
         if (caps.moving || caps.queued) return stopLocked("entry_busy", now);
         lower = caps.from;
         upper = caps.to;
-        entry = target(0);
+        entry = curve.nativeTarget(0, lower, upper);
         phase = cyclesPerSecond = 0;
         if (!pattern_motor::position(owner, entry, caps, true)) return stopLocked("entry_command", now);
         stage = Stage::Positioning;
@@ -86,7 +82,7 @@ void service(uint32_t now) {
     for (unsigned i = 0; i < (serial ? 1u : drawn_pattern::pulseQueueFrames); ++i) {
         const double rate = cyclesPerSecond + std::clamp(goal - cyclesPerSecond, -rateDelta, rateDelta);
         const double next = phase + 0.5 * (rate + cyclesPerSecond) * dt;
-        const int32_t logical = target(next);
+        const int32_t logical = curve.nativeTarget(next, lower, upper);
         const auto result = pattern_motor::submit(logical, owner, serial);
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, now, result.driverResult);

@@ -70,6 +70,18 @@ void test_phase_starts_at_a_resting_extremum_and_loops_without_a_jump() {
         TEST_ASSERT_FLOAT_WITHIN(.000001, curve.position(i / 32.), curve.position(1 + i / 32.));
 }
 
+void test_authored_extension_maps_every_asymmetric_sample_to_the_native_motor_frame() {
+    Waveform curve;
+    const auto shape = encode(asymmetric);
+    TEST_ASSERT_TRUE(curve.decode(shape.data(), shape.size(), 2000));
+    // A 255-step-wide window makes the expected extension in steps exact.
+    for (size_t i = 0; i < asymmetric.size(); ++i) {
+        const double phase = double(i) / asymmetric.size();
+        TEST_ASSERT_EQUAL_INT32(-100 - asymmetric[i], curve.nativeTarget(phase, -355, -100));
+    }
+    TEST_ASSERT_EQUAL_INT32(-100, curve.nativeTarget(1, -355, -100));
+}
+
 void test_time_stretch_bounds_entire_curve_at_speed_and_acceleration_caps() {
     Waveform curve;
     const auto shape = encode(asymmetric);
@@ -201,6 +213,7 @@ void test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_err
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_authored_extension_maps_every_asymmetric_sample_to_the_native_motor_frame);
     RUN_TEST(test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead);
     RUN_TEST(test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_errors);
     RUN_TEST(test_wire_bounds_are_checked_before_motion);

@@ -150,6 +150,26 @@ void test_no_phase_catchup_after_backpressure_or_a_scheduling_gap() {
     TEST_ASSERT_EQUAL_UINT(2, frames.size());
 }
 
+void test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end() {
+    motor.serial = true;
+    motor.from = -1997;  // deepest native target
+    motor.to = -1000;    // shallowest native target
+    motor.speed = 100000;
+    motor.acceleration = 100000000;
+    const char pattern[] = "000000ffffffffff8080808040404000";
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+        int(startDrawnPattern(pattern, sizeof(pattern) - 1, 2000, revision)));
+    tick();
+    TEST_ASSERT_EQUAL_INT32(-1000, motor.position);
+    tick(2001);
+    TEST_ASSERT_EQUAL_UINT32(100, frames.size());
+    TEST_ASSERT_EQUAL_INT32(-1000, frames[0]);   // y = 0
+    TEST_ASSERT_EQUAL_INT32(-1997, frames[25]);  // y = 255
+    TEST_ASSERT_EQUAL_INT32(-1500, frames[55]);  // y = 128
+    TEST_ASSERT_EQUAL_INT32(-1250, frames[83]);  // y = 64
+    TEST_ASSERT_EQUAL_INT32(-1000, frames[99]);  // wraps to shallow
+}
+
 void test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start() {
     motor.speed = 160;
     clockMs = 100;
@@ -176,6 +196,7 @@ void test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end);
     RUN_TEST(test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start);
     RUN_TEST(test_zero_speed_arms_but_expiry_never_restarts);
     RUN_TEST(test_remote_renewal_zero_stop_and_no_automatic_restart);
