@@ -15,6 +15,7 @@
 #include "gpio.hpp"
 #include "motion_link.h"
 #include "services/motorSafety.h"
+#include "services/radHil.h"
 #include "ossm/OSSM.h"
 #include "pairing.hpp"
 #include "patterns.hpp"
@@ -129,6 +130,7 @@ class StateCallbacks : public NimBLECharacteristicCallbacks {
 /** Handler class for server actions */
 class ServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+        radHilBleConnected(true);
         ESP_LOGI(NIMBLE_TAG, "Client connected: %s",
                  connInfo.getAddress().toString().c_str());
         ESP_LOGI(NIMBLE_TAG, "Connection count: %d",
@@ -151,6 +153,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
                  pServer->getConnectedCount());
 
         const int remaining = pServer->getConnectedCount();
+        radHilBleConnected(remaining != 0);
         bool stopMotion;
         {
             std::lock_guard<std::mutex> guard(motionOwnerLock);

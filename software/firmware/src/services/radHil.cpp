@@ -2,6 +2,7 @@
 
 #if defined(RAD_HIL_VARIANT) && defined(ARDUINO)
 #include <Arduino.h>
+#include "staging_probe_gate.h"
 #include <WiFi.h>
 #include <atomic>
 #include <cstring>
@@ -102,12 +103,40 @@ std::atomic<uint32_t> disconnects{0};
 uint32_t bootId = 0;
 uint32_t lastNetworkMs = 0;
 bool internet = false;
+staging_probe::Gate probeGate;
+
+#if defined(RAD_HIL_ARDUINO_HTTP)
+#if defined(RAD_HIL_CERTIFICATE_DATE_CLIENT)
+using VerifiedClient = firmware::CertificateDateClient;
+#else
+using VerifiedClient = WiFiClientSecure;
+#endif
+class IdleProbeClient final : public VerifiedClient {
+    uint32_t ticket_;
+public:
+    explicit IdleProbeClient(uint32_t ticket) : ticket_(ticket) {}
+    int connect(const char* host, uint16_t port, int32_t timeout) override {
+        return probeGate.connect(ticket_,
+            [&] { return VerifiedClient::connect(host, port, timeout); },
+            [&] { stop(); });
+    }
+    uint8_t connected() override {
+        if (!probeGate.current(ticket_)) { stop(); return 0; }
+        return VerifiedClient::connected();
+    }
+    size_t write(const uint8_t* bytes, size_t size) override {
+        if (!probeGate.current(ticket_)) { stop(); return 0; }
+        return VerifiedClient::write(bytes, size);
+    }
+};
+#endif
 
 unsigned long long uptimeMs() {
     return static_cast<unsigned long long>(esp_timer_get_time() / 1000);
 }
 
-bool checkInternet() {
+bool checkInternet(uint32_t ticket) {
+    if (!probeGate.current(ticket)) return false;
     // TLS certificate dates require a synchronized clock. Some products do
     // not initialize SNTP during ordinary idle startup, so the staging-only
     // observer requests it once and waits without weakening verification.
@@ -124,12 +153,7 @@ bool checkInternet() {
 #if defined(RAD_HIL_ARDUINO_HTTP)
     // Reuse the Trainer's existing HTTP stack to retain its small OTA slot.
     extern const uint8_t bundleStart[] asm("_binary_x509_crt_bundle_start");
-#if defined(RAD_HIL_CERTIFICATE_DATE_CLIENT)
-    // Preserve the public Trainer's SDK certificate-date hardening.
-    firmware::CertificateDateClient client;
-#else
-    WiFiClientSecure client;
-#endif
+    IdleProbeClient client(ticket);
     client.setCACertBundle(bundleStart);
     client.setHandshakeTimeout(5);
     HTTPClient http;
@@ -172,16 +196,29 @@ void observeTask(void*) {
         const uint32_t now = millis();
         const bool wifi = WiFi.status() == WL_CONNECTED;
         if (!wifi) internet = false;
-        if (wifi && (previousProbe == 0 || now - previousProbe >= 30000)) {
-            previousProbe = now;
-            internet = checkInternet();
-            if (internet) lastNetworkMs = millis();
+        bool deferred = false;
+        if (wifi && staging_probe::due(previousProbe, now)) {
+            const uint32_t ticket = probeGate.ticket();
+            if (ticket != 0) {
+                previousProbe = now;
+                const bool verified = checkInternet(ticket);
+                deferred = !probeGate.current(ticket);
+                if (deferred) previousProbe = 0;
+                internet = verified && !deferred;
+                if (internet) lastNetworkMs = millis();
+            } else {
+                // The previous observation has aged out. Continue reporting
+                // its actual age and try again on the first eligible tick.
+                internet = false;
+                deferred = true;
+            }
         }
         const auto lastProgress = progressMs.load(std::memory_order_relaxed);
         // Read progress first: another core can advance it while we sample.
         // Taking the clock first could report a wrapped, enormous task age.
         const uint32_t sampled = millis();
-        bool applicationReady = ready.load(std::memory_order_relaxed) && lastProgress != 0;
+        bool applicationReady = ready.load(std::memory_order_relaxed) && lastProgress != 0 &&
+                                probeGate.menuIsIdle();
 #if defined(RAD_HIL_LOCKBOX_MQTT)
         // Retain the original Lockbox gate's staging MQTT requirement.
         applicationReady = applicationReady && mqttConnected && mqtt_server != nullptr &&
@@ -190,14 +227,14 @@ void observeTask(void*) {
         emitHealth(
             "RAD_HEALTH {\"event\":\"heartbeat\",\"boot_id\":%lu,\"uptime_ms\":%llu,"
             "\"ready\":%s,\"app_age_ms\":%lu,\"wifi\":%s,\"bench_wifi\":%s,"
-            "\"ip\":\"%s\",\"internet\":%s,\"network_age_ms\":%lu,\"disconnects\":%lu}\n",
+            "\"ip\":\"%s\",\"internet\":%s,\"network_age_ms\":%lu,\"network_probe_deferred\":%s,\"disconnects\":%lu}\n",
             static_cast<unsigned long>(bootId), uptimeMs(),
             applicationReady ? "true" : "false",
             static_cast<unsigned long>(sampled-lastProgress),
             WiFi.status() == WL_CONNECTED ? "true" : "false",
             WiFi.SSID() == "IoT_PHB" ? "true" : "false", WiFi.localIP().toString().c_str(),
             internet ? "true" : "false", static_cast<unsigned long>(sampled-lastNetworkMs),
-            static_cast<unsigned long>(disconnects.load(std::memory_order_relaxed)));
+            deferred ? "true" : "false", static_cast<unsigned long>(disconnects.load(std::memory_order_relaxed)));
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
@@ -212,6 +249,11 @@ extern "C" int __wrap_log_printf(const char* format, ...) {
     va_end(arguments);
     return written;
 }
+
+void radHilStateChanged(const char* state) {
+    probeGate.menuIdle(std::strcmp(state, "menu.idle") == 0);
+}
+void radHilBleConnected(bool connected) { probeGate.bleConnected(connected); }
 
 void radHilStart() {
     if (bootId != 0) return;
