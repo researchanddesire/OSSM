@@ -100,6 +100,20 @@ void test_local_recall_survives_unrelated_remote_lease_but_obeys_user_controls()
     TEST_ASSERT_EQUAL_INT(1, stops);
 }
 
+void test_stored_lookup_preflight_rejects_active_legacy_or_drawn_motion() {
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::NotReady), int(drawnPatternStartStatus(revision - 1)));
+    motor.queued = true;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(drawnPatternStartStatus(revision)));
+    motor.queued = false;
+    motor.moving = true;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(drawnPatternStartStatus(revision)));
+    motor.moving = false;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(drawnPatternStartStatus(revision)));
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(drawnPatternStartStatus(revision)));
+}
+
 void test_guard_rejection_and_stale_task_do_not_touch_a_new_owner() {
     motor.speed = 100;
     motor.moving = true;
@@ -143,5 +157,6 @@ int main() {
     RUN_TEST(test_local_recall_survives_unrelated_remote_lease_but_obeys_user_controls);
     RUN_TEST(test_guard_rejection_and_stale_task_do_not_touch_a_new_owner);
     RUN_TEST(test_no_phase_catchup_after_backpressure_or_a_scheduling_gap);
+    RUN_TEST(test_stored_lookup_preflight_rejects_active_legacy_or_drawn_motion);
     return UNITY_END();
 }

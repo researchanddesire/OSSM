@@ -84,15 +84,30 @@ bool patternOwnerCurrent(const PatternReferenceLost &event) {
     return pattern_motor::current(event.revision);
 }
 
+namespace {
+PatternStart startStatusLocked(uint64_t revision, pattern_motor::State &caps) {
+    if (!ready || owner != revision) return PatternStart::NotReady;
+    caps = pattern_motor::read(revision);
+    if (!caps.ready) return PatternStart::NotReady;
+    if (stage != Stage::Idle || caps.moving || caps.queued) return PatternStart::Busy;
+    return PatternStart::Accepted;
+}
+}  // namespace
+
+PatternStart drawnPatternStartStatus(uint64_t revision) {
+    std::lock_guard<std::mutex> guard(lock);
+    pattern_motor::State caps;
+    return startStatusLocked(revision, caps);
+}
+
 PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs,
                                uint64_t revision, bool localControl) {
     drawn_pattern::Waveform incoming;
     if (!incoming.decode(hex, length, periodMs)) return PatternStart::Invalid;
     std::lock_guard<std::mutex> guard(lock);
-    if (!ready || owner != revision) return PatternStart::NotReady;
-    const auto caps = pattern_motor::read(revision);
-    if (!caps.ready) return PatternStart::NotReady;
-    if (stage != Stage::Idle || caps.moving || caps.queued) return PatternStart::Busy;
+    pattern_motor::State caps;
+    const auto status = startStatusLocked(revision, caps);
+    if (status != PatternStart::Accepted) return status;
     curve = incoming;
     local = localControl;
     serial = caps.serial;

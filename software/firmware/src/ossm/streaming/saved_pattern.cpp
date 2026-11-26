@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <Preferences.h>
+#include <nvs.h>
 
 #include "drawn_pattern.h"
 #include "services/motorSafety.h"
@@ -10,13 +11,32 @@
 namespace streaming {
 namespace {
 std::mutex savedLock;
-SavedPatternLibrary library;
+SavedPatternCache library;
 constexpr char storageNamespace[] = "drawnPattern";
 
 // Both mutation entry points are state-machine menu actions. The state
 // machine holds its mode-transition lock through the atomic NVS write.
 bool stopped() {
     return !getMotorSafetyStatus().armed && !(stepper && stepper->isRunning());
+}
+// Missing/invalid records retain the existing empty/legacy fallback. An I/O
+// failure aborts the transaction, so a partial read cannot replace valid NVS.
+bool loadRecord(SavedPatternLibrary &record) {
+    nvs_handle_t handle;
+    const auto opened = nvs_open(storageNamespace, NVS_READONLY, &handle);
+    if (opened == ESP_ERR_NVS_NOT_FOUND) return true; // New namespace.
+    if (opened != ESP_OK) return false;
+    bool readable = true;
+    record.load([&](const char *key, void *data, size_t size) {
+        size_t actual = size;
+        const auto error = nvs_get_blob(handle, key, data, &actual);
+        if (error == ESP_OK) return actual == size;
+        if (error != ESP_ERR_NVS_NOT_FOUND && error != ESP_ERR_NVS_INVALID_LENGTH)
+            readable = false;
+        return false;
+    });
+    nvs_close(handle);
+    return readable;
 }
 bool writeRecord(const char *key, const void *data, size_t size) {
     return runStoppedMotorStorage([&] {
@@ -27,16 +47,12 @@ bool writeRecord(const char *key, const void *data, size_t size) {
 }
 
 void loadSavedPattern() {
-    Preferences nvs;
     std::lock_guard<std::mutex> lock(savedLock);
-    if (!nvs.begin(storageNamespace, true)) return;
-    library.load([&](const char *key, void *data, size_t size) {
-        return nvs.getBytesLength(key) == size && nvs.getBytes(key, data, size) == size;
-    });
+    library.access(loadRecord, [](const SavedPatternLibrary &) { return true; });
 }
 bool getSavedPattern(SavedPattern &out, int slot) {
     std::lock_guard<std::mutex> lock(savedLock);
-    return library.get(out, slot);
+    return library.access(loadRecord, [&](const SavedPatternLibrary &record) { return record.get(out, slot); });
 }
 bool hasSavedPattern() {
     std::lock_guard<std::mutex> lock(savedLock);
@@ -49,12 +65,16 @@ PatternCatalog getPatternCatalog() {
 void storePatternInMenu(const SavePattern &event) {
     if (!stopped()) return;
     std::lock_guard<std::mutex> lock(savedLock);
-    event.written = library.save(event.slot, event.name, event.nameLength, event.value, writeRecord);
+    event.written = library.access(loadRecord, [&](SavedPatternLibrary &record) {
+        return record.save(event.slot, event.name, event.nameLength, event.value, writeRecord);
+    });
 }
 void selectPatternInMenu(const SelectPattern &event) {
     if (!stopped()) return;
     std::lock_guard<std::mutex> lock(savedLock);
-    event.written = library.select(event.slot, writeRecord);
+    event.written = library.access(loadRecord, [&](SavedPatternLibrary &record) {
+        return record.select(event.slot, writeRecord);
+    });
 }
 
 void toggleWiredPattern() {
@@ -62,10 +82,11 @@ void toggleWiredPattern() {
         cancelDrawnPattern();
         return;
     }
+    const auto revision = getMotorSafetyStatus().controlRevision;
+    if (drawnPatternStartStatus(revision) != PatternStart::Accepted) return;
     SavedPattern value;
     if (getSavedPattern(value)) {
-        startDrawnPattern(value.samples, value.length, value.periodMs,
-                          getMotorSafetyStatus().controlRevision, true);
+        startDrawnPattern(value.samples, value.length, value.periodMs, revision, true);
     }
 }
 }  // namespace streaming

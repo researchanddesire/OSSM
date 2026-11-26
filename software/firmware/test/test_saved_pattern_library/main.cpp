@@ -215,6 +215,39 @@ void test_catalog_escaped_maximum_names_fit_correlated_ble_response_when_paged()
     }
 }
 
+void test_index_uses_storage_only_for_explicit_requests_and_failed_io_preserves_catalog() {
+    SavedPatternCache cache;
+    int reads = 0;
+    auto load = [&](SavedPatternLibrary &record) {
+        ++reads;
+        record.load(readRecord);
+        return true;
+    };
+    const auto value = curve(4000);
+    TEST_ASSERT_TRUE(cache.access(load, [&](SavedPatternLibrary &record) {
+        return record.save(2, "Sine", 4, value, writeRecord);
+    }));
+    TEST_ASSERT_EQUAL_UINT(1, reads);
+    TEST_ASSERT_TRUE(cache.any());
+    TEST_ASSERT_EQUAL_UINT(2, cache.catalog().selected);
+    TEST_ASSERT_EQUAL_STRING("Sine", cache.catalog().slots[2].name);
+    TEST_ASSERT_EQUAL_UINT(1, reads);
+    bool attempted = false;
+    auto unavailable = [](SavedPatternLibrary &) { return false; };
+    TEST_ASSERT_FALSE(cache.access(unavailable, [&](SavedPatternLibrary &) { attempted = true; return true; }));
+    TEST_ASSERT_FALSE(attempted);
+    failWrite = true;
+    TEST_ASSERT_FALSE(cache.access(load, [&](SavedPatternLibrary &record) {
+        return record.save(1, "Other", 5, value, writeRecord);
+    }));
+    TEST_ASSERT_EQUAL_UINT(0, cache.catalog().slots[1].periodMs);
+    TEST_ASSERT_EQUAL_UINT(2, cache.catalog().selected);
+    SavedPattern restored;
+    TEST_ASSERT_TRUE(cache.access(load, [&](const SavedPatternLibrary &record) { return record.get(restored); }));
+    TEST_ASSERT_EQUAL_MEMORY(value.samples, restored.samples, value.length);
+    TEST_ASSERT_EQUAL_UINT(3, reads);
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_legacy_blob_loads_without_writing_or_starting_and_survives_upgrade);
@@ -225,5 +258,6 @@ int main() {
     RUN_TEST(test_catalog_optional_slot_preserves_full_and_empty_entries);
     RUN_TEST(test_catalog_rejects_invalid_page_without_returning_other_entries);
     RUN_TEST(test_catalog_escaped_maximum_names_fit_correlated_ble_response_when_paged);
+    RUN_TEST(test_index_uses_storage_only_for_explicit_requests_and_failed_io_preserves_catalog);
     return UNITY_END();
 }

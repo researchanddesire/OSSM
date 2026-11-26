@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <new>
 #include "drawn_waveform.h"
 
 namespace streaming {
@@ -111,7 +113,7 @@ class SavedPatternLibrary {
 
 public:
     // Both callbacks return true only when exactly size bytes were transferred.
-    // Read directly into the static live record at boot. No library-sized stack copy.
+    // The caller supplies the temporary record storage.
     template <typename Read> void load(Read read) {
         if (read(key, &record_, sizeof(record_)) && validRecord()) return;
         record_.version = 2;
@@ -179,4 +181,22 @@ public:
         return false;
     }
 };
+// Keep the slot index, not all four curves, resident between explicit reads
+// and stopped edits. The time-critical player owns its decoded waveform.
+class SavedPatternCache {
+    PatternCatalog catalog_{};
+public:
+    const PatternCatalog &catalog() const { return catalog_; }
+    bool any() const { return catalog_.slots[catalog_.selected].periodMs != 0; }
+
+    template <typename Load, typename Action>
+    bool access(Load load, Action action) {
+        std::unique_ptr<SavedPatternLibrary> record(new (std::nothrow) SavedPatternLibrary);
+        if (!record || !load(*record) || !action(*record)) return false;
+        catalog_ = record->catalog();
+        return true;
+    }
+};
+static_assert(sizeof(SavedPatternCache) == sizeof(PatternCatalog));
+
 }  // namespace streaming

@@ -306,6 +306,11 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
     }
     SavedPattern value;
     if (!save && (args.size() == 0 || (args.size() == 1 && slot != selectedPatternSlot))) {
+        const auto status = drawnPatternStartStatus(getMotorSafetyStatus().controlRevision);
+        if (status == PatternStart::Busy)
+            return radble::Result::failure("busy", "Stop the current motion before playing a stored pattern");
+        if (status != PatternStart::Accepted)
+            return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");
         if (!getSavedPattern(value, slot))
             return radble::Result::failure("not_found", "No pattern saved in this slot");
     } else {
