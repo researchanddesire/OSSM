@@ -19,6 +19,7 @@ struct PatternStop {
     const char *stage = nullptr;
     uint32_t atMs = 0, elapsedMs = 0;
     int8_t driverResult = 0;
+    uint32_t frameGapMs = 0;
 };
 struct PatternStatus {
     bool active;

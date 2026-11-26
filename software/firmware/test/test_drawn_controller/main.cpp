@@ -187,6 +187,7 @@ void test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_
     TEST_ASSERT_EQUAL_UINT32(121, status.lastStop.atMs);
     TEST_ASSERT_EQUAL_UINT32(21, status.lastStop.elapsedMs);
     TEST_ASSERT_EQUAL_INT(-2, status.lastStop.driverResult);
+    TEST_ASSERT_EQUAL_UINT32(1, status.lastStop.frameGapMs);
     TEST_ASSERT_EQUAL_INT(int(PatternStart::NotReady), int(start()));
     TEST_ASSERT_EQUAL_STRING("pulse_start", drawnPatternStatus().lastStop.reason);
     setDrawnPatternReady(revision, true);

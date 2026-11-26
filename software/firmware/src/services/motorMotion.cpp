@@ -13,6 +13,8 @@
 #include "services/stepper.h"
 
 namespace {
+static_assert(drawn_pattern::pulseQueueFrames + 2 < QUEUE_LEN,
+              "Pattern lookahead must leave room for the FAS direction guard");
 using SessionCallback = uint64_t (*)();
 using AuthorizationCallback = bool (*)(uint64_t);
 FastAccelStepper *pulseEngine = nullptr;
@@ -231,7 +233,7 @@ public:
         if (!motorSafetyEventCurrent(owner)) return false;
         if (!serialSelected()) {
             // Stop planning the entry ramp. Timed frames have no ramp
-            // generator; their already submitted tail is at most 12 ms.
+            // generator; their nominal lookahead is at most 20 ms.
             if (pulseQueue_.filling()) {
                 stopPulsesNow();
                 return false;
@@ -554,7 +556,7 @@ void stopPatternMotion(uint64_t owner) {
     // The producer's mailbox stays locked. Leave the physical stop mutex
     // free so an emergency can revoke, cut output and flush immediately.
     const uint32_t start = millis();
-    while (motorSafetyEventCurrent(owner) && axis.pulseRunning() && millis() - start < 25)
+    while (motorSafetyEventCurrent(owner) && axis.pulseRunning() && millis() - start < drawn_pattern::pulseStopDrainMs)
         vTaskDelay(1);
     runMotorPatternCommand(owner, [] { axis.finishPatternStop(); return true; });
 }

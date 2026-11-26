@@ -10,7 +10,7 @@ The optional BLE setting `setting.afterHomingPosition` sets the parking distance
 
 Probe the OSSM with `sensor.read` at `pattern.play`. Version 1 returns `version`, `hasSpeedKnob`, `active`, `stored`, and `periodMs`. The effective period becomes available after the controller evaluates the curve against the calibrated travel and current motion limits.
 
-After playback ends, the optional `lastStop` object reports the first stop reason and the stage (`waiting`, `positioning` or `playing`). `atMs` is uptime in milliseconds, `elapsedMs` is milliseconds since the accepted Play request, and `driverResult` is the signed backend result when applicable. An explicit stop reports `stop`. A missed hardware refill reports `pulse_underrun`. Reading status, issuing another Stop or returning to the menu preserves the record. The next accepted Play clears it.
+After playback ends, the optional `lastStop` object reports the first stop reason and the stage (`waiting`, `positioning` or `playing`). `atMs` is uptime in milliseconds, `elapsedMs` is milliseconds since the accepted Play request, `frameGapMs` gives the age of the last accepted playing frame, and `driverResult` is the signed backend result when applicable. An explicit stop reports `stop`. A missed hardware refill reports `pulse_underrun`. Reading status, issuing another Stop or returning to the menu preserves the record. The next accepted Play clears it.
 
 | Operation | Arguments | Behavior |
 | --- | --- | --- |
@@ -22,7 +22,7 @@ After playback ends, the optional `lastStop` object reports the first stop reaso
 
 All five operations require the connection's RAD BLE control lease. Samples are 16–128 unsigned byte positions encoded as hexadecimal pairs. A byte of 0 is the shallowest extension in the configured travel window. A byte of 255 is the deepest. For example, a cycle starting at 0, reaching 255, then falling to 64 starts shallow, fully extends within that window, then retracts to about one-quarter extension. The established `stream:<percent>:<time>` waypoint interface uses the opposite percentage convention. Each sample occupies an equal fraction of the requested 500–60,000 ms cycle. The last interval joins the last sample to the first. A monotone cubic Hermite interpolant shares the velocity on both sides of every sample and bounds each segment by its two endpoint positions. Playback starts at a minimum to enter the cycle from rest. The device sets the travel window and stretches time to respect its velocity and acceleration limits.
 
-The pulse backend queues timed STEP/DIR pulses. The serial backend sends bounded absolute targets through the existing acknowledged drive interface. The Dashboard needs a BLE connection for a live session. The wired remote can initiate offline playback of the saved curve.
+The pulse backend stages ten 2 ms frames before starting STEP/DIR output. It stops on an exhausted queue. A normal Stop drains the finite pulse tail for up to 25 ms. Physical revocation flushes the pulse queue immediately. The serial backend sends bounded absolute targets through the existing acknowledged drive interface. The Dashboard needs a BLE connection for a live session. The wired remote can initiate offline playback of the saved curve.
 
 Historical prototypes and design discussions are available in the [original pattern branch](https://github.com/KinkyMakers/OSSM-hardware/pull/261), the [Bézier proof of concept](https://github.com/KinkyMakers/OSSM-hardware/pull/208) and the [streaming planner](https://github.com/KinkyMakers/OSSM-hardware/pull/319).
 

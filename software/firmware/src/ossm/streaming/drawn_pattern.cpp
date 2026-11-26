@@ -30,7 +30,8 @@ const char *stageName() {
 }
 void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     if (stage == Stage::Idle) return; // preserve the first stop until the next accepted Play
-    lastStop = {reason, stageName(), now, now - startedAt, driverResult};
+    lastStop = {reason, stageName(), now, now - startedAt, driverResult,
+                stage == Stage::Playing ? now - lastFrameAt : 0};
     if (stage == Stage::Playing || stage == Stage::Positioning) pattern_motor::stop(owner);
     stage = Stage::Idle;
     effectivePeriod = 0;
@@ -85,7 +86,7 @@ void service(uint32_t now) {
         const int32_t logical = curve.nativeTarget(next, lower, upper);
         const auto result = pattern_motor::submit(logical, owner, serial);
         if (result.state == pattern_motor::Frame::Rejected)
-            return stopLocked(result.reason, now, result.driverResult);
+            return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
             if (now - lastFrameAt >= 200) stopLocked(result.reason, now, result.driverResult);
             return;

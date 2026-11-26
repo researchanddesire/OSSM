@@ -274,6 +274,7 @@ radble::Result patternStatus() {
         stop["atMs"] = playback.lastStop.atMs;
         stop["elapsedMs"] = playback.lastStop.elapsedMs;
         stop["driverResult"] = playback.lastStop.driverResult;
+        stop["frameGapMs"] = playback.lastStop.frameGapMs;
     }
     status["stored"] = streaming::hasSavedPattern();
     String output;

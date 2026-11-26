@@ -13,7 +13,11 @@ struct FrameResult {
     int8_t driverResult = 0;
 };
 
-constexpr unsigned pulseQueueFrames = 6;
+constexpr unsigned pulseQueueFrames = 10;
+constexpr uint32_t pulseStopDrainMs = 25;
+// Reserve two additional frame intervals inside the existing stop deadline
+// for hardware buffering, direction setup and timer rounding.
+static_assert((pulseQueueFrames + 2) * pulseFrameMs < pulseStopDrainMs);
 
 // FAS may retire a leading pause in its first hardware interrupt. Fill the
 // stopped queue, start it once, and use append-only writes for every refill.
