@@ -52,7 +52,7 @@ public:
             // after loss of power/telemetry, failed serial authorization or
             // another master appearing later.
             const int32_t logical = pulse_->getCurrentPosition();
-            if (patternPulses_ || primingPulse_) stopPulsesNow();
+            if (pulseQueue_.owned() || primingPulse_) stopPulsesNow();
             else pulse_->forceStop();
             pulse_->disableOutputs();
             portENTER_CRITICAL(&mux_);
@@ -154,49 +154,34 @@ public:
         }
         return 0;
     }
-    PatternFrameResult patternFrame(int32_t logical, uint64_t owner, bool serial) {
-        using Result = PatternFrameResult;
+    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial) {
+        using drawn_pattern::Frame;
         if (!motorSafetyEventCurrent(owner) || !motorSafetyCanEnableOutputs() ||
-            serialSelected() != serial) return Result::Rejected;
+            serialSelected() != serial) return {Frame::Rejected, "guard"};
         if (!serial) {
             if (primingPulse_) {
-                if (pulse_->isRunning()) return Result::Retry;
+                if (pulse_->isRunning()) return {Frame::Retry, "pulse_priming"};
                 primingPulse_ = false;
             }
-            if (pulse_->isRampGeneratorActive()) return Result::Rejected;
-            if (patternPulses_ && !pulse_->isQueueRunning())
-                return Result::Rejected; // underrun: never restart a moving curve at full speed
+            if (pulse_->isRampGeneratorActive()) return {Frame::Rejected, "pulse_ramp_active"};
             if (needsPulseRamp_) {
-                // forceStopAndNewPosition inhibits raw queue writes until the
-                // next real ramp. When already at the curve's entry, wait out
-                // its timed holds and prime with its first actual displacement.
+                // A force stop inhibits raw writes until a finite ramp has
+                // actually run. Stay at the entry during initial timed holds.
                 if (logical == pulse_->getCurrentPosition()) {
                     const auto now = millis();
-                    if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs) return Result::Retry;
+                    if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs)
+                        return {Frame::Retry, "pulse_entry_hold"};
                     lastPauseAt_ = now;
-                    return Result::Accepted;
+                    return {Frame::Accepted};
                 }
-                if (static_cast<int>(pulse_->moveTo(logical)) != 0) return Result::Rejected;
+                const auto result = static_cast<int8_t>(pulse_->moveTo(logical));
+                if (result != 0) return {Frame::Rejected, "pulse_prime", result};
                 needsPulseRamp_ = false;
                 primingPulse_ = true;
-                return Result::Retry;
+                return {Frame::Retry, "pulse_priming"};
             }
-            // No more than 12 ms queued, including pauses at a turn/dwell.
-            if (pulse_->queueEntries() >= 6) return Result::Retry;
-            const int32_t from = pulse_->getPositionAfterCommandsCompleted();
-            drawn_pattern::PulseFrame frame;
-            if (!drawn_pattern::pulseFrame(from, logical, TICKS_PER_S / 1000 *
-                    drawn_pattern::pulseFrameMs, patternDirection_, frame)) return Result::Rejected;
-            stepper_command_s command{frame.ticks, frame.steps, frame.increasing};
-            const auto result = static_cast<int8_t>(pulse_->addQueueEntry(&command, !patternPulses_));
-            if (result > 0) return Result::Retry;
-            // A revoked FastAccelStepper queue can ignore an otherwise valid
-            // entry. Never advance our clock if it discarded a displacement.
-            if (result < 0 || pulse_->getPositionAfterCommandsCompleted() != logical)
-                return Result::Rejected;
-            patternPulses_ = true;
-            patternDirection_ = frame.increasing;
-            return Result::Accepted;
+            return pulseQueue_.submit<stepper_command_s>(*pulse_, logical,
+                TICKS_PER_S / 1000 * drawn_pattern::pulseFrameMs);
         }
 
         refresh();
@@ -205,7 +190,7 @@ public:
         const auto safety = getMotorSafetyStatus();
         if (!taskReady_ || session == 0 || status.session != session ||
             !status.prepared || !status.enabled || status.faulted || !safety.boundsValid ||
-            !motorSafetyEventCurrent(owner)) return Result::Rejected;
+            !motorSafetyEventCurrent(owner)) return {Frame::Rejected, "serial_guard"};
         int32_t encoder = 0;
         uint32_t request = 0;
         portENTER_CRITICAL(&mux_);
@@ -220,10 +205,10 @@ public:
             request = nextRequest_;
         }
         portEXIT_CRITICAL(&mux_);
-        if (!valid) return Result::Rejected;
-        if (!available) return Result::Retry;
+        if (!valid) return {Frame::Rejected, "serial_bounds"};
+        if (!available) return {Frame::Retry, "serial_pending"};
         if (!queueOssmHatPositionTarget(session, request, encoder, status.maximumSpeedRpm,
-                                        status.accelerationRpmPerSec, 100)) return Result::Rejected;
+                                        status.accelerationRpmPerSec, 100)) return {Frame::Rejected, "serial_submit"};
         portENTER_CRITICAL(&mux_);
         commandSession_ = session;
         commandOwnerRevision_ = owner;
@@ -240,13 +225,17 @@ public:
         pendingEncoder_ = encoder;
         pendingProposal_ = {double(logical), 0, true};
         portEXIT_CRITICAL(&mux_);
-        return Result::Accepted;
+        return {Frame::Accepted};
     }
     bool beginPatternStop(uint64_t owner) {
         if (!motorSafetyEventCurrent(owner)) return false;
         if (!serialSelected()) {
             // Stop planning the entry ramp. Timed frames have no ramp
             // generator; their already submitted tail is at most 12 ms.
+            if (pulseQueue_.filling()) {
+                stopPulsesNow();
+                return false;
+            }
             pulse_->stopMove();
             return true;
         }
@@ -265,7 +254,7 @@ public:
     bool pulseRunning() { return pulse_->isRunning(); }
     void finishPatternStop() {
         if (pulse_->isRunning()) stopPulsesNow();
-        else patternPulses_ = primingPulse_ = false;
+        else { pulseQueue_.reset(); primingPulse_ = false; }
     }
     int8_t move(int32_t delta, bool blocking = false) override {
         if (!serialSelected()) return static_cast<int8_t>(pulse_->move(delta, blocking));
@@ -333,7 +322,7 @@ public:
         portEXIT_CRITICAL(&mux_);
     }
     void forceStop() override {
-        if (patternPulses_ || primingPulse_) stopPulsesNow();
+        if (pulseQueue_.owned() || primingPulse_) stopPulsesNow();
         else { pulse_->forceStop(); needsPulseRamp_ = true; }
         if (!serialSelected()) return;
         portENTER_CRITICAL(&mux_);
@@ -346,7 +335,8 @@ public:
         if (!serialSelected()) {
             pulse_->forceStopAndNewPosition(logical);
             needsPulseRamp_ = true;
-            patternPulses_ = primingPulse_ = false;
+            pulseQueue_.reset();
+            primingPulse_ = false;
             return;
         }
         // Homing calls this only after physical arrival and stop proof. Do
@@ -396,10 +386,13 @@ private:
         // The ESP32 RMT counter can omit the currently executing command.
         // An emergency abort must flush right now; re-home before using its
         // estimate for another pattern. Normal stops drain to an exact count.
-        if (pulse_->isRunning()) calibration.isHomed = false;
-        pulse_->forceStopAndNewPosition(pulse_->getCurrentPosition());
+        const bool unstarted = pulseQueue_.filling();
+        if (!unstarted && pulse_->isRunning()) calibration.isHomed = false;
+        pulse_->forceStopAndNewPosition(unstarted ? pulseQueue_.initialPosition() :
+                                                    pulse_->getCurrentPosition());
         needsPulseRamp_ = true;
-        patternPulses_ = primingPulse_ = false;
+        pulseQueue_.reset();
+        primingPulse_ = false;
     }
     static void task(void *context) {
         auto *axis = static_cast<OssmMotionAxis *>(context);
@@ -507,8 +500,8 @@ private:
     std::atomic_bool selectionReady_{false};
     bool taskReady_ = false;
     bool directionHigh_ = false;
-    bool patternDirection_ = false;
-    std::atomic_bool patternPulses_{false}, primingPulse_{false}, needsPulseRamp_{true};
+    drawn_pattern::PulseQueue pulseQueue_;
+    std::atomic_bool primingPulse_{false}, needsPulseRamp_{true};
     uint32_t lastPauseAt_ = 0;
     bool serialPatternFrame_ = false;
     bool frameValid_ = false;
@@ -549,7 +542,7 @@ MotorMotionStatus getMotorMotionStatus() { return axis.status(); }
 FastAccelStepper *getMotorPulseStepper() { return pulseEngine; }
 
 
-PatternFrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial) {
+drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial) {
     return axis.patternFrame(target, revision, serial);
 }
 void stopPatternMotion(uint64_t owner) {

@@ -14,9 +14,20 @@ bool renewDrawnPattern(uint64_t ownerRevision);
 void cancelDrawnPattern();
 void cancelRemoteDrawnPattern();
 bool drawnPatternActive();
-uint32_t drawnPatternPeriodMs();
+struct PatternStop {
+    const char *reason = nullptr;
+    const char *stage = nullptr;
+    uint32_t atMs = 0, elapsedMs = 0;
+    int8_t driverResult = 0;
+};
+struct PatternStatus {
+    bool active;
+    uint32_t periodMs;
+    PatternStop lastStop;
+};
+PatternStatus drawnPatternStatus();
 
 // Called only by the guarded streaming task.
-void setDrawnPatternReady(uint64_t revision, bool ready);
+void setDrawnPatternReady(uint64_t revision, bool ready, const char *exitReason = "mode_exit");
 bool serviceDrawnPattern(uint64_t revision);
 }

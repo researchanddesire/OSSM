@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <string>
 #include "drawn_waveform.h"
+#include "drawn_pulse_queue.h"
 
 using drawn_pattern::Waveform;
 void setUp() {}
@@ -119,8 +120,89 @@ void test_step_frames_track_multiple_periods_without_waypoint_stops_or_drift() {
     TEST_ASSERT_FALSE(drawn_pattern::pulseFrame(INT32_MIN, INT32_MAX, 32000, false, frame));
 }
 
+namespace {
+struct PulseCommand { uint16_t ticks; uint8_t steps; bool count_up; };
+struct InterruptingQueue {
+    unsigned count = 0, starts = 0;
+    bool running = false, discarded = false, drainOnAppend = false;
+    int8_t startResult = 0;
+    int32_t tail = -896;
+    unsigned queueEntries() const { return count; }
+    int32_t getPositionAfterCommandsCompleted() const { return tail; }
+    bool isQueueRunning() const { return running; }
+    int addQueueEntry(const PulseCommand *command, bool start) {
+        if (command && !discarded) {
+            if (drainOnAppend) { count = 0; running = false; }
+            ++count;
+            tail += command->count_up ? command->steps : -int(command->steps);
+        }
+        if (start) {
+            ++starts;
+            if (startResult) return startResult;
+            // The MCPWM compare interrupt may retire the first hold before
+            // the producer runs again, even for a long programmed interval.
+            if (count) --count;
+            running = count > 0;
+        }
+        return 0;
+    }
+};
+}
+
+void test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead() {
+    using namespace drawn_pattern;
+    PulseQueue q;
+    InterruptingQueue driver;
+    for (unsigned i = 0; i < pulseQueueFrames; ++i) {
+        const auto result = q.submit<PulseCommand>(driver, -896, 32000);
+        TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(result.state));
+        TEST_ASSERT_EQUAL_UINT(i + 1 == pulseQueueFrames, driver.starts);
+    }
+    TEST_ASSERT_TRUE(driver.running);
+    TEST_ASSERT_FALSE(q.filling());
+    TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(q.submit<PulseCommand>(driver, -895, 32000).state));
+    TEST_ASSERT_EQUAL_INT(int(Frame::Retry), int(q.submit<PulseCommand>(driver, -894, 32000).state));
+    TEST_ASSERT_EQUAL_UINT(pulseQueueFrames, driver.count);
+    driver.count = 1;
+    driver.drainOnAppend = true;
+    const auto underrun = q.submit<PulseCommand>(driver, -894, 32000);
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", underrun.reason);
+    TEST_ASSERT_EQUAL_UINT(1, driver.starts);
+    TEST_ASSERT_FALSE(driver.running);
+    TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(q.submit<PulseCommand>(driver, -894, 32000).state));
+    TEST_ASSERT_EQUAL_UINT(1, driver.starts);
+}
+
+void test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_errors() {
+    using namespace drawn_pattern;
+    PulseQueue q;
+    InterruptingQueue driver;
+    driver.discarded = true;
+    const auto discarded = q.submit<PulseCommand>(driver, -896, 32000);
+    TEST_ASSERT_EQUAL_STRING("pulse_discarded", discarded.reason);
+    TEST_ASSERT_EQUAL_INT32(-896, q.initialPosition());
+    TEST_ASSERT_TRUE(q.filling());
+    TEST_ASSERT_FALSE(driver.running);
+    q.reset();
+    TEST_ASSERT_FALSE(q.owned());
+    driver.discarded = false;
+    driver.startResult = -2;
+    for (unsigned i = 1; i < pulseQueueFrames; ++i)
+        TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(q.submit<PulseCommand>(driver, -895, 32000).state));
+    const auto refused = q.submit<PulseCommand>(driver, -894, 32000);
+    TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(refused.state));
+    TEST_ASSERT_EQUAL_STRING("pulse_start", refused.reason);
+    TEST_ASSERT_EQUAL_INT(-2, refused.driverResult);
+    TEST_ASSERT_TRUE(q.filling());
+    TEST_ASSERT_FALSE(driver.running);
+    TEST_ASSERT_EQUAL_INT32(-896, q.initialPosition());
+    TEST_ASSERT_EQUAL_INT32(-894, driver.tail);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead);
+    RUN_TEST(test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_errors);
     RUN_TEST(test_wire_bounds_are_checked_before_motion);
     RUN_TEST(test_passes_through_all_samples_no_overshoot_and_continuous_velocity);
     RUN_TEST(test_phase_starts_at_a_resting_extremum_and_loops_without_a_jump);

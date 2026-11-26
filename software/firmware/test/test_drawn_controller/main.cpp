@@ -10,7 +10,7 @@ uint64_t revision;
 uint32_t clockMs;
 int stops;
 std::vector<int32_t> frames;
-io::Frame feedback;
+io::FrameResult feedback;
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
 
 PatternStart start(bool local = false) { return startDrawnPattern(samples, 32, 2000, revision, local); }
@@ -34,9 +34,9 @@ bool position(uint64_t ticket, int32_t target, const State &, bool) {
     motor.position = target;
     return true;
 }
-Frame submit(int32_t target, uint64_t ticket, bool) {
-    if (!read(ticket).ready) return Frame::Rejected;
-    if (feedback == Frame::Accepted) frames.push_back(target);
+FrameResult submit(int32_t target, uint64_t ticket, bool) {
+    if (!read(ticket).ready) return {Frame::Rejected, "guard"};
+    if (feedback.state == Frame::Accepted) frames.push_back(target);
     return feedback;
 }
 void stop(uint64_t ticket) { if (ticket == revision) ++stops; }
@@ -48,7 +48,7 @@ void setUp() {
     clockMs = 0;
     frames.clear();
     stops = 0;
-    feedback = io::Frame::Accepted;
+    feedback = {io::Frame::Accepted};
     setDrawnPatternReady(revision, true);
 }
 void tearDown() { setDrawnPatternReady(revision, false); }
@@ -75,7 +75,7 @@ void test_remote_renewal_zero_stop_and_no_automatic_restart() {
     tick(700);
     TEST_ASSERT_FALSE(frames.empty());
     for (int32_t v : frames) TEST_ASSERT_TRUE(v >= motor.from && v <= motor.to);
-    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2000, drawnPatternPeriodMs());
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2000, drawnPatternStatus().periodMs);
     motor.speed = 0;
     tick();
     TEST_ASSERT_FALSE(drawnPatternActive());
@@ -137,10 +137,10 @@ void test_no_phase_catchup_after_backpressure_or_a_scheduling_gap() {
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     tick(30);
     TEST_ASSERT_EQUAL_UINT(1, frames.size());
-    feedback = io::Frame::Retry;
+    feedback = {io::Frame::Retry, "serial_pending"};
     tick(100);
     TEST_ASSERT_EQUAL_UINT(1, frames.size());
-    feedback = io::Frame::Accepted;
+    feedback = {io::Frame::Accepted};
     tick();
     TEST_ASSERT_EQUAL_UINT(2, frames.size());
     TEST_ASSERT_TRUE(std::abs(frames[1] - frames[0]) <= 4);
@@ -150,8 +150,33 @@ void test_no_phase_catchup_after_backpressure_or_a_scheduling_gap() {
     TEST_ASSERT_EQUAL_UINT(2, frames.size());
 }
 
+void test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start() {
+    motor.speed = 160;
+    clockMs = 100;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(20);
+    feedback = {io::Frame::Rejected, "pulse_start", -2};
+    tick();
+    cancelDrawnPattern();
+    cancelRemoteDrawnPattern();
+    setDrawnPatternReady(revision, false);
+    auto status = drawnPatternStatus();
+    TEST_ASSERT_FALSE(status.active);
+    TEST_ASSERT_EQUAL_STRING("pulse_start", status.lastStop.reason);
+    TEST_ASSERT_EQUAL_STRING("playing", status.lastStop.stage);
+    TEST_ASSERT_EQUAL_UINT32(121, status.lastStop.atMs);
+    TEST_ASSERT_EQUAL_UINT32(21, status.lastStop.elapsedMs);
+    TEST_ASSERT_EQUAL_INT(-2, status.lastStop.driverResult);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::NotReady), int(start()));
+    TEST_ASSERT_EQUAL_STRING("pulse_start", drawnPatternStatus().lastStop.reason);
+    setDrawnPatternReady(revision, true);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_NULL(drawnPatternStatus().lastStop.reason);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start);
     RUN_TEST(test_zero_speed_arms_but_expiry_never_restarts);
     RUN_TEST(test_remote_renewal_zero_stop_and_no_automatic_restart);
     RUN_TEST(test_local_recall_survives_unrelated_remote_lease_but_obeys_user_controls);

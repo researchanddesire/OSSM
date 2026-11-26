@@ -264,8 +264,17 @@ radble::Result patternStatus() {
     status["libraryVersion"] = 1;
     status["libraryPageSize"] = 1;
     status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
-    status["active"] = streaming::drawnPatternActive();
-    status["periodMs"] = streaming::drawnPatternPeriodMs();
+    const auto playback = streaming::drawnPatternStatus();
+    status["active"] = playback.active;
+    status["periodMs"] = playback.periodMs;
+    if (playback.lastStop.reason) {
+        auto stop = status["lastStop"].to<JsonObject>();
+        stop["reason"] = playback.lastStop.reason;
+        stop["stage"] = playback.lastStop.stage;
+        stop["atMs"] = playback.lastStop.atMs;
+        stop["elapsedMs"] = playback.lastStop.elapsedMs;
+        stop["driverResult"] = playback.lastStop.driverResult;
+    }
     status["stored"] = streaming::hasSavedPattern();
     String output;
     serializeJson(status, output);

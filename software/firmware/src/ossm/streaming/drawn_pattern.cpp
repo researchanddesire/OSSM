@@ -13,13 +13,24 @@ drawn_pattern::Waveform curve;
 Stage stage = Stage::Idle;
 bool ready = false, local = false, serial = false;
 uint64_t owner = 0;
-uint32_t renewedAt = 0, lastFrameAt = 0, effectivePeriod = 0;
+PatternStop lastStop;
+uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, effectivePeriod = 0;
 int32_t lower = 0, upper = 0, entry = 0;
 double phase = 0, cyclesPerSecond = 0;
 
 // These values live behind lock. A task from an older streaming session
 // can neither submit a frame nor release a newer session's mailbox.
-void stopLocked() {
+const char *stageName() {
+    switch (stage) {
+        case Stage::Waiting: return "waiting";
+        case Stage::Positioning: return "positioning";
+        case Stage::Playing: return "playing";
+        default: return "idle";
+    }
+}
+void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
+    if (stage == Stage::Idle) return; // preserve the first stop until the next accepted Play
+    lastStop = {reason, stageName(), now, now - startedAt, driverResult};
     if (stage == Stage::Playing || stage == Stage::Positioning) pattern_motor::stop(owner);
     stage = Stage::Idle;
     effectivePeriod = 0;
@@ -29,54 +40,64 @@ int32_t target(double p) {
     return lower + static_cast<int32_t>(std::lround((upper - lower) * curve.position(p)));
 }
 
-bool service(uint32_t now) {
-    if (!local && now - renewedAt >= drawn_pattern::leaseMs) return false;
+void service(uint32_t now) {
+    if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const auto caps = pattern_motor::read(owner);
-    if (!caps.ready || caps.serial != serial) return false;
-    if (caps.speed < 1 || caps.acceleration < 1 || caps.to <= caps.from)
-        return stage == Stage::Waiting;
+    if (!caps.ready) return stopLocked("guard", now);
+    if (caps.serial != serial) return stopLocked("backend_changed", now);
+    if (caps.speed < 1 || caps.acceleration < 1 || caps.to <= caps.from) {
+        if (stage != Stage::Waiting) stopLocked("limits_zero", now);
+        return;
+    }
     if (stage != Stage::Waiting && (lower != caps.from || upper != caps.to))
-        return false; // never jump to a new stroke window mid-cycle
+        return stopLocked("window_changed", now);
     const uint32_t period = curve.safePeriodMs(caps.to - caps.from, caps.speed, caps.acceleration / 2);
-    if (!period) return false;
+    if (!period) return stopLocked("period_limit", now);
     effectivePeriod = period;
     if (stage == Stage::Waiting) {
-        if (caps.moving || caps.queued) return false;
+        if (caps.moving || caps.queued) return stopLocked("entry_busy", now);
         lower = caps.from;
         upper = caps.to;
         entry = target(0);
         phase = cyclesPerSecond = 0;
-        const bool ok = pattern_motor::position(owner, entry, caps, true);
-        if (ok) stage = Stage::Positioning;
-        return ok;
+        if (!pattern_motor::position(owner, entry, caps, true)) return stopLocked("entry_command", now);
+        stage = Stage::Positioning;
+        return;
     }
     if (stage == Stage::Positioning) {
-        if (caps.moving) return pattern_motor::position(owner, entry, caps, false);
-        if (std::abs(static_cast<int64_t>(caps.position) - entry) > 1) return false;
+        if (caps.moving) {
+            if (!pattern_motor::position(owner, entry, caps, false)) stopLocked("entry_guard", now);
+            return;
+        }
+        if (std::abs(static_cast<int64_t>(caps.position) - entry) > 1)
+            return stopLocked("entry_position", now);
         stage = Stage::Playing;
         lastFrameAt = now;
     }
-    if (now - lastFrameAt > 200) return false; // stop after starvation; never burst to catch up
+    if (now - lastFrameAt > 200) return stopLocked("scheduler_gap", now); // stop after starvation; never burst to catch up
     const uint32_t frameMs = serial ? 20 : drawn_pattern::pulseFrameMs;
-    if (serial && now - lastFrameAt < frameMs) return true;
+    if (serial && now - lastFrameAt < frameMs) return;
     const double dt = frameMs / 1000.0;
     const double goal = 1000.0 / period;
     // Half the acceleration budget is reserved for changing phase rate,
     // including starting at rest and live speed changes.
     const double rateDelta = caps.acceleration * 0.5 * dt /
                              std::max(1.0, curve.maximumSlope(upper - lower));
-    for (unsigned i = 0; i < (serial ? 1u : 6u); ++i) {
+    for (unsigned i = 0; i < (serial ? 1u : drawn_pattern::pulseQueueFrames); ++i) {
         const double rate = cyclesPerSecond + std::clamp(goal - cyclesPerSecond, -rateDelta, rateDelta);
         const double next = phase + 0.5 * (rate + cyclesPerSecond) * dt;
         const int32_t logical = target(next);
         const auto result = pattern_motor::submit(logical, owner, serial);
-        if (result == pattern_motor::Frame::Rejected) return false;
-        if (result == pattern_motor::Frame::Retry) return now - lastFrameAt < 200;
+        if (result.state == pattern_motor::Frame::Rejected)
+            return stopLocked(result.reason, now, result.driverResult);
+        if (result.state == pattern_motor::Frame::Retry) {
+            if (now - lastFrameAt >= 200) stopLocked(result.reason, now, result.driverResult);
+            return;
+        }
         cyclesPerSecond = rate;
         phase = next - std::floor(next);
         lastFrameAt = now;
     }
-    return true;
 }
 } // namespace
 
@@ -111,7 +132,8 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     curve = incoming;
     local = localControl;
     serial = caps.serial;
-    renewedAt = pattern_motor::now();
+    lastStop = {};
+    startedAt = renewedAt = pattern_motor::now();
     stage = Stage::Waiting;
     return PatternStart::Accepted;
 }
@@ -127,35 +149,35 @@ bool renewDrawnPattern(uint64_t revision) {
 
 void cancelDrawnPattern() {
     std::lock_guard<std::mutex> guard(lock);
-    stopLocked();
+    stopLocked("stop", pattern_motor::now());
 }
 void cancelRemoteDrawnPattern() {
     std::lock_guard<std::mutex> guard(lock);
-    if (!local) stopLocked();
+    if (!local) stopLocked("remote_release", pattern_motor::now());
 }
 bool drawnPatternActive() {
     std::lock_guard<std::mutex> guard(lock);
     return stage != Stage::Idle;
 }
-uint32_t drawnPatternPeriodMs() {
+PatternStatus drawnPatternStatus() {
     std::lock_guard<std::mutex> guard(lock);
-    return effectivePeriod;
+    return {stage != Stage::Idle, effectivePeriod, lastStop};
 }
-void setDrawnPatternReady(uint64_t revision, bool enabled) {
+void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReason) {
     std::lock_guard<std::mutex> guard(lock);
     if (enabled && pattern_motor::current(revision)) {
-        stopLocked();
+        stopLocked(exitReason, pattern_motor::now());
         ready = true;
         owner = revision;
     } else if (owner == revision) {
         ready = false;
-        stopLocked();
+        stopLocked(exitReason, pattern_motor::now());
     }
 }
 bool serviceDrawnPattern(uint64_t revision) {
     std::lock_guard<std::mutex> guard(lock);
     if (stage == Stage::Idle || owner != revision) return false;
-    if (!service(pattern_motor::now())) stopLocked();
+    service(pattern_motor::now());
     return true;
 }
 } // namespace streaming

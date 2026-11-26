@@ -64,12 +64,14 @@ static void startStreamingTask(void *pvParameters) {
     setDrawnPatternReady(safetyRevision, true);
     PositionTime targetPositionTime{};
     bool haveTarget = false;
+    const char *exitReason = "mode_exit";
     while (isInCorrectState()) {
         if (!calibration.isHomed) {
+            exitReason = "reference_lost";
             stateMachine->process_event(PatternReferenceLost{safetyRevision});
             break;
         }
-        if (!motorSafetyCanEnableOutputs()) break;
+        if (!motorSafetyCanEnableOutputs()) { exitReason = "guard"; break; }
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
         if (serviceDrawnPattern(safetyRevision)) {
             haveTarget = false;
@@ -145,7 +147,7 @@ static void startStreamingTask(void *pvParameters) {
         vTaskDelay(1);
     }
 
-    setDrawnPatternReady(safetyRevision, false);
+    setDrawnPatternReady(safetyRevision, false, exitReason);
     vTaskDelete(nullptr);
 }
 

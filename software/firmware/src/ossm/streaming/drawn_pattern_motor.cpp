@@ -57,13 +57,13 @@ bool position(uint64_t revision, int32_t target, const State &caps, bool startin
         return true;
     });
 }
-Frame submit(int32_t target, uint64_t revision, bool serial) {
-    auto result = PatternFrameResult::Rejected;
+FrameResult submit(int32_t target, uint64_t revision, bool serial) {
+    FrameResult result{Frame::Rejected, "guard"};
     if (!runMotorPatternCommand(revision, [&] {
         result = submitPatternFrame(target, revision, serial);
-        return result != PatternFrameResult::Rejected;
-    })) return Frame::Rejected;
-    return result == PatternFrameResult::Accepted ? Frame::Accepted : Frame::Retry;
+        return true;
+    })) return {Frame::Rejected, "guard"};
+    return result;
 }
 void stop(uint64_t revision) {
     stopPatternMotion(revision);

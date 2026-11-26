@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "drawn_pulse_queue.h"
 
 namespace streaming::pattern_motor {
 // A snapshot in native pulse-equivalent coordinates. The backend independently
@@ -14,11 +15,12 @@ struct State {
     int32_t from = 0, to = 0;
     double speed = 0, acceleration = 0;
 };
-enum class Frame { Accepted, Retry, Rejected };
+using drawn_pattern::Frame;
+using drawn_pattern::FrameResult;
 State read(uint64_t revision);
 uint32_t now();
 bool current(uint64_t revision);
 bool position(uint64_t revision, int32_t target, const State &limits, bool starting);
-Frame submit(int32_t target, uint64_t revision, bool serial);
+FrameResult submit(int32_t target, uint64_t revision, bool serial);
 void stop(uint64_t revision);
 }
