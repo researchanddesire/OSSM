@@ -91,11 +91,6 @@ typedef enum {
     STREAMING    //!< Tracks the depth-position whenever depth is updated.
 } ServoState;
 
-// Verbose strings of states for debugging purposes
-static String verboseState[] = {
-    "[0] Servo disabled", "[1] Servo ready", "[2] Servo pattern running",
-    "[3] Servo setup depth", "[4] Servo position streaming"};
-
 /**************************************************************************/
 /*!
   @brief  Stroke Engine provides a convenient package for stroking motions
