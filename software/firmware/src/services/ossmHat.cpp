@@ -32,6 +32,7 @@ portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
 OssmHatStatus publishedStatus;
 OssmHatTelemetry publishedSample;
 OssmHatControlSnapshot publishedControls;
+OssmHatDriveConfig publishedDriveConfig;
 OssmHatStopStatus publishedStop;
 bool pendingStop = false;
 bool stopInFlight = false;
@@ -328,7 +329,8 @@ void reader(void *) {
     // Install both raw IRQs on this pinned core, with UART1 clean before the
     // ordinary UART2 driver is initialized. No UART1 default pins are attached.
     ossm_hat_emergency::installHardware();
-    ossm_hat::Decoder decoder;
+    OssmHatDriveConfig driveConfig;
+    ossm_hat::Decoder decoder(&driveConfig);
     ossm_hat::SampleRate sampleRate;
     OssmHatStatus status;
 #ifdef OSSM_HAT_LISTEN_ONLY
@@ -393,6 +395,10 @@ void reader(void *) {
         status.startupReady=status.fresh && status.sampleRateHz>=30 && status.sampleWindowMs>=500;
         portENTER_CRITICAL(&stateMux);
         publishedSample=decoder.sample(); publishedControls=decoder.controls(); publishedStatus=status;
+        if (driveConfig.continuity != publishedDriveConfig.continuity ||
+            driveConfig.observedAtMs != publishedDriveConfig.observedAtMs) {
+            publishedDriveConfig = driveConfig;
+        }
         portEXIT_CRITICAL(&stateMux);
         ossm_hat_emergency::ownerLease(lockedBaud && !status.passive && status.baudRate==115200);
         ossm_hat_emergency::observe(decoder.sample(),decoder.controls());
@@ -809,6 +815,16 @@ bool readOssmHatControlSnapshot(OssmHatControlSnapshot &out) {
     const uint32_t now = millis();
     out.valid = ossm_hat::controlsFresh(out, sample, now);
     return out.valid;
+}
+
+bool readOssmHatDriveConfig(OssmHatDriveConfig &out) {
+    portENTER_CRITICAL(&stateMux);
+    out = publishedDriveConfig;
+    const auto sample = publishedSample;
+    const auto controls = publishedControls;
+    portEXIT_CRITICAL(&stateMux);
+    return ossm_hat::controlsFresh(controls, sample, millis()) &&
+           out.continuity == controls.continuity && out.observedAtMs == controls.updatedAtMs;
 }
 
 void requestOssmHatEmergencyStop() {

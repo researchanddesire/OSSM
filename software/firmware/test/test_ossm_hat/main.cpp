@@ -114,6 +114,31 @@ void test_whole_register_snapshot_uses_requested_offset() {
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.75f, decoder.sample().currentAmps);
 }
 
+void test_drive_config_requires_a_complete_correlated_crc_valid_register_dump() {
+    OssmHatDriveConfig config;
+    Decoder decoder(&config);
+    const auto frame = reply(0, 26);
+    feed(decoder, frame);
+    TEST_ASSERT_EQUAL_UINT32(0, config.continuity);
+    feed(decoder, request(0, 26), 120);
+    feed(decoder, frame, 130);
+    TEST_ASSERT_EQUAL_UINT32(130, config.observedAtMs);
+    TEST_ASSERT_EQUAL_UINT32(decoder.sample().continuity, config.continuity);
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(frame.data(), config.frame, sizeof(config.frame));
+    auto corrupt = frame;
+    corrupt[9] ^= 1;
+    feed(decoder, request(0, 26), 140);
+    feed(decoder, corrupt, 150);
+    TEST_ASSERT_EQUAL_UINT32(130, config.observedAtMs);
+    feed(decoder, request(0, 2), 160);
+    feed(decoder, reply(0, 2), 170);
+    TEST_ASSERT_EQUAL_UINT32(0, config.continuity);
+    feed(decoder, request(0, 26), 180);
+    feed(decoder, frame, 190);
+    decoder.restartContinuity();
+    TEST_ASSERT_EQUAL_UINT32(0, config.continuity);
+}
+
 void test_unsolicited_response_cannot_detect_hat() {
     Decoder decoder;
     TEST_ASSERT_EQUAL(Decoder::None, feed(decoder, reply()));
@@ -391,6 +416,7 @@ int main(int, char **) {
     RUN_TEST(test_active_read_does_not_report_external_master);
     RUN_TEST(test_encoder_high_and_low_words_include_signed_position);
     RUN_TEST(test_whole_register_snapshot_uses_requested_offset);
+    RUN_TEST(test_drive_config_requires_a_complete_correlated_crc_valid_register_dump);
     RUN_TEST(test_unsolicited_response_cannot_detect_hat);
     RUN_TEST(test_partial_read_never_makes_current_voltage_fresh);
     RUN_TEST(test_bad_crc_does_not_refresh_a_sample);

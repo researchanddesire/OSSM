@@ -71,6 +71,8 @@ class Decoder {
   public:
     enum Event : uint8_t { None = 0, ExternalRequest = 1, Telemetry = 2, Controls = 4 };
 
+    explicit Decoder(OssmHatDriveConfig *driveConfig = nullptr) : driveConfig_(driveConfig) {}
+
     void reset() {
         used_ = 0;
         pending_ = false;
@@ -84,19 +86,23 @@ class Decoder {
         requestedAt_ = now;
     }
 
-    void invalidateControls() { controls_.valid = false; }
+    void invalidateControls() {
+        controls_.valid = false;
+        if (driveConfig_) driveConfig_->continuity = 0;
+    }
 
     // A transport teardown invalidates every previous coordinate reference,
     // even if its wall-clock gap was shorter than the ordinary freshness limit.
     void restartContinuity() {
         reset();
         sample_.sequence = 0;
-        controls_.valid = false;
+        invalidateControls();
     }
 
     // A prioritized owner exchange uses the same read-back cache as regular
     // polling. Never retain a pre-stop mode0 snapshot after a mode1 takeover.
     void acceptControlReadback(uint16_t mode, uint16_t output, uint32_t now) {
+        if (driveConfig_) driveConfig_->continuity = 0;
         controls_.valid = true;
         controls_.modbusEnable = mode;
         controls_.outputEnable = output;
@@ -151,6 +157,11 @@ class Decoder {
                             }
                             if (id == motorId && start_ == 0 && count_ >= 2) {
                                 acceptControlReadback(word(0), word(1), now);
+                                if (driveConfig_ && count_ == 26) {
+                                    std::memcpy(driveConfig_->frame, buffer_, sizeof(driveConfig_->frame));
+                                    driveConfig_->observedAtMs = now;
+                                    driveConfig_->continuity = sample_.continuity;
+                                }
                                 events |= Controls;
                             }
                             pending_ = false;
@@ -264,6 +275,7 @@ class Decoder {
     uint32_t requestedAt_ = 0;
     OssmHatTelemetry sample_;
     OssmHatControlSnapshot controls_;
+    OssmHatDriveConfig *driveConfig_;
     uint32_t validFrames_ = 0;
     uint32_t crcErrors_ = 0;
 };

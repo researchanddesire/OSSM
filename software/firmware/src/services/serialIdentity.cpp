@@ -70,6 +70,24 @@ void announceHat() {
     Serial.write(reinterpret_cast<const uint8_t *>(frame), size + 9);
 }
 
+#if OSSM_HAT_SERIAL_BACKEND
+void announceDriveConfig() {
+    OssmHatDriveConfig config;
+    if (!readOssmHatDriveConfig(config)) {
+        Serial.print("RAD_DRIVE_CONFIG unavailable\n");
+        return;
+    }
+    char hex[sizeof(config.frame) * 2 + 1];
+    constexpr char digits[] = "0123456789abcdef";
+    for (size_t i = 0; i < sizeof(config.frame); ++i) {
+        hex[2*i] = digits[config.frame[i] >> 4];
+        hex[2*i+1] = digits[config.frame[i] & 15];
+    }
+    hex[sizeof(hex)-1] = '\0';
+    Serial.printf("RAD_DRIVE_CONFIG %lu %s\n", static_cast<unsigned long>(config.observedAtMs), hex);
+}
+#endif
+
 void console(void*) {
     // Never wait for a USB host or block application setup on a serial cable.
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -88,6 +106,9 @@ void console(void*) {
                 }
             }
             else if (strcmp(command, "hat") == 0) announceHat();
+#if OSSM_HAT_SERIAL_BACKEND
+            else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();
+#endif
 #ifdef VERSIONDEV
             else if (const auto handler = developmentCommand.load()) handler(command);
 #endif
