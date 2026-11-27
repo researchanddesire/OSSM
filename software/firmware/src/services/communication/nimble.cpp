@@ -315,7 +315,7 @@ void nimbleLoop(void* pvParameters) {
 
     String lastState = "";
     int lastConnCount = 0;
-    int lastMessageTime = 0;
+    uint32_t lastMessageTime = 0, lastStatusCheck = 0;
     uint32_t lastRampStepMs = 0;
     while (true) {
         // Ramp the BLE speed down after the link that drove motion dropped.
@@ -328,7 +328,9 @@ void nimbleLoop(void* pvParameters) {
         }
 
         // Check if we should be advertising (no connections)
-        if (pServer->getConnectedCount() == 0) {
+        const int currentConnCount = pServer->getConnectedCount();
+        if (currentConnCount == 0) {
+            lastConnCount = 0;
             // If not advertising and no connections, restart advertising
             if (!pServer->getAdvertising()) {
                 ESP_LOGI(NIMBLE_TAG,
@@ -341,33 +343,25 @@ void nimbleLoop(void* pvParameters) {
             continue;
         }
 
-        int currentConnCount = pServer->getConnectedCount();
-
         // Clear last state when connection count changes
         if (currentConnCount != lastConnCount) {
             lastState = "";
             lastConnCount = currentConnCount;
         }
 
-        NimBLEService* pSvc = pServer->getServiceByUUID(SERVICE_UUID);
-        if (!pSvc) {
+        // Cached when the service is created, before this task is started.
+        if (!pStateCharacteristic) {
             lastState = "";
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
 
-        NimBLECharacteristic* pChr =
-            pSvc->getCharacteristic(CHARACTERISTIC_STATE_UUID);
-        if (!pChr) {
-            lastState = "";
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-
-        // mannage message queue
+        // Commands and disconnect handling retain their per-tick service.
+        bool handledCommand = false;
         String cmd;
         while (messageQueue.pop(cmd)) {
             ossm->ble_click(cmd);
+            handledCommand = true;
 
             // Trigger LED communication pulse for command processing
             pulseForCommunication();
@@ -375,28 +369,24 @@ void nimbleLoop(void* pvParameters) {
             vTaskDelay(1);
         }
 
-        int currentTime = millis();
-        String fingerprint = ossm->getStateFingerprint();
-        bool stateChanged = fingerprint != lastState;
-        bool timeElapsed = (currentTime - lastMessageTime) > 1000;
-
-        if (!stateChanged && !timeElapsed) {
+        const uint32_t currentTime = millis();
+        if (!handledCommand && lastState.length() && currentTime - lastStatusCheck < 20) {
             vTaskDelay(1);
             continue;
         }
-        lastMessageTime = currentTime;
-        lastState = fingerprint;
-
-        String currentState = ossm->getCurrentState();
+        lastStatusCheck = currentTime;
+        String fingerprint = ossm->getStateFingerprint();
+        const bool stateChanged = fingerprint != lastState;
         if (stateChanged) {
+            lastState = fingerprint;
+            String currentState = ossm->getCurrentState();
             ESP_LOGD(NIMBLE_TAG, "State changed to: %s", currentState.c_str());
             radBleServer.publishStateNotification(currentState);
         }
-
-        // Trigger LED communication pulse for state update
-        pulseForCommunication();
-
-        lastState = fingerprint;
+        if (stateChanged || currentTime - lastMessageTime > 1000) {
+            lastMessageTime = currentTime;
+            pulseForCommunication();
+        }
         vTaskDelay(1);
     }
 }

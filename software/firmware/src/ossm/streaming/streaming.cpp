@@ -157,10 +157,10 @@ void startStreaming() {
     const uint32_t stackSize = 5 * configMINIMAL_STACK_SIZE;
     auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
     if (!revision) return;
-    // Leave CPU0 available to the Bluetooth host and independent motor guard.
-    // The UART safety reader and pulse engine can preempt every refill.
+    // Keep the finite and timed paths off the HAT reader's core. Radio and
+    // safety tasks can preempt each short refill on the operation core.
     if (!Tasks::startOperation(startStreamingTask, "startStreamingTask",
-                               stackSize, nullptr, revision, Tasks::stepperCore,
+                               stackSize, nullptr, revision, Tasks::operationTaskCore,
                                Tasks::streamingPriority)) {
         delete revision;
         return;
