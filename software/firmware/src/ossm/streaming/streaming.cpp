@@ -1,4 +1,5 @@
 #include "streaming.h"
+#include "drawn_pattern.h"
 
 #include <queue>
 #include <chrono>
@@ -60,33 +61,39 @@ static void startStreamingTask(void *pvParameters) {
     stepper->setSpeedInHz(maxSpeed);
     stepper->setAcceleration(maxAccel);
 
+    setDrawnPatternReady(safetyRevision, true);
+    PositionTime targetPositionTime{};
+    bool haveTarget = false;
+    const char *exitReason = "mode_exit";
     while (isInCorrectState()) {
-        if (!motorSafetyCanEnableOutputs()) break;
+        if (!calibration.isHomed) {
+            exitReason = "reference_lost";
+            stateMachine->process_event(PatternReferenceLost{safetyRevision});
+            break;
+        }
+        if (!motorSafetyCanEnableOutputs()) { exitReason = "guard"; break; }
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
-        // Wait for new command from BLE
-        // Get next move
-        PositionTime targetPositionTime;
-        if (!targetQueue.peek(targetPositionTime)) {
+        if (serviceDrawnPattern(safetyRevision)) {
+            haveTarget = false;
+            lastPositionTime = {};
+            best = std::chrono::steady_clock::now();
             vTaskDelay(1);
             continue;
         }
-        //Wait for previous command to finish if it isn't moving in the same direction.
-        const int positionDelta = targetPositionTime.position - lastPositionTime.position;
-        targetPositionTime.direction = (positionDelta > 0) - (positionDelta < 0);
-        bool sameDirection = lastPositionTime.direction == targetPositionTime.direction;
-        if (!sameDirection && stepper->isRunning()){
+        // Keep the actual popped item pending while waiting for reversal.
+        // Producers can replace the front of a full queue at any time.
+        if (!haveTarget) haveTarget = targetQueue.pop(targetPositionTime);
+        if (!haveTarget) {
             vTaskDelay(1);
             continue;
         }
-        // Take the target off the queue. A full queue may have dropped the
-        // peeked one meanwhile, so work the direction out again from what
-        // was actually taken.
-        targetQueue.pop(targetPositionTime);
-        {
-            const int takenDelta =
-                targetPositionTime.position - lastPositionTime.position;
-            targetPositionTime.direction = (takenDelta > 0) - (takenDelta < 0);
+        const int delta = targetPositionTime.position - lastPositionTime.position;
+        targetPositionTime.direction = streaming_logic::waypointDirection(delta, lastPositionTime.direction);
+        if (targetPositionTime.direction != lastPositionTime.direction && stepper->isRunning()) {
+            vTaskDelay(1);
+            continue;
         }
+        haveTarget = false;
 
         float timeSeconds = targetPositionTime.inTime / 1000.0f;
 
@@ -140,6 +147,7 @@ static void startStreamingTask(void *pvParameters) {
         vTaskDelay(1);
     }
 
+    setDrawnPatternReady(safetyRevision, false, exitReason);
     vTaskDelete(nullptr);
 }
 

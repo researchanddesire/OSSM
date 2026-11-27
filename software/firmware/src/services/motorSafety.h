@@ -118,3 +118,20 @@ void disarmMotorSafety();
 // Explicit operator review only. Does not restore motor registers or arm.
 bool resetMotorSafetyAfterReview();
 bool prepareMotorSafetyExternalControlAfterReview();
+
+bool runMotorPatternCommand(uint64_t owner, MotorHomingAction action, void *context);
+template <class Action>
+bool runMotorPatternCommand(uint64_t owner, Action &&action) {
+    return runMotorPatternCommand(owner, [](void *context) {
+        return (*static_cast<typename std::remove_reference<Action>::type *>(context))();
+    }, &action);
+}
+
+// Called in a stopped menu action. Excludes serial first-arm and verifies
+// stationary feedback when the detected HAT supplies it before flash I/O.
+bool runStoppedMotorStorage(MotorHomingAction action, void *context);
+template <class Action> bool runStoppedMotorStorage(Action &&action) {
+    return runStoppedMotorStorage([](void *context) {
+        return (*static_cast<typename std::remove_reference<Action>::type *>(context))();
+    }, &action);
+}

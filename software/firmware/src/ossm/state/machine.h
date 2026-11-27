@@ -1,11 +1,14 @@
 #ifndef OSSM_STATE_MACHINE_H
 #define OSSM_STATE_MACHINE_H
 
+#include "ossm/streaming/drawn_pattern.h"
 #include "boost/sml.hpp"
 
+#include "ossm/menu/menu.h"
 #include "actions.h"
 #include "guards.h"
 #include "../Events.h"
+#include "../streaming/saved_pattern.h"
 #include "../../utils/update.h"
 
 namespace sml = boost::sml;
@@ -73,6 +76,15 @@ struct OSSMStateMachine {
             "homing.backward"_s + event<HomingPassDone>[backwardHomeDone] / setHomed = "menu"_s,
 
             "menu"_s / (drawMenu, clearRemoteMenuAction) = "menu.idle"_s,
+            "savedPatterns.idle"_s + event<MotorSafetyFault>[currentSafetyFault] / setNotHomed = "error"_s,
+            "menu.idle"_s + event<streaming::SelectPattern> / [](const streaming::SelectPattern &request) { streaming::selectPatternInMenu(request); },
+            "menu.idle"_s + buttonPress[isOption(Menu::SavedPatterns)] / [] { menu::drawSavedPatterns(); } = "savedPatterns.idle"_s,
+            "savedPatterns.idle"_s + event<menu::WiredPatternChoice>[([] { return menu::confirmSavedPattern(); })] = "menu"_s,
+            "savedPatterns.idle"_s + buttonPress = "menu"_s,
+            "savedPatterns.idle"_s + longPress = "menu"_s,
+            "savedPatterns.idle"_s + returnToMenu = "menu"_s,
+            "savedPatterns.idle"_s + emergencyStopEvent / (emergencyStop, setNotHomed) = "menu"_s,
+            "menu.idle"_s + event<streaming::SavePattern> / [](const streaming::SavePattern &request) { streaming::storePatternInMenu(request); },
             "menu.idle"_s + buttonPress[(isOption(Menu::SimplePenetration))] = "simplePenetration"_s,
             "menu.idle"_s + buttonPress[(isOption(Menu::StrokeEngine))] = "strokeEngine"_s,
             "menu.idle"_s + buttonPress[(isOption(Menu::Streaming))] = "streaming"_s,
@@ -124,6 +136,7 @@ struct OSSMStateMachine {
             "streaming"_s / drawPreflight = "streaming.preflight"_s,
             "streaming.preflight"_s + done / (resetSettingsStreaming, drawPlayControls, startStreaming) = "streaming.idle"_s,
             "streaming.preflight"_s + longPress = "menu"_s,
+            "streaming.idle"_s + event<streaming::PatternReferenceLost>[([](const streaming::PatternReferenceLost &event) { return streaming::patternOwnerCurrent(event); })] / emergencyStop = "menu"_s,
             "streaming.idle"_s + longPress / (emergencyStop, setNotHomed) = "menu"_s,
             "streaming.idle"_s + event<ReturnToMenu> / emergencyStop = "menu"_s,
             "streaming.idle"_s + buttonPress / incrementControlStreaming = "streaming.idle"_s,

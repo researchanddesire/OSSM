@@ -7,6 +7,7 @@
 
 #include "boost/sml.hpp"
 #include "constants/LogTags.h"
+#include "services/radHil.h"
 
 namespace sml = boost::sml;
 using namespace sml;
@@ -52,6 +53,7 @@ struct StateLogger {
     template <class SM, class TSrcState, class TDstState>
     [[gnu::used]] void log_state_change(const TSrcState& src,
                                         const TDstState& dst) {
+        radHilStateChanged(dst.c_str());
         ESP_LOGV(STATE_MACHINE_TAG, "%s", sml::aux::get_type_name<SM>());
         ESP_LOGD(STATE_MACHINE_TAG, "%s -> %s", src.c_str(), dst.c_str());
     }

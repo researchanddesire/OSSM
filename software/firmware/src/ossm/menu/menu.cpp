@@ -1,96 +1,140 @@
 #include "menu.h"
-#include "services/radHil.h"
 
+#include <atomic>
+#include <cstdio>
 #include <WiFi.h>
 
 #include "constants/Menu.h"
 #include "ossm/state/menu.h"
 #include "ossm/state/state.h"
+#include "ossm/streaming/saved_pattern.h"
 #include "services/display.h"
 #include "services/encoder.h"
+#include "services/radHil.h"
 #include "services/tasks.h"
 #include "ui.h"
-#include "utils/analog.h"
 #include "components/HeaderBar.h"
 
 namespace sml = boost::sml;
 using namespace sml;
 
 namespace menu {
+namespace {
+constexpr int clicksPerRow = 3;
+constexpr int back = -1;
+std::atomic<int> highlightedSlot{back};
+std::atomic<bool> writeFailed{false};
 
-static void drawMenuTask(void *pvParameters) {
-    bool isFirstDraw = true;
+bool ownsMenu(bool chooser, TaskHandle_t task) {
+    if (task != Tasks::drawMenuTaskH) return false;
+    return chooser ? stateMachine->is("savedPatterns.idle"_s)
+                   : stateMachine->is("menu"_s) || stateMachine->is("menu.idle"_s);
+}
 
-    int lastEncoderValue = encoder.readEncoder();
-    int currentEncoderValue;
-    int clicksPerRow = 3;
-    const int maxClicks = clicksPerRow * (Menu::NUM_OPTIONS)-1;
-    wl_status_t wifiState = WL_IDLE_STATUS;
+void drawMenuTask(void *context) {
+    const bool chooser = context != nullptr;
+    const auto task = xTaskGetCurrentTaskHandle();
+    if (!ownsMenu(chooser, task)) {
+        vTaskDelete(nullptr);
+        return;
+    }
 
-    encoder.setBoundaries(0, maxClicks, true);
-    encoder.setAcceleration(0);
-
-    menuState.currentOption =
-        (Menu)floor(encoder.readEncoder() / clicksPerRow);
-
-    encoder.setAcceleration(0);
-
-    showHeaderIcons = true;
-
-    auto isInCorrectState = []() {
-        return stateMachine->is("menu"_s) || stateMachine->is("menu.idle"_s);
-    };
-
-    while (isInCorrectState()) {
-        radHilProgress(stateMachine->is("menu.idle"_s));
-        wl_status_t newWifiState = WiFiClass::status();
-
-        bool shouldRedraw = isFirstDraw || encoder.encoderChanged() ||
-                            (wifiState != newWifiState);
-
-        if (!shouldRedraw) {
-            vTaskDelay(50);
-            continue;
+    // The catalog can only change in the main menu. Keep a small name snapshot
+    // for the chooser, with one explicit Back row and no waveform copies.
+    char labels[streaming::patternSlotCount][streaming::maxPatternNameBytes + 5]{};
+    const char *rows[streaming::patternSlotCount + 1]{};
+    int slotForRow[streaming::patternSlotCount + 1]{};
+    int row = menuState.currentOption;
+    int count = Menu::NUM_OPTIONS;
+    if (chooser) {
+        const auto catalog = streaming::getPatternCatalog();
+        count = 0;
+        row = 0;
+        for (int slot = 0; slot < streaming::patternSlotCount; ++slot) {
+            if (!catalog.slots[slot].periodMs) continue;
+            const bool selected = slot == catalog.selected;
+            std::snprintf(labels[count], sizeof(labels[count]), "%c%c %s", selected ? '*' : ' ',
+                          '1' + slot, catalog.slots[slot].name);
+            if (selected) row = count;
+            rows[count] = labels[count];
+            slotForRow[count++] = slot;
         }
+        rows[count] = count ? "Back" : "No saved patterns";
+        slotForRow[count++] = back;
+    }
+    if (!ownsMenu(chooser, task)) {
+        vTaskDelete(nullptr);
+        return;
+    }
+    encoder.setBoundaries(0, clicksPerRow * count - 1, true);
+    encoder.setAcceleration(0);
+    encoder.setEncoderValue(row * clicksPerRow);
+    showHeaderIcons = true;
+    bool redraw = true;
+    bool showedFailure = false;
+    uint32_t lastClick = encoderClick.snapshot();
+    wl_status_t wifi = WL_IDLE_STATUS;
 
-        wifiState = newWifiState;
-        isFirstDraw = false;
-        currentEncoderValue = encoder.readEncoder();
-
-        if (xSemaphoreTake(displayMutex, 100) == pdTRUE) {
-            auto currentOption = menuState.currentOption;
-            if (abs(currentEncoderValue % maxClicks -
-                    lastEncoderValue % maxClicks) >= clicksPerRow) {
-                lastEncoderValue = currentEncoderValue % maxClicks;
-                currentOption = (Menu)floor(lastEncoderValue / clicksPerRow);
-                menuState.currentOption = currentOption;
+    while (ownsMenu(chooser, task)) {
+        if (!chooser) radHilProgress(stateMachine->is("menu.idle"_s));
+        const auto click = encoderClick.snapshot();
+        const auto currentWifi = WiFiClass::status();
+        redraw |= wifi != currentWifi;
+        wifi = currentWifi;
+        if (encoderClick.unchangedAndIdle(click) && ownsMenu(chooser, task)) {
+            if (click != lastClick) {
+                encoder.setEncoderValue(row * clicksPerRow);
+                lastClick = click;
             }
-
-            ESP_LOGD("Menu",
-                     "currentEncoderValue: %d, lastEncoderValue: %d, "
-                     "menuOption: %d",
-                     currentEncoderValue, lastEncoderValue, currentOption);
-
-            ui::MenuData data{};
-            data.items = menuStrings;
-            data.numItems = Menu::NUM_OPTIONS;
-            data.selectedIndex = currentOption;
-
-            ui::drawMenu(display.getU8g2(), data);
-            refreshPage(true, true);
+            const int candidate = encoder.readEncoder() / clicksPerRow;
+            if (candidate >= 0 && candidate < count && candidate != row &&
+                encoderClick.unchangedAndIdle(click) && ownsMenu(chooser, task)) {
+                row = candidate;
+                redraw = true;
+                if (!chooser) menuState.currentOption = static_cast<Menu>(row);
+                writeFailed = false;
+            }
+        }
+        const bool failed = chooser && writeFailed.load();
+        redraw |= failed != showedFailure;
+        if (redraw && xSemaphoreTake(displayMutex, 100) == pdTRUE) {
+            if (ownsMenu(chooser, task)) {
+                if (chooser) highlightedSlot = slotForRow[row];
+                const char *const *items = chooser ? rows : menuStrings;
+                const char *retry[] = {"Save failed - retry"};
+                showedFailure = failed;
+                ui::MenuData data{failed ? retry : items, failed ? 1 : count, failed ? 0 : row};
+                ui::drawMenu(display.getU8g2(), data);
+                refreshPage(true, true);
+                redraw = false;
+            }
             xSemaphoreGive(displayMutex);
         }
-
-        vTaskDelay(1);
-    };
-
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
     vTaskDelete(nullptr);
 }
+}  // namespace
 
 void drawMenu() {
-    int stackSize = 5 * configMINIMAL_STACK_SIZE;
-    xTaskCreate(drawMenuTask, "drawMenuTask", stackSize, nullptr, 1,
-                &Tasks::drawMenuTaskH);
+    xTaskCreate(drawMenuTask, "drawMenuTask", 5 * configMINIMAL_STACK_SIZE, nullptr,
+                1, &Tasks::drawMenuTaskH);
 }
 
+void drawSavedPatterns() {
+    highlightedSlot = back;
+    writeFailed = false;
+    xTaskCreate(drawMenuTask, "savedPatterns", 5 * configMINIMAL_STACK_SIZE, &highlightedSlot,
+                1, &Tasks::drawMenuTaskH);
+}
+
+bool confirmSavedPattern() {
+    const int slot = highlightedSlot.load();
+    if (slot == back) return true;
+    bool stored = false;
+    streaming::selectPatternInMenu({slot, stored});
+    writeFailed = !stored;
+    if (stored) menuState.currentOption = Menu::Streaming;
+    return stored;
+}
 }  // namespace menu

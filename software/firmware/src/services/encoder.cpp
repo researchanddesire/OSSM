@@ -1,5 +1,7 @@
 #include "encoder.h"
 
+EncoderClick encoderClick;
+
 // Define the global encoder instance
 AiEsp32RotaryEncoder encoder(
     Pins::Remote::encoderA,
@@ -14,6 +16,9 @@ void IRAM_ATTR readEncoderISR() {
 }
 
 void initEncoder() {
+    // The driver's default offset is a whole notch on the two-step remote.
+    // A programmatic selection must read back exactly, including menu wrap points.
+    encoder.correctionOffset = 0;
     encoder.begin();
     encoder.setup(readEncoderISR);
     encoder.setBoundaries(0, 99, false);

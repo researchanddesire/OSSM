@@ -18,8 +18,8 @@ public:
     uint32_t getAcceleration() override { return servo_->getAcceleration(); }
     uint32_t getSpeedInMilliHz() override { return servo_->getSpeedInMilliHz(); }
     void applySpeedAcceleration() override { servo_->applySpeedAcceleration(); }
-    int8_t moveTo(int32_t position, bool blocking = false) override { return servo_->moveTo(position, blocking); }
-    int8_t move(int32_t delta, bool blocking = false) override { return servo_->move(delta, blocking); }
+    int8_t moveTo(int32_t position, bool blocking = false) override { return static_cast<int8_t>(servo_->moveTo(position, blocking)); }
+    int8_t move(int32_t delta, bool blocking = false) override { return static_cast<int8_t>(servo_->move(delta, blocking)); }
     bool isRunning() override { return servo_->isRunning(); }
     int32_t getCurrentPosition() override { return servo_->getCurrentPosition(); }
     void setCurrentPosition(int32_t position) override { servo_->setCurrentPosition(position); }

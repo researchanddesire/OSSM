@@ -1,8 +1,6 @@
 #ifndef OSSM_STATE_BLE_H
 #define OSSM_STATE_BLE_H
 
-#include <Arduino.h>
-
 /**
  * BLE state - tracks Bluetooth Low Energy connection and command state
  */
@@ -16,6 +14,10 @@ struct BLEState {
 };
 
 extern BLEState bleState;
+
+// Both the legacy command and leased setting use the established speed-source
+// selection. The raw BLE setting alone leaves the current source unchanged.
+void writeBleSpeed(float value, bool selectBleSource);
 
 // Helper functions for BLE state management
 inline bool wasLastSpeedCommandFromBLE(bool andReset = false) {

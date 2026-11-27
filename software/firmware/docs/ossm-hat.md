@@ -108,6 +108,15 @@ passing PC-guard run.
 Serial motion requires exclusive UART ownership; the HAT cannot send targets
 while the PC is acting as an RTU master.
 
+On a classic ESP32, the read-only USB command `driveconfig` returns
+`RAD_DRIVE_CONFIG <observation uptime in ms> <57-byte reply in hex>` or
+`RAD_DRIVE_CONFIG unavailable`. The reply comes from the most recent fresh,
+correlated FC03 read of registers 0 through 25 and includes the address,
+function, byte count and original CRC. This command adds no traffic to RS485.
+Use the register table in the YZ-AIM manual to interpret the words. Register
+`0x03` selects the drive's internal acceleration curve below 60000. The
+electronic gear ratio is in `0x0A/0x0B` and the input function in `0x19`.
+
 ## Serial position commands and commissioning
 
 `MotionAxis` adapts the existing motion modes to the HAT or FastAccelStepper.

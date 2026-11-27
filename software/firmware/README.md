@@ -25,4 +25,6 @@ pio test -e test
 ```
 
 ## Other Documentation
+
+- [Drawn patterns and offline replay](docs/drawn-patterns.md)
 - [Git Branching Strategy](docs/Git Branching Strategy)

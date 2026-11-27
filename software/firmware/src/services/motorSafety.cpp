@@ -1,6 +1,7 @@
 #include "motorSafety.h"
 
 #include "services/ossmHat.h"
+#include "saved_pattern_library.h"
 
 #if OSSM_HAT_SERIAL_BACKEND
 
@@ -2269,3 +2270,42 @@ void disarmMotorSafety() { cancelLegacyHoming(); }
 bool resetMotorSafetyAfterReview() { return false; }
 bool prepareMotorSafetyExternalControlAfterReview() { return false; }
 #endif
+
+
+// Serialize pattern submissions with the stop flush on both board families.
+// A concurrent stop revokes first, cuts output, then takes this same mutex.
+bool runMotorPatternCommand(uint64_t owner, MotorHomingAction action, void *context) {
+#if OSSM_HAT_SERIAL_BACKEND
+    const auto lock = homingCommandMutex;
+#else
+    const auto lock = legacyCommandMutex;
+#endif
+    if (lock == nullptr || xSemaphoreTake(lock, portMAX_DELAY) != pdTRUE) return false;
+    const bool allowed = motorSafetyEventCurrent(owner) && motorSafetyCanEnableOutputs() &&
+                         !motorHomingSessionActive();
+    const bool completed = allowed && action(context) && motorSafetyEventCurrent(owner);
+    xSemaphoreGive(lock);
+    return completed;
+}
+
+bool runStoppedMotorStorage(MotorHomingAction action, void *context) {
+    streaming::PatternStorageState state;
+#if OSSM_HAT_SERIAL_BACKEND
+    if (!lockPersistence()) return false;
+    state.armed = liveArmed();
+    state.serialQuiet = !required() ||
+        (getMotorSafetyStatus().stoppedVerified && freshStopForPersistence());
+#endif
+    state.homing = motorHomingSessionActive();
+    state.pulsesRunning = stepper && stepper->isRunning();
+    state.hasFeedback = getOssmHatStatus().detected;
+    OssmHatTelemetry sample;
+    state.fresh = state.hasFeedback && readOssmHatTelemetry(sample) &&
+                  millis() - sample.updatedAtMs <= 100;
+    state.speedRpm = sample.speedRpm;
+    const bool written = state.stopped() && action(context);
+#if OSSM_HAT_SERIAL_BACKEND
+    xSemaphoreGive(persistenceMutex);
+#endif
+    return written;
+}

@@ -19,6 +19,7 @@ namespace ui {
         static const char error[] PROGMEM = "Error";
         static const char homing[] PROGMEM = "Homing";
         static const char idle[] PROGMEM = "Initializing";
+        static const char savedPatterns[] PROGMEM = "Saved patterns";
         static const char restart[] PROGMEM = "Restart";
         static const char settings[] PROGMEM = "Settings";
         static const char skip[] PROGMEM = "Click to exit";
@@ -54,6 +55,8 @@ namespace ui {
             "Decrease the speed to begin playing.";
         static const char homingTookTooLong[] PROGMEM =
             "Homing took too long. Please check your wiring and try again.";
+        static const char homingNoContact[] PROGMEM =
+            "Homing travel ended without detecting the end stop. Check motor power and wiring.";
         static const char strokeTooShort[] PROGMEM =
             "Stroke too short. Please check you drive belt.";
         static const char inDevelopment[] PROGMEM =

@@ -3,6 +3,8 @@
 #include "components/HeaderBar.h"
 #include "esp_log.h"
 #include "ossm/Events.h"
+#include "ossm/menu/menu.h"
+#include "ossm/streaming/saved_pattern.h"
 #include "ossm/OSSM.h"
 #include "ossm/pages/pairing.h"
 #include "ossm/state/state.h"
@@ -78,6 +80,7 @@ void __attribute__((weak)) setup() {
     // state machine can start homing: hashing the image stalls everything
     // outside IRAM, including the OSSM HAT readings homing stops on.
     cacheSketchMd5();
+    streaming::loadSavedPattern();
 
     // Initialize state machine after global state is set up
     initStateMachine();
@@ -91,9 +94,20 @@ void __attribute__((weak)) setup() {
     updateLEDForMachineStatus();  // Set initial LED state
 
     // // link functions to be called on events.
-    button.attachClick([]() { stateMachine->process_event(ButtonPress{}); });
-    button.attachDoubleClick(
-        []() { stateMachine->process_event(DoublePress{}); });
+    button.attachClick([]() {
+        if (stateMachine->is("savedPatterns.idle"_s))
+            stateMachine->process_event(menu::WiredPatternChoice{});
+        else
+            stateMachine->process_event(ButtonPress{});
+    });
+    button.attachDoubleClick([]() {
+        // Only the physical switch may start a loop without a BLE lease.
+        if (stateMachine->is("streaming.idle"_s)) {
+            streaming::toggleWiredPattern();
+        } else {
+            stateMachine->process_event(DoublePress{});
+        }
+    });
     button.attachLongPressStart(
         []() { stateMachine->process_event(LongPress{}); });
 
@@ -101,6 +115,7 @@ void __attribute__((weak)) setup() {
         [](void *pvParameters) {
             while (true) {
                 button.tick();
+                encoderClick.update(button.isIdle());
                 vTaskDelay(25 / portTICK_PERIOD_MS);
             }
         },

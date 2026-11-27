@@ -74,6 +74,12 @@ jobs:
         env:
           PIO_ENV: ${{ matrix.environment }}
         run: python software/scripts/check_screen_build.py --build-dir "software/firmware/.pio/build/$PIO_ENV" --expect enabled
+      - name: Verify motion rearm with the installed stepper driver
+        if: matrix.environment == 'development-4mb'
+        working-directory: software/firmware
+        run: |
+          c++ -std=c++17 -DTEST -I.pio/libdeps/development-4mb/FastAccelStepper/src -Ilib/OSSMLogic/src ../scripts/verify_fas_restart.cpp -o "$RUNNER_TEMP/verify-fas-restart"
+          "$RUNNER_TEMP/verify-fas-restart" >/dev/null
   harness_tests:
     needs: changes
     if: needs.changes.outputs.firmware == 'true'
@@ -88,10 +94,10 @@ jobs:
       - run: python -m pip install -r software/scripts/hil/requirements.txt
       - run: python -m unittest discover -s software/scripts/hil -p 'test_*.py'
       - run: python .github/scripts/test_firmware_queue.py
-      - name: Test the Funscript Player streaming contract
+      - name: Test streaming, pattern playback and wired controls
         run: |
           python -m pip install platformio==6.2.0
-          pio test --project-dir software/firmware -e test -f test_funscript_streaming
+          pio test --project-dir software/firmware -e test -f test_funscript_streaming -f test_drawn_waveform -f test_drawn_controller -f test_encoder_click -f test_saved_pattern_library -f test_staging_probe_gate
   firmware:
     needs: changes
     if: needs.changes.outputs.firmware == 'true'

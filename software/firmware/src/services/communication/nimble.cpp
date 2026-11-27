@@ -14,6 +14,8 @@
 #include "config.hpp"
 #include "gpio.hpp"
 #include "motion_link.h"
+#include "services/motorSafety.h"
+#include "services/radHil.h"
 #include "ossm/OSSM.h"
 #include "pairing.hpp"
 #include "patterns.hpp"
@@ -42,13 +44,41 @@ static std::mutex motionOwnerLock;
 static motion_link::Owner motionOwner;
 
 void noteBleMotionCommand(uint16_t connHandle, const std::string& command) {
-    if (!motion_link::isMotionCommand(command)) return;
-    {
-        std::lock_guard<std::mutex> guard(motionOwnerLock);
-        motionOwner.onMotionCommand(connHandle);
-    }
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    if (!motionOwner.takeCommand(connHandle, command, streaming::cancelDrawnPattern)) return;
     // Someone is driving again: the disconnect ramp must not fight them.
     lostConnectionTime = 0;
+}
+
+streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
+                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    // A request already in the server task may race a disconnect.
+    if (!pServer || connection == motion_link::kNoConnection ||
+        ble_gap_conn_find(connection, nullptr) != 0)
+        return streaming::PatternStart::NotReady;
+    const auto result = streaming::startDrawnPattern(samples, length, periodMs,
+                                  getMotorSafetyStatus().controlRevision, false, format);
+    if (result == streaming::PatternStart::Accepted) {
+        motionOwner.onMotionCommand(connection);
+        lostConnectionTime = 0;
+    }
+    return result;
+}
+
+bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    if (!pServer || connection == motion_link::kNoConnection ||
+        ble_gap_conn_find(connection, nullptr) != 0) return false;
+    if (!streaming::applyLeasedBleSpeed(motionOwner, connection, value, selectBleSource)) return false;
+    lostConnectionTime = 0;
+    return true;
+}
+
+bool renewBlePattern(uint16_t connection) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    return connection != motion_link::kNoConnection && motionOwner.owner() == connection &&
+           streaming::renewDrawnPattern(getMotorSafetyStatus().controlRevision);
 }
 
 void restartAdvertisingWithCurrentName() {
@@ -104,6 +134,7 @@ class StateCallbacks : public NimBLECharacteristicCallbacks {
 /** Handler class for server actions */
 class ServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+        radHilBleConnected(true);
         ESP_LOGI(NIMBLE_TAG, "Client connected: %s",
                  connInfo.getAddress().toString().c_str());
         ESP_LOGI(NIMBLE_TAG, "Connection count: %d",
@@ -126,11 +157,13 @@ class ServerCallbacks : public NimBLEServerCallbacks {
                  pServer->getConnectedCount());
 
         const int remaining = pServer->getConnectedCount();
+        radHilBleConnected(remaining != 0);
         bool stopMotion;
         {
             std::lock_guard<std::mutex> guard(motionOwnerLock);
             stopMotion = motionOwner.onDisconnect(connInfo.getConnHandle(),
                                                   remaining);
+            if (stopMotion) streaming::cancelRemoteDrawnPattern();
         }
 
         // Set BLE connection status to false when no connections remain
@@ -182,6 +215,7 @@ class FTSCallbacks : public NimBLECharacteristicCallbacks {
                             static_cast<uint8_t>(value[2]);
 
             ESP_LOGI("NIMBLE", "FTS Command - Position: %d, Time: %d ms", position, time);
+            noteBleMotionCommand(connInfo.getConnHandle(), "stream:");
             targetQueue.push({position, time, std::chrono::steady_clock::now()},
                              true);
 

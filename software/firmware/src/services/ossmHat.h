@@ -76,6 +76,18 @@ struct OssmHatControlSnapshot {
     uint32_t continuity = 0;
 };
 
+// Verbatim FC03 response covering registers 0x00 through 0x19, including its CRC.
+// The observation time uses the device uptime clock.
+struct OssmHatDriveConfig {
+    uint8_t frame[57] = {};
+    uint32_t observedAtMs = 0;
+    uint32_t continuity = 0;
+};
+
+#if OSSM_HAT_SERIAL_BACKEND
+bool readOssmHatDriveConfig(OssmHatDriveConfig &out);
+#endif
+
 constexpr uint32_t ossmHatFreshnessMs = 250;
 
 // Starts the sole background UART2 owner. Discovery/telemetry is read-only;

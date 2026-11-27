@@ -1,6 +1,8 @@
 #ifndef OSSM_PLAY_CONTROLS_PLAY_CONTROLS_H
 #define OSSM_PLAY_CONTROLS_PLAY_CONTROLS_H
 
+#include "utils/StrokeEngineHelper.h"
+
 namespace play_controls {
 
 /**
@@ -8,6 +10,7 @@ namespace play_controls {
  * Shows speed, stroke, sensation, depth controls during operation
  */
 void drawPlayControls();
+void setRemoteControl(PlayControls control, float value);
 
 }  // namespace play_controls
 

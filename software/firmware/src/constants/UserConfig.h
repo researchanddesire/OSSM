@@ -1,9 +1,11 @@
 #ifndef OSSM_SOFTWARE_USERCONFIG_H
 #define OSSM_SOFTWARE_USERCONFIG_H
 
+#include <atomic>
+
 namespace UserConfig {
     extern bool displayMetric;
-    extern float afterHomingPosition;
+    extern std::atomic<float> afterHomingPositionMm;
 
     // When true: BLE speed commands (0-100) are treated as a percentage of the
     // current knob value. When false: BLE speed commands (0-100) are used

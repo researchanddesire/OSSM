@@ -1,5 +1,6 @@
 #include "rad_ble.h"
 #include "nimble.h"
+#include "leased_speed.h"
 
 #include <Preferences.h>
 #include <WiFi.h>
@@ -7,11 +8,14 @@
 
 #include "FirmwareProvenance.h"
 #include "constants/Pins.h"
+#include "pattern_catalog_json.h"
 #include "constants/UserConfig.h"
 #include "constants/Version.h"
 #include "ossm/Events.h"
 #include "ossm/OSSM.h"
 #include "ossm/state/actions.h"
+#include "ossm/streaming/saved_pattern.h"
+#include "ossm/streaming/drawn_pattern.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/motion.h"
 #include "ossm/state/settings.h"
@@ -92,6 +96,10 @@ const radble::Resource RESOURCES[] = {
     {"gpio4", "analog.expansion4", "analog", "int", "raw", RWT, ""},
     {"position", "motion.position", "motion", "float", "mm", RWST,
      "{\"min\":0,\"max\":100}"},
+    {"drawn_pattern", "pattern.play", "motion", "object", "", RWS,
+     R"({"version":1,"minSamples":16,"maxSamples":128,"timeUnit":"ms"})"},
+    {"pattern_library", "pattern.library", "motion", "object", "", R,
+     R"({"version":1,"capacity":4,"maxNameBytes":24})"},
     {"homed", "motion.homed", "motion", "bool", "", RS, ""},
     {"speed", "motion.speed", "setting", "int", "percent", RWST,
      "{\"min\":0,\"max\":100}"},
@@ -216,7 +224,7 @@ radble::Result settingValue(const String& path) {
     else if (path == "setting.displayMetric")
         document["value"] = UserConfig::displayMetric;
     else if (path == "setting.afterHomingPosition")
-        document["value"] = UserConfig::afterHomingPosition;
+        document["value"] = UserConfig::afterHomingPositionMm.load();
     else if (path == "setting.mqttPublishFrequency")
         document["value"] = UserConfig::mqttPublishFrequencyHz;
     else if (path == "device.name") {
@@ -241,6 +249,111 @@ radble::Result settingValue(const String& path) {
     return radble::Result::success(output);
 }
 
+radble::Result patternLibrary(JsonObjectConst request) {
+    const auto catalog = streaming::getPatternCatalog();
+    JsonDocument status;
+    if (!streaming::writePatternCatalog(status, request, catalog))
+        return radble::Result::failure("invalid_value", "Expected an optional slot from 0 to 3");
+    String output;
+    serializeJson(status, output);
+    return radble::Result::success(output);
+}
+
+radble::Result patternStatus() {
+    JsonDocument status;
+    status["version"] = 1;
+    status["liveSpeed"] = true;
+    status["interpolationVersion"] = 2;
+    status["maxSampleBits"] = 16;
+    status["maxSparseSamples"] = drawn_pattern::sparseSamples;
+    status["libraryVersion"] = 1;
+    status["libraryPageSize"] = 1;
+    status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
+    const auto playback = streaming::drawnPatternStatus();
+    status["active"] = playback.active;
+    status["periodMs"] = playback.periodMs;
+    if (playback.lastStop.reason) {
+        auto stop = status["lastStop"].to<JsonObject>();
+        stop["reason"] = playback.lastStop.reason;
+        stop["stage"] = playback.lastStop.stage;
+        stop["atMs"] = playback.lastStop.atMs;
+        stop["elapsedMs"] = playback.lastStop.elapsedMs;
+        stop["driverResult"] = playback.lastStop.driverResult;
+        stop["frameGapMs"] = playback.lastStop.frameGapMs;
+    }
+    status["stored"] = streaming::hasSavedPattern();
+    String output;
+    serializeJson(status, output);
+    return radble::Result::success(output);
+}
+
+radble::Result handlePatternCommand(const String &operation, JsonObjectConst args) {
+    using namespace streaming;
+    if (operation == "pattern.stop") {
+        cancelDrawnPattern();
+        return patternStatus();
+    }
+    if (operation == "pattern.keepalive") {
+        if (!renewBlePattern(radBleServer.currentRequestConnection()))
+            return radble::Result::failure("not_playing", "Pattern playback has stopped");
+        return patternStatus();
+    }
+    const bool save = operation == "pattern.save";
+    const bool select = operation == "pattern.select";
+    if (!save && !select && operation != "pattern.play")
+        return radble::Result::failure("unsupported", "Unknown pattern command");
+    int slot = selectedPatternSlot;
+    if (args["slot"].is<JsonVariantConst>()) {
+        if (!args["slot"].is<uint8_t>() || args["slot"].as<unsigned>() >= patternSlotCount)
+            return radble::Result::failure("invalid_value", "Expected a slot from 0 to 3");
+        slot = args["slot"].as<int>();
+    }
+    if (select) {
+        if (slot == selectedPatternSlot || args.size() != 1)
+            return radble::Result::failure("invalid_value", "Select requires a slot");
+        if (!getPatternCatalog().slots[slot].periodMs)
+            return radble::Result::failure("not_found", "This pattern slot is empty");
+        bool written = false;
+        if (!stateMachine->process_event(SelectPattern{slot, written}))
+            return radble::Result::failure("invalid_state", "Return to the menu to select a pattern");
+        if (!written) return radble::Result::failure("save_failed", "Could not select this pattern");
+        return patternStatus();
+    }
+    SavedPattern value;
+    if (!save && (args.size() == 0 || (args.size() == 1 && slot != selectedPatternSlot))) {
+        const auto status = drawnPatternStartStatus(getMotorSafetyStatus().controlRevision);
+        if (status == PatternStart::Busy)
+            return radble::Result::failure("busy", "Stop the current motion before playing a stored pattern");
+        if (status != PatternStart::Accepted)
+            return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");
+        if (!getSavedPattern(value, slot))
+            return radble::Result::failure("not_found", "No pattern saved in this slot");
+    } else {
+        const bool named = slot != selectedPatternSlot;
+        if ((named && (!save || args.size() != 4)) || !readPatternSamples(args, value))
+            return radble::Result::failure("invalid_value", "Expected samples, period and optional named destination");
+    }
+    if (save) {
+        const auto name = slot == selectedPatternSlot ? JsonString{} : args["name"].as<JsonString>();
+        if (slot != selectedPatternSlot && (name.isNull() || !validPatternName(name.c_str(), name.size())))
+            return radble::Result::failure("invalid_value", "Expected a 1..24 byte UTF-8 pattern name");
+        bool written = false;
+        if (!stateMachine->process_event(SavePattern{value, written, slot, name.c_str(), name.size()}))
+            return radble::Result::failure("invalid_state", "Return to the menu to save a pattern");
+        if (!written)
+            return radble::Result::failure("save_failed", "The OSSM could not save the pattern");
+        return patternStatus();
+    }
+    const auto started = startBlePattern(radBleServer.currentRequestConnection(),
+                                         value.samples, value.length, value.periodMs, value.format());
+    if (started == PatternStart::Accepted) return patternStatus();
+    if (started == PatternStart::Busy)
+        return radble::Result::failure("busy", "Stop the current pattern before playing another");
+    if (started == PatternStart::Invalid)
+        return radble::Result::failure("invalid_value", "Invalid pattern");
+    return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");
+}
+
 radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     if (ossm == nullptr || stateMachine == nullptr)
         return radble::Result::failure("not_ready", "OSSM is still starting");
@@ -248,6 +361,14 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     const String operation = request["op"] | "";
     const String path = request["path"] | "";
     const JsonObjectConst args = request["args"].as<JsonObjectConst>();
+
+    if (operation == "sensor.read" && path == "pattern.library") return patternLibrary(request);
+    if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
+    if (operation.startsWith("pattern.")) {
+        if (!request["args"].is<JsonObjectConst>() && operation == "pattern.play")
+            return radble::Result::failure("invalid_value", "Use an empty object to replay the saved pattern");
+        return handlePatternCommand(operation, args);
+    }
 
     if (operation == "ota.start" && String(args["transport"] | "") == "wifi") {
         if (WiFi.status() != WL_CONNECTED)
@@ -579,10 +700,10 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
                 return radble::Result::failure("invalid_value",
                                                "A numeric home position is required");
             const float value = args["value"] | -1.0f;
-            if (value < 0.0f || value > 100.0f)
+            if (!std::isfinite(value) || value < 0.0f || value > 100.0f)
                 return radble::Result::failure("invalid_value",
                                                "Home position must be 0..100 mm");
-            UserConfig::afterHomingPosition = value;
+            UserConfig::afterHomingPositionMm.store(value);
             return settingValue(path);
         }
         if (path == "setting.mqttPublishFrequency") {
@@ -596,17 +717,14 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
             UserConfig::mqttPublishFrequencyHz = value;
             return settingValue(path);
         }
-        if (path == "motion.speedBle") {
-            if (!args["value"].is<float>())
-                return radble::Result::failure("invalid_value",
-                                               "A numeric BLE speed is required");
-            const float value = args["value"] | -1.0f;
-            if (value < 0.0f || value > 100.0f)
-                return radble::Result::failure("invalid_value",
-                                               "BLE speed must be 0..100");
-            noteBleMotionCommand(radBleServer.currentRequestConnection(), "set:speed:");
-            settings.speedBLE = value;
-            return settingValue(path);
+        switch (motion_link::dispatchLeasedSpeed(path.c_str(), args["value"],
+                    radBleServer.currentRequestConnection(), setLeasedBleSpeed)) {
+            case motion_link::SpeedWrite::Applied: return settingValue(path);
+            case motion_link::SpeedWrite::Invalid:
+                return radble::Result::failure("invalid_value", "Speed must be a valid 0..100 percentage");
+            case motion_link::SpeedWrite::Disconnected:
+                return radble::Result::failure("disconnected", "Speed controller disconnected");
+            case motion_link::SpeedWrite::Unhandled: break;
         }
         if (path == "device.name") {
             if (!args["value"].is<const char*>())
@@ -637,8 +755,7 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
         } else {
             if (value < 0 || value > 100)
                 return radble::Result::failure("invalid_value", "Value must be 0..100");
-            if (path == "motion.speed") command = "set:speed:" + String(value);
-            else if (path == "motion.stroke") command = "set:stroke:" + String(value);
+            if (path == "motion.stroke") command = "set:stroke:" + String(value);
             else if (path == "motion.depth") command = "set:depth:" + String(value);
             else if (path == "motion.sensation") command = "set:sensation:" + String(value);
             else if (path == "motion.buffer") command = "set:buffer:" + String(value);
@@ -982,6 +1099,7 @@ radble::Result handleCommand(JsonObjectConst request, void*) {
 
 radble::Result prepareOta(bool starting, const char*, void*) {
     if (!starting) return radble::Result::success();
+    streaming::cancelDrawnPattern();
     disarmMotorSafety();
     if (stepper != nullptr) ossmEmergencyStop();
     settings.speed = 0;
@@ -990,7 +1108,10 @@ radble::Result prepareOta(bool starting, const char*, void*) {
     return radble::Result::success();
 }
 
-void releaseDiagnosticOutputs(void*) { setLEDOff(); }
+void releaseDiagnosticOutputs(void*) {
+    streaming::cancelRemoteDrawnPattern();
+    setLEDOff();
+}
 
 }  // namespace
 

@@ -43,16 +43,22 @@ void test_calculateMeasuredStroke_clamped_to_max(void) {
 
 // ─── calculatePostHomingPosition ───
 
-void test_calculatePostHomingPosition_positive_sign(void) {
-    // sign=1, measured=5000, afterHoming=0.5 → goTo=-1*5000=-5000, negative so *0.5 = -2500
-    int32_t result = homing_logic::calculatePostHomingPosition(1, 5000.0f, 0.5f);
-    TEST_ASSERT_EQUAL_INT32(-2500, result);
+void test_final_home_park_uses_millimetres_from_retracted_reference(void) {
+    TEST_ASSERT_EQUAL_INT32(-100, homing_logic::calculatePostHomingPosition(1, 5000, 12.5f, 8));
+    TEST_ASSERT_EQUAL_INT32(-50, homing_logic::calculatePostHomingPosition(1, 5000, 0.5f, 100));
+    TEST_ASSERT_EQUAL_INT32(0, homing_logic::calculatePostHomingPosition(1, 5000, 0.0f, 100));
 }
 
-void test_calculatePostHomingPosition_negative_sign(void) {
-    // sign=-1, measured=5000, afterHoming=0.5 → goTo=-(-1)*5000=5000, positive so unchanged = 5000
-    int32_t result = homing_logic::calculatePostHomingPosition(-1, 5000.0f, 0.5f);
-    TEST_ASSERT_EQUAL_INT32(5000, result);
+void test_final_home_park_stays_in_calibrated_travel(void) {
+    TEST_ASSERT_EQUAL_INT32(-800, homing_logic::calculatePostHomingPosition(1, 800, 100, 40));
+    TEST_ASSERT_EQUAL_INT32(0, homing_logic::calculatePostHomingPosition(1, 5000, -1, 40));
+    TEST_ASSERT_EQUAL_INT32(0, homing_logic::calculatePostHomingPosition(1, 5000, NAN, 40));
+    TEST_ASSERT_EQUAL_INT32(0, homing_logic::calculatePostHomingPosition(1, NAN, 50, 40));
+    TEST_ASSERT_EQUAL_INT32(0, homing_logic::calculatePostHomingPosition(1, 5000, 50, 0));
+}
+
+void test_first_pass_uses_measured_return_independent_of_park_setting(void) {
+    TEST_ASSERT_EQUAL_INT32(5000, homing_logic::calculatePostHomingPosition(-1, 5000, 12.5f, 8));
 }
 
 // ─── isHomingTimedOut ───
@@ -84,6 +90,16 @@ void test_isStrokeTooShort_equal_to_min(void) {
     TEST_ASSERT_TRUE(homing_logic::isStrokeTooShortLogic(50.0f, 50.0f));
 }
 
+void test_sensorless_seek_requires_contact_before_travel_ends(void) {
+    using namespace homing_logic;
+    // Current rise and default threshold from the reported missed end stop.
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, true, 4.07f, 6) == SeekResult::Seeking);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, false, 4.07f, 6) == SeekResult::TravelEnded);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, false, 7, 6) == SeekResult::TravelEnded);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(false, true, 7, 6) == SeekResult::Contact);
+    TEST_ASSERT_TRUE(evaluateSensorlessSeek(true, true, 7, 6) == SeekResult::TimedOut);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
 
@@ -95,9 +111,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_calculateMeasuredStroke_negative_position);
     RUN_TEST(test_calculateMeasuredStroke_clamped_to_max);
 
-    RUN_TEST(test_calculatePostHomingPosition_positive_sign);
-    RUN_TEST(test_calculatePostHomingPosition_negative_sign);
+    RUN_TEST(test_final_home_park_uses_millimetres_from_retracted_reference);
+    RUN_TEST(test_final_home_park_stays_in_calibrated_travel);
+    RUN_TEST(test_first_pass_uses_measured_return_independent_of_park_setting);
 
+    RUN_TEST(test_sensorless_seek_requires_contact_before_travel_ends);
     RUN_TEST(test_isHomingTimedOut_not_timed_out);
     RUN_TEST(test_isHomingTimedOut_timed_out);
 

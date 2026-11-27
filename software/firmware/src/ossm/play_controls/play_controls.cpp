@@ -1,4 +1,8 @@
 #include "play_controls.h"
+#include "ossm/streaming/drawn_pattern.h"
+#include "ossm/streaming/saved_pattern.h"
+
+#include <mutex>
 
 #include "Strings.h"
 #include "constants/Menu.h"
@@ -33,29 +37,33 @@ static ui::PlayControl toUiPlayControl(PlayControls pc) {
     return ui::PlayControl::STROKE;
 }
 
-static void drawPlayControlsTask(void *pvParameters) {
-    encoder.setAcceleration(10);
-    encoder.setBoundaries(0, 100, false);
-
-    switch (session.playControl) {
-        case PlayControls::STROKE:
-            encoder.setEncoderValue(settings.stroke);
-            break;
-        case PlayControls::SENSATION:
-            encoder.setEncoderValue(settings.sensation);
-            break;
-        case PlayControls::DEPTH:
-            encoder.setEncoderValue(settings.depth);
-            break;
-        case PlayControls::BUFFER:
-            encoder.setEncoderValue(settings.buffer);
-            break;
+static float &controlSetting(PlayControls pc) {
+    switch (pc) {
+        case PlayControls::STROKE:    return settings.stroke;
+        case PlayControls::SENSATION: return settings.sensation;
+        case PlayControls::DEPTH:     return settings.depth;
+        case PlayControls::BUFFER:    return settings.buffer;
     }
+    return settings.stroke;
+}
 
-    SettingPercents next = {0, 0, 0, 0, 0};
-    unsigned long displayLastUpdated = 0;
+// The BLE task updates the selected setting immediately. Only its screen task
+// repositions the physical encoder, so a remote depth write cannot select a
+// pattern or a menu item when a different screen owns the knob.
+static std::mutex remoteControlMutex;
+static uint32_t remoteControlRevision = 0;
 
-    auto isInCorrectState = []() {
+void setRemoteControl(PlayControls control, float value) {
+    std::lock_guard<std::mutex> lock(remoteControlMutex);
+    session.playControl = control;
+    controlSetting(control) = value;
+    ++remoteControlRevision;
+}
+
+static void drawPlayControlsTask(void *pvParameters) {
+    const TaskHandle_t screenTask = xTaskGetCurrentTaskHandle();
+    auto isInCorrectState = [screenTask]() {
+        if (screenTask != Tasks::drawPlayControlsTaskH) return false;
         return stateMachine->is("simplePenetration"_s) ||
                stateMachine->is("simplePenetration.idle"_s) ||
                stateMachine->is("strokeEngine"_s) ||
@@ -64,7 +72,22 @@ static void drawPlayControlsTask(void *pvParameters) {
                stateMachine->is("streaming.idle"_s);
     };
 
-    static float encoderValue = 0;
+    if (!isInCorrectState()) {
+        vTaskDelete(nullptr);
+        return;
+    }
+
+    encoder.setAcceleration(10);
+    encoder.setBoundaries(0, 100, false);
+    uint32_t lastRemoteControl;
+    {
+        std::lock_guard<std::mutex> lock(remoteControlMutex);
+        encoder.setEncoderValue(controlSetting(session.playControl));
+        lastRemoteControl = remoteControlRevision;
+    }
+
+    SettingPercents next = {0, 0, 0, 0, 0};
+    unsigned long displayLastUpdated = 0;
 
     bool isStrokeEngine = stateMachine->is("strokeEngine"_s) ||
                           stateMachine->is("strokeEngine.idle"_s);
@@ -73,15 +96,15 @@ static void drawPlayControlsTask(void *pvParameters) {
                        stateMachine->is("streaming.idle"_s);
 
     bool shouldUpdateDisplay = false;
+    uint32_t lastClick = encoderClick.snapshot();
 
     showHeaderIcons = true;
     vTaskDelay(100);
 
     while (isInCorrectState()) {
         shouldUpdateDisplay = false;
+        const uint32_t click = encoderClick.snapshot();
 
-        encoderValue = encoder.readEncoder();
-        PlayControls loopControl =  session.playControl;
 #ifdef AJ_DEVELOPMENT_HARDWARE
         next.speedKnob = 0;
 #else
@@ -108,31 +131,28 @@ static void drawPlayControlsTask(void *pvParameters) {
 
         settings.speedKnob = next.speedKnob;
 
-        switch (loopControl) {
-            case PlayControls::STROKE:
-                next.stroke = encoderValue;
-                shouldUpdateDisplay =
-                    shouldUpdateDisplay || next.stroke - settings.stroke >= 1;
-                settings.stroke = next.stroke;
-                break;
-            case PlayControls::SENSATION:
-                next.sensation = encoderValue;
-                shouldUpdateDisplay = shouldUpdateDisplay ||
-                                      next.sensation - settings.sensation >= 1;
-                settings.sensation = next.sensation;
-                break;
-            case PlayControls::DEPTH:
-                next.depth = encoderValue;
-                shouldUpdateDisplay =
-                    shouldUpdateDisplay || next.depth - settings.depth >= 1;
-                settings.depth = next.depth;
-                break;
-            case PlayControls::BUFFER:
-                next.buffer = encoderValue;
-                shouldUpdateDisplay =
-                    shouldUpdateDisplay || next.buffer - settings.buffer >= 1;
-                settings.buffer = next.buffer;
-                break;
+        // A click can turn the knob and transfer the encoder to another screen
+        // while the speed-pot read is in progress. Restore the current setting
+        // after a click, and commit the sample only while its control owns it.
+        PlayControls loopControl;
+        {
+            std::lock_guard<std::mutex> lock(remoteControlMutex);
+            loopControl = session.playControl;
+            if (encoderClick.unchangedAndIdle(click) && isInCorrectState()) {
+                float &value = controlSetting(loopControl);
+                if (lastClick != click || lastRemoteControl != remoteControlRevision) {
+                    encoder.setEncoderValue(value);
+                    lastClick = click;
+                    lastRemoteControl = remoteControlRevision;
+                    shouldUpdateDisplay = true;
+                }
+                const auto encoderValue = encoder.readEncoder();
+                if (encoderClick.unchangedAndIdle(click) && isInCorrectState() &&
+                    session.playControl == loopControl) {
+                    shouldUpdateDisplay |= value != encoderValue;
+                    value = encoderValue;
+                }
+            }
         }
 
         shouldUpdateDisplay =
@@ -152,6 +172,10 @@ static void drawPlayControlsTask(void *pvParameters) {
                     ui::strings::strokeEngineNames[(int)settings.pattern];
             } else if (isStreaming) {
                 headerText = ui::strings::streaming;
+                if (streaming::drawnPatternActive())
+                    headerText = "Pattern: 2x stop";
+                else if (streaming::hasSavedPattern())
+                    headerText = "Saved: 2x play";
             } else {
                 headerText = ui::strings::simplePenetration;
             }

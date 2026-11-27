@@ -2,6 +2,7 @@
 #define OSSM_NIMBLE_H
 
 #include <NimBLEDevice.h>
+#include "ossm/streaming/drawn_pattern.h"
 #include <NimBLEServer.h>
 #include <esp_log.h>
 
@@ -69,6 +70,12 @@ extern NimBLEServer* pServer;
 // commands make that link the motion owner and cancel a running disconnect
 // ramp-down.
 void noteBleMotionCommand(uint16_t connHandle, const std::string& command);
+
+streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
+                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format);
+
+bool renewBlePattern(uint16_t connection);
+bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource);
 
 void nimbleLoop(void* pvParameters);
 void initNimble();

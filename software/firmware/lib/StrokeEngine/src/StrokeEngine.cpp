@@ -4,6 +4,18 @@
 
 #include "pattern.h"
 
+#ifdef DEBUG_TALKATIVE
+namespace {
+void printStrokeEngineState(ServoState state) {
+    static constexpr const char *labels[] = {
+        "[0] Servo disabled", "[1] Servo ready", "[2] Servo pattern running",
+        "[3] Servo setup depth", "[4] Servo position streaming"};
+    Serial.print("Stroke Engine State: ");
+    Serial.println(labels[state]);
+}
+}  // namespace
+#endif
+
 bool StrokeEngine::bindMotionOwner(uint64_t revision, motion_owner::Validator validator) {
     if (validator != nullptr && !validator(revision)) return false;
     portENTER_CRITICAL(&_motionOwnerMux);
@@ -72,7 +84,7 @@ void StrokeEngine::begin(machineGeometry *physics, motorProperties *motor,
     Serial.println("_servo initialized");
 
 #ifdef DEBUG_TALKATIVE
-    Serial.println("Stroke Engine State: " + verboseState[_state]);
+    printStrokeEngineState(_state);
 #endif
 }
 
@@ -342,7 +354,7 @@ bool StrokeEngine::_startPattern(motion_owner::Ticket owner) {
 
 #ifdef DEBUG_TALKATIVE
         Serial.println("Started motion task");
-        Serial.println("Stroke Engine State: " + verboseState[_state]);
+        printStrokeEngineState(_state);
 #endif
 
         return true;
@@ -404,7 +416,7 @@ void StrokeEngine::_stopMotion(motion_owner::Ticket owner) {
     }
 
 #ifdef DEBUG_TALKATIVE
-    Serial.println("Stroke Engine State: " + verboseState[_state]);
+    printStrokeEngineState(_state);
 #endif
 }
 
@@ -518,7 +530,7 @@ bool StrokeEngine::moveToMax(float speed) {
         }
 
 #ifdef DEBUG_TALKATIVE
-        Serial.println("Stroke Engine State: " + verboseState[_state]);
+        printStrokeEngineState(_state);
 #endif
 
         // Return success
@@ -553,7 +565,7 @@ bool StrokeEngine::moveToMin(float speed) {
         }
 
 #ifdef DEBUG_TALKATIVE
-        Serial.println("Stroke Engine State: " + verboseState[_state]);
+        printStrokeEngineState(_state);
 #endif
 
         // Return success
@@ -596,7 +608,7 @@ bool StrokeEngine::setupDepth(float speed, bool fancy) {
         allowed = true;
     }
 #ifdef DEBUG_TALKATIVE
-    Serial.println("Stroke Engine State: " + verboseState[_state]);
+    printStrokeEngineState(_state);
 #endif
     return allowed;
 }
@@ -618,7 +630,7 @@ void StrokeEngine::disable() {
 
 #ifdef DEBUG_TALKATIVE
     Serial.println("_servo disabled. Call home to continue.");
-    Serial.println("Stroke Engine State: " + verboseState[_state]);
+    printStrokeEngineState(_state);
 #endif
 }
 
@@ -757,7 +769,7 @@ void StrokeEngine::_homingProcedure() {
     }
 
 #ifdef DEBUG_TALKATIVE
-    Serial.println("Stroke Engine State: " + verboseState[_state]);
+    printStrokeEngineState(_state);
 #endif
 
     // delete one-time task

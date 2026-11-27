@@ -8,6 +8,9 @@ namespace menu {
  * Handles encoder input for menu navigation
  */
 void drawMenu();
+struct WiredPatternChoice {};
+void drawSavedPatterns();
+bool confirmSavedPattern();
 
 }  // namespace menu
 

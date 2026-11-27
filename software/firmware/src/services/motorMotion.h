@@ -2,6 +2,7 @@
 
 #include "FastAccelStepper.h"
 #include "MotionAxis.h"
+#include "drawn_pulse_queue.h"
 
 MotionAxis *initializeMotorMotion(FastAccelStepper *pulseStepper);
 
@@ -11,3 +12,9 @@ bool motorMotionSerialLatched();
 
 // Raw pulse engine for the ALT telemetry reader's PCNT observer.
 FastAccelStepper *getMotorPulseStepper();
+
+// Timed, already acceleration-limited points from an owned pattern curve.
+// Retry never advances the player's phase. The serial backend enforces
+// feedback, following distance, verified drive limits and absolute bounds.
+drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing);
+void stopPatternMotion(uint64_t revision);
