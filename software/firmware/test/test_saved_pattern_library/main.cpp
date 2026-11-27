@@ -409,17 +409,17 @@ void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input(
     auto args = doc.to<JsonObject>();
     args["key"] = 99;
     char hex[13];
-    for (unsigned offset = 0; offset < 128; offset += 32) {
+    for (unsigned offset = 0; offset < 1000; offset += 32) {
         std::string data;
-        for (unsigned i = offset; i < offset + 32; ++i) {
+        for (unsigned i = offset; i < std::min(1000u, offset + 32); ++i) {
             snprintf(hex, sizeof(hex), "%04x%04x0001", i, i);
             data += hex;
         }
         args["offset"] = offset;
         args["data"] = data;
-        TEST_ASSERT_EQUAL_UINT(offset + 32, upload.append(1, 12, args));
+        TEST_ASSERT_EQUAL_UINT(std::min(1000u, offset + 32), upload.append(1, 12, args));
     }
-    args["offset"] = 128;
+    args["offset"] = 1000;
     args["data"] = "008000800001";
     TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
     args["offset"] = 0;
@@ -431,7 +431,7 @@ void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input(
         TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
     }
     args["modifierKey"] = 99;
-    args["modifierCount"] = 128;
+    args["modifierCount"] = 1000;
     TEST_ASSERT_TRUE(bool(upload.take(1, 12, args)));
 }
 
@@ -439,7 +439,7 @@ void test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply() {
     JsonDocument reply;
     addModifierCapabilities(reply);
     TEST_ASSERT_EQUAL_UINT(1, reply["modifierVersion"].as<unsigned>());
-    TEST_ASSERT_EQUAL_UINT(128, reply["maxModifiers"].as<unsigned>());
+    TEST_ASSERT_EQUAL_UINT(1000, reply["maxModifiers"].as<unsigned>());
     reply["lastStop"]["reason"] = "scheduler_gap";
     reply["diagnostic"] = std::string(279,'x');
     addModifierCapabilities(reply);
@@ -485,8 +485,42 @@ void test_modified_slots_round_trip_and_keep_original_on_failure() {
     TEST_ASSERT_FALSE(restored.load(readRecord)); // A partial V4 never silently revives stale V3.
 }
 
+void test_all_four_slots_can_store_a_marker_at_every_tick_in_one_compact_record() {
+    drawn_pattern::Modifiers all;
+    TEST_ASSERT_TRUE(all.reserve(1000));
+    all.count = 1000;
+    SavedPatternLibrary library;
+    const auto waveform = curve(5000);
+    for (unsigned slot = 0; slot < patternSlotCount; ++slot) {
+        for (uint16_t tick = 0; tick < all.count; ++tick) {
+            all.entries[tick] = slot % 2
+                ? drawn_pattern::Modifier{tick, uint16_t(tick+1), 0}
+                : drawn_pattern::Modifier{tick, tick, uint16_t(tick+1+slot)};
+        }
+        TEST_ASSERT_TRUE(library.save(slot, "Full grid", 9, waveform, writeRecord, all));
+    }
+    TEST_ASSERT_EQUAL_UINT(1192 + 8 + 4*2000, flash.at("libraryV4").size());
+    SavedPatternLibrary reboot;
+    TEST_ASSERT_TRUE(reboot.load(readRecord));
+    SavedPattern restored;
+    drawn_pattern::Modifiers read;
+    for (unsigned slot = 0; slot < patternSlotCount; ++slot) {
+        TEST_ASSERT_TRUE(reboot.get(restored, slot, &read));
+        TEST_ASSERT_EQUAL_UINT(1000, read.count);
+        for (uint16_t tick = 0; tick < read.count; ++tick) {
+            TEST_ASSERT_EQUAL_UINT(tick, read.entries[tick].start);
+            TEST_ASSERT_EQUAL_UINT(tick+(slot%2), read.entries[tick].end);
+            TEST_ASSERT_EQUAL_UINT(slot%2 ? 0 : tick+1+slot, read.entries[tick].holdMs);
+        }
+    }
+    // Keep the size and count syntactically plausible but remove one cell.
+    flash["libraryV4"][1200] = flash["libraryV4"][1201] = 0;
+    TEST_ASSERT_FALSE(reboot.load(readRecord));
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_all_four_slots_can_store_a_marker_at_every_tick_in_one_compact_record);
     RUN_TEST(test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries);
     RUN_TEST(test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input);
     RUN_TEST(test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply);

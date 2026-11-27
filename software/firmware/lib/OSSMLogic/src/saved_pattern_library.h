@@ -6,7 +6,7 @@
 #include <memory>
 #include <new>
 #include "drawn_waveform.h"
-#include "drawn_modifiers.h"
+#include "stored_pattern_modifiers.h"
 
 namespace streaming {
 
@@ -100,16 +100,16 @@ class SavedPatternLibrary {
     };
     static_assert(sizeof(Record) == 1192);
     Record record_;
-    using Modifier = drawn_pattern::Modifier;
+    using Encoded = drawn_pattern::StoredModifiers;
     using Modifiers = drawn_pattern::Modifiers;
     uint16_t counts_[patternSlotCount]{};
-    std::unique_ptr<Modifier[]> modifiers_[patternSlotCount];
+    std::unique_ptr<uint8_t[]> modifiers_[patternSlotCount];
     static constexpr size_t headerSize = sizeof(Record) + sizeof(counts_);
-    static constexpr size_t maxSize = headerSize + patternSlotCount * Modifiers::capacity * sizeof(Modifier);
+    static constexpr size_t maxSize = headerSize + patternSlotCount * Modifiers::capacity * sizeof(uint16_t);
 
     size_t packedSize() const {
         size_t size = headerSize;
-        for (const auto count : counts_) size += count * sizeof(Modifier);
+        for (const auto count : counts_) size += Encoded::bytes(count);
         return size;
     }
 
@@ -122,7 +122,7 @@ class SavedPatternLibrary {
         std::memcpy(bytes.get() + sizeof(record_), counts_, sizeof(counts_));
         size_t offset = headerSize;
         for (unsigned i = 0; i < patternSlotCount; ++i) {
-            const size_t length = counts_[i] * sizeof(Modifier);
+            const size_t length = Encoded::bytes(counts_[i]);
             if (length) std::memcpy(bytes.get() + offset, modifiers_[i].get(), length);
             offset += length;
         }
@@ -141,11 +141,11 @@ class SavedPatternLibrary {
             const auto count = counts_[i];
             if (!count) continue;
             if (!occupied(i) || count > Modifiers::capacity) return false;
-            modifiers_[i].reset(new (std::nothrow) Modifier[count]);
+            const size_t length = Encoded::bytes(count);
+            if (!Encoded::decode(bytes.get() + offset, count)) return false;
+            modifiers_[i].reset(new (std::nothrow) uint8_t[length]);
             if (!modifiers_[i]) return false;
-            const size_t length = count * sizeof(Modifier);
             std::memcpy(modifiers_[i].get(), bytes.get() + offset, length);
-            if (!Modifiers::valid(modifiers_[i].get(), count)) return false;
             offset += length;
         }
         return true;
@@ -194,11 +194,8 @@ public:
     bool get(SavedPattern &out, int index = selectedPatternSlot, Modifiers *effects = nullptr) const {
         if (index == selectedPatternSlot) index = record_.selected;
         if (!occupied(index)) return false;
+        if (effects && !Encoded::decode(modifiers_[index].get(), counts_[index], effects)) return false;
         out = record_.slots[index].value;
-        if (effects) {
-            effects->count = counts_[index];
-            if (effects->count) std::memcpy(effects->entries, modifiers_[index].get(), effects->count * sizeof(Modifier));
-        }
         return true;
     }
     PatternCatalog catalog() const {
@@ -224,19 +221,19 @@ public:
             nameLength = std::strlen(name);
         }
         if (!validPatternName(name, nameLength)) return false;
-        const size_t effectBytes = effects.count * sizeof(Modifier);
+        const size_t effectBytes = Encoded::bytes(effects.count);
         const bool sameEffects = counts_[index] == effects.count &&
-            (!effectBytes || std::memcmp(modifiers_[index].get(), effects.entries, effectBytes) == 0);
+            Encoded::matches(modifiers_[index].get(), effects);
         if (sameEffects && slot.value.version == value.version && slot.value.length == value.length &&
             slot.value.periodMs == value.periodMs &&
             std::memcmp(slot.value.samples, value.samples, value.length) == 0 &&
             std::strlen(slot.name) == nameLength && std::memcmp(slot.name, name, nameLength) == 0)
             return true;
-        std::unique_ptr<Modifier[]> replacement;
+        std::unique_ptr<uint8_t[]> replacement;
         if (effects.count && !sameEffects) {
-            replacement.reset(new (std::nothrow) Modifier[effects.count]);
+            replacement.reset(new (std::nothrow) uint8_t[effectBytes]);
             if (!replacement) return false;
-            std::memcpy(replacement.get(), effects.entries, effectBytes);
+            Encoded::encode(replacement.get(), effects);
         }
         const auto oldVersion = record_.version;
         const auto oldCount = counts_[index];

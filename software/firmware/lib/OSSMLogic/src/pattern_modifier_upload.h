@@ -54,6 +54,7 @@ public:
             if (!replacement) return 0;
         }
         auto &target = existing ? *items_ : *replacement;
+        if (!target.reserve(end)) return 0;
         for (unsigned index = offset; index < end; ++index) {
             const auto *hex = data.c_str() + (index - offset)*12;
             Modifier marker;
