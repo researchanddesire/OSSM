@@ -29,6 +29,32 @@ bool ready = false, local = false, serial = false;
 uint64_t owner = 0;
 PatternStop lastStop;
 PatternWork work;
+PatternFeedGap feedGap;
+uint32_t lastAppendUs = 0;
+
+void recordEmptyFrame() {
+    if (!feedGap.frame) return;
+    const uint32_t offset = patternServiceMicros() - lastAppendUs;
+    if (!feedGap.emptyReads) feedGap.firstEmptyUs = offset;
+    ++feedGap.emptyReads;
+    feedGap.lastEmptyUs = offset;
+}
+
+void recordPulseSubmit(const drawn_pattern::FrameResult &result, uint32_t frame, uint32_t atUs) {
+    if (result.state == drawn_pattern::Frame::Accepted && result.queuedUs != UINT16_MAX) {
+        feedGap = {};
+        feedGap.frame = frame;
+        feedGap.queuedUs = result.queuedUs;
+        lastAppendUs = atUs;
+    } else if (feedGap.frame && result.state == drawn_pattern::Frame::Retry) {
+        if (result.reason && std::strcmp(result.reason, "pulse_full") == 0) {
+            ++feedGap.fullRetries;
+            feedGap.lastFullUs = atUs - lastAppendUs;
+        } else {
+            ++feedGap.otherRetries;
+        }
+    }
+}
 drawn_pattern::PulseRefillSchedule refillSchedule;
 PatternSpeedStatus speedStatus;
 double goalRate = 0, stampedGoal = -1;
@@ -128,6 +154,7 @@ const char *stageName() {
 }
 void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     if (stage == Stage::Idle) return; // preserve the first stop until the next accepted Play
+    if (feedGap.frame) feedGap.elapsedUs = patternServiceMicros() - lastAppendUs;
     lastStop = {reason, stageName(), now, now - startedAt, driverResult,
                 stage == Stage::Playing ? now - lastFrameAt : 0};
     if (stage != Stage::Waiting) pattern_motor::stop(owner);
@@ -320,6 +347,7 @@ void service(uint32_t now, bool &lowAfterBatch) {
     for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
         auto *next = rawPlanner ? rawPlanner->front() : pending.get();
         if (!next) {
+            recordEmptyFrame();
             // A new goal can temporarily empty the software ring. Never
             // restart a peripheral which actually ran out of timed pulses.
             if (rawClockStarted && !pattern_motor::pulseClockRunning())
@@ -347,6 +375,7 @@ void service(uint32_t now, bool &lowAfterBatch) {
         const uint32_t submitStart = patternServiceMicros();
         const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing);
         const uint32_t submitUs = patternServiceMicros() - submitStart;
+        if (!serial) recordPulseSubmit(result, acceptedFrames + 1, submitStart + submitUs);
         work.lastService.commandGateUs = std::max(work.lastService.commandGateUs, result.commandGateUs);
         ++work.submissions;
         work.submitTotalUs += submitUs;
@@ -489,6 +518,7 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     serial = caps.serial;
     lastStop = {};
     work = {};
+    feedGap = {};
     refillSchedule = {};
     haveServiceEnd = false;
     startedAt = renewedAt = pattern_motor::now();
@@ -501,6 +531,13 @@ bool stoppedPatternWork(PatternWork &out) {
     std::lock_guard<std::mutex> guard(lock);
     if (stage != Stage::Idle || !lastStop.reason) return false;
     out = work;
+    return true;
+}
+
+bool stoppedPatternFeedGap(PatternFeedGap &out) {
+    std::lock_guard<std::mutex> guard(lock);
+    if (stage != Stage::Idle || !lastStop.reason || !feedGap.frame) return false;
+    out = feedGap;
     return true;
 }
 
@@ -587,6 +624,7 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     turn = {};
     turn.atMs = pattern_motor::now();
     turn.frame = acceptedFrames;
+    if (feedGap.frame) ++feedGap.serviceTurns;
     turn.offUs = haveServiceEnd ? wakeUs - lastServiceEnd : 0;
     turn.outerUs = callUs - wakeUs;
     turn.mailboxUs = acquiredUs - callUs;

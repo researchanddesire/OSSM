@@ -168,6 +168,20 @@ void announcePatternFeel(uint32_t sequence) {
                   static_cast<unsigned long long>(work.movingPlanTotalUs), unsigned(work.maxMovingPlanUs));
 }
 
+[[gnu::noinline]] void announcePatternGap() {
+    streaming::PatternFeedGap gap;
+    if (!streaming::stoppedPatternFeedGap(gap)) {
+        Serial.println("RAD_PATTERN_GAP unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_GAP %u %u %u %u %u %u %u %u %u %u %u %u %u\n",
+                  unsigned(gap.frame), unsigned(gap.queuedUs), unsigned(gap.elapsedUs),
+                  unsigned(gap.serviceTurns), unsigned(gap.emptyReads), unsigned(gap.firstEmptyUs),
+                  unsigned(gap.lastEmptyUs), unsigned(gap.fullRetries), unsigned(gap.lastFullUs),
+                  unsigned(gap.otherRetries), unsigned(gap.assistAttempts),
+                  unsigned(gap.assistPublished), unsigned(gap.assistMaxUs));
+}
+
 [[gnu::noinline]] void announcePatternPlanner() {
     streaming::PatternWork work;
     if (!streaming::stoppedPatternWork(work)) {
@@ -236,6 +250,7 @@ void console(void*) {
             else if (serialIdentity::unsignedArgument(command, "patternsched", argument))
                 announcePatternSchedule(argument);
             else if (strcmp(command, "patternplanner") == 0) announcePatternPlanner();
+            else if (strcmp(command, "patterngap") == 0) announcePatternGap();
             else if (strcmp(command, "patternbuffer") == 0) announcePatternBuffer();
             else if (strcmp(command, "patterncost") == 0) announcePatternCost();
             else if (strcmp(command, "identitystack") == 0) {

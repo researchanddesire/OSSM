@@ -61,6 +61,17 @@ struct PatternWork {
     uint16_t lastQueuedUs = 0, minRunningUs = UINT16_MAX, maxQueuedUs = 0;
 };
 bool stoppedPatternWork(PatternWork &out);
+// Events after the last accepted raw pulse group, available only after Stop.
+// Offsets are microseconds from the guarded append returning to the feeder.
+struct PatternFeedGap {
+    uint32_t frame = 0, elapsedUs = 0, serviceTurns = 0;
+    uint32_t emptyReads = 0, firstEmptyUs = 0, lastEmptyUs = 0;
+    uint32_t fullRetries = 0, lastFullUs = 0, otherRetries = 0;
+    // Lifetime totals for work shared by the two cores during this Play.
+    uint32_t assistAttempts = 0, assistPublished = 0, assistMaxUs = 0;
+    uint16_t queuedUs = 0;
+};
+bool stoppedPatternFeedGap(PatternFeedGap &out);
 struct PatternSpeedStatus {
     const char *state = "idle", *limit = "flat";
     double speedPct = 0, nominalMmS = 0, plannedPeakMmS = 0, phaseRateHz = 0;
