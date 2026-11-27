@@ -123,11 +123,11 @@ public:
     const std::unique_ptr<Marking> marking;
     struct Counters {
         uint32_t produced = 0, discarded = 0, emptyTurns = 0, peakDepth = 0;
-        uint32_t stackFree = 0;
+        uint32_t stackFree = 0, assistAttempts = 0, assistPublished = 0, assistMaxUs = 0;
     };
 
     RawFramePlanner(const drawn_pattern::Waveform &source, std::unique_ptr<Marking> markers)
-        : marking(std::move(markers)), model_(source) {}
+        : marking(std::move(markers)), workerLane_(source), assistLane_(source) {}
 
     bool start() {
 #ifdef ARDUINO
@@ -175,39 +175,32 @@ public:
 
     enum class Action { Produced, Wait, Exit };
 
-    // A single planner calls prepare. The callback lets a host test suspend
-    // it at the exact point where an on-device control update can race it.
     template<class AfterSnapshot>
     Action prepare(AfterSnapshot afterSnapshot) {
-        uint32_t generation;
+        return prepareRow(workerLane_, capacity - 1, false, afterSnapshot);
+    }
+
+    // Called with playback ownership still held. A helper holds a lifetime
+    // reference, not a motor lease. No helper can submit to the peripheral.
+    bool requestAssist(unsigned maximumReady) {
+        std::lock_guard<RingMutex> guard(mux_);
+        if (!configured_ || !warmed_ || closed_ || assisting_ || count_ > maximumReady) return false;
+        assisting_ = true;
+        assistAtDepth_ = maximumReady;
+        ++references_;
+        return true;
+    }
+
+    // The feeder invokes this outside the controller mailbox. An explicit
+    // Stop can close this session, even during a marked crossing solve.
+    template<class AfterSnapshot>
+    void assist(AfterSnapshot afterSnapshot) {
+        prepareRow(assistLane_, assistAtDepth_, true, afterSnapshot);
         {
             std::lock_guard<RingMutex> guard(mux_);
-            if (closed_) return Action::Exit;
-            if (!configured_ || count_ == capacity) return Action::Wait;
-            generation = generation_;
-            planningStart_ = tail_;
-            if (planningGeneration_ != generation_) {
-                planningGeneration_ = generation_;
-                planningInputs_ = inputs_;
-            }
+            assisting_ = false;
         }
-        afterSnapshot();
-        calculate(planningInputs_, planningStart_, scratch_, model_, marking ? &marking->index : nullptr);
-        {
-            std::lock_guard<RingMutex> guard(mux_);
-            if (closed_) return Action::Exit;
-            if (generation == generation_) {
-                rows_[(head_ + count_) % capacity] = scratch_;
-                tail_ = scratch_;
-                ++count_;
-                ++counters_.produced;
-                counters_.peakDepth = std::max(counters_.peakDepth, count_);
-                if (count_ == capacity) warmed_ = true;
-            } else {
-                ++counters_.discarded;
-            }
-        }
-        return Action::Produced;
+        release();
     }
 
     // Only this consumer can release a row. The producer never writes into
@@ -243,14 +236,59 @@ public:
 private:
     RingMutex mux_;
     std::atomic<unsigned> references_{1};
-    drawn_pattern::Waveform model_; // Its polynomial cache is private to this worker.
-    Inputs inputs_, planningInputs_;
-    Cursor tail_, planningStart_;
-    Frame rows_[capacity], scratch_;
+    struct Lane {
+        explicit Lane(const drawn_pattern::Waveform &source) : model(source) {}
+        drawn_pattern::Waveform model; // polynomial and vibration caches are private per core
+        Inputs inputs;
+        Cursor start;
+        Frame row;
+        uint32_t generation = UINT32_MAX;
+    };
+    Lane workerLane_, assistLane_;
+    Inputs inputs_;
+    Cursor tail_;
+    Frame rows_[capacity];
     Counters counters_;
-    unsigned head_ = 0, count_ = 0;
-    uint32_t generation_ = 0, planningGeneration_ = UINT32_MAX;
-    bool configured_ = false, warmed_ = false, closed_ = false;
+    unsigned head_ = 0, count_ = 0, assistAtDepth_ = 0;
+    uint32_t generation_ = 0, tailOrdinal_ = 0;
+    bool configured_ = false, warmed_ = false, closed_ = false, assisting_ = false;
+
+    template<class AfterSnapshot>
+    Action prepareRow(Lane &lane, unsigned maximumReady, bool assist, AfterSnapshot afterSnapshot) {
+        uint32_t ordinal;
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            if (closed_) return Action::Exit;
+            if (!configured_ || count_ > maximumReady) return Action::Wait;
+            ordinal = tailOrdinal_;
+            lane.start = tail_;
+            if (lane.generation != generation_) {
+                lane.generation = generation_;
+                lane.inputs = inputs_;
+            }
+            if (assist) ++counters_.assistAttempts;
+        }
+        afterSnapshot();
+        calculate(lane.inputs, lane.start, lane.row, lane.model, marking ? &marking->index : nullptr);
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            if (closed_) return Action::Exit;
+            if (assist) counters_.assistMaxUs = std::max(counters_.assistMaxUs, lane.row.planUs);
+            if (lane.generation == generation_ && ordinal == tailOrdinal_) {
+                rows_[(head_ + count_) % capacity] = lane.row;
+                tail_ = lane.row;
+                ++tailOrdinal_;
+                ++count_;
+                ++counters_.produced;
+                if (assist) ++counters_.assistPublished;
+                counters_.peakDepth = std::max(counters_.peakDepth, count_);
+                if (count_ == capacity) warmed_ = true;
+            } else if (lane.generation != generation_) {
+                ++counters_.discarded;
+            }
+        }
+        return Action::Produced;
+    }
 #ifdef ARDUINO
     TaskHandle_t worker_ = nullptr;
     static void workerMain(void *opaque) {

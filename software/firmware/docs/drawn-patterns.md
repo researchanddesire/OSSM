@@ -91,8 +91,12 @@ frames whose target changed. Divide the total by the moving-frame count in
 
 On STEP/DIR, a separate task calculates up to twelve 2 ms frames in RAM.
 The feeder checks current controls, ownership and safety before submitting
-them to the bounded peripheral queue. A live edit discards future software
-frames and starts planning again at the last accepted phase. Serial motion
+them to the bounded peripheral queue. While the hardware is running, the
+feeder can compute one missing row on its own core. It can also use a full
+driver retry to prepare a row when at most two software rows remain. The two
+calculators share a publication ordinal and a control generation, so only one
+copy of each row can reach the driver. Both solve the curve outside the
+controller mailbox. A live edit discards future software frames and starts planning again at the last accepted phase. Serial motion
 continues to submit one acknowledged 20 ms target at a time. Play reports
 busy when the planner or its workspace cannot be allocated.
 

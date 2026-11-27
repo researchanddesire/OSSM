@@ -169,6 +169,9 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
         work.emptyTurns = counts.emptyTurns;
         work.maxPrepared = counts.peakDepth;
         work.plannerStackFree = counts.stackFree;
+        feedGap.assistAttempts = counts.assistAttempts;
+        feedGap.assistPublished = counts.assistPublished;
+        feedGap.assistMaxUs = counts.assistMaxUs;
         rawPlanner = nullptr;
     }
     pending.reset();
@@ -177,7 +180,7 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     speedStatus = {};
 }
 
-void service(uint32_t now, bool &lowAfterBatch) {
+void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
     if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const uint32_t readStart = patternServiceMicros();
     auto caps = pattern_motor::read(owner, activeMarkers != nullptr);
@@ -350,8 +353,13 @@ void service(uint32_t now, bool &lowAfterBatch) {
             recordEmptyFrame();
             // A new goal can temporarily empty the software ring. Never
             // restart a peripheral which actually ran out of timed pulses.
-            if (rawClockStarted && !pattern_motor::pulseClockRunning())
-                stopLocked("pulse_underrun", pattern_motor::now());
+            if (rawClockStarted) {
+                if (!pattern_motor::pulseClockRunning()) return stopLocked("pulse_underrun", pattern_motor::now());
+                if (rawPlanner->requestAssist(0)) assist = rawPlanner;
+                // A concurrent publication or this one-row assist makes a
+                // freshly guarded next turn useful without extending the tail.
+                lowAfterBatch = true;
+            }
             return;
         }
         auto &frame = *next;
@@ -392,7 +400,13 @@ void service(uint32_t now, bool &lowAfterBatch) {
             ++work.retries;
             if (result.timing == drawn_pattern::FrameTiming::PrimeTail) lastProgressAt = now;
             if (now - lastProgressAt >= drawn_pattern::frameStarvationMs)
-                stopLocked(result.reason, now, result.driverResult);
+                return stopLocked(result.reason, now, result.driverResult);
+            // The driver has declined an append for lack of space. Use that
+            // slack to prepare one row when only 0–4 ms of software work
+            // remains. The next submit rechecks every owner/guard/clock.
+            if (rawClockStarted && rawPlanner && result.reason &&
+                std::strcmp(result.reason, "pulse_full") == 0 && rawPlanner->requestAssist(2))
+                assist = rawPlanner;
             return;
         }
         if (result.queuedUs != UINT16_MAX) {
@@ -616,7 +630,7 @@ void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReaso
 bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     if (refillNow) *refillNow = false;
     const uint32_t callUs = patternServiceMicros();
-    std::lock_guard<std::mutex> guard(lock);
+    std::unique_lock<std::mutex> guard(lock);
     if (stage == Stage::Idle || owner != revision) return false;
     const uint32_t acquiredUs = patternServiceMicros();
     if (!wakeUs) wakeUs = callUs;
@@ -629,7 +643,8 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     turn.outerUs = callUs - wakeUs;
     turn.mailboxUs = acquiredUs - callUs;
     bool lowAfterBatch = false;
-    service(turn.atMs, lowAfterBatch);
+    RawFramePlanner *assist = nullptr;
+    service(turn.atMs, lowAfterBatch, assist);
     const bool low = stage == Stage::Playing && lowAfterBatch;
     const bool immediate = refillSchedule.immediate(low);
     if (immediate) ++work.immediateTurns;
@@ -639,6 +654,8 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     haveServiceEnd = true;
     turn.serviceUs = lastServiceEnd - acquiredUs;
     if (turn.intervalUs() >= work.longestService.intervalUs()) work.longestService = turn;
+    guard.unlock();
+    if (assist) assist->assist([] {});
     return true;
 }
 } // namespace streaming

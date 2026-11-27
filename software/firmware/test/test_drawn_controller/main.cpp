@@ -20,7 +20,8 @@ int entrySubmissions;
 int entryUpdates;
 unsigned finiteReads, legacyQueueReads;
 double entrySpeed, entryAcceleration;
-bool timedPulses = false;
+bool timedPulses = false, simulateReserve = false;
+uint32_t reserveThrough = 0;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
 io::FrameResult feedback;
@@ -30,6 +31,7 @@ PatternStart start(bool local = false) { return startDrawnPattern(samples, 32, 2
 void tick(uint32_t count = 1) {
     for (uint32_t i = 0; i < count; ++i) {
         ++clockMs;
+        if (simulateReserve) io::observedPulseRunning = clockMs < reserveThrough;
         serviceDrawnPattern(revision);
     }
 }
@@ -72,6 +74,14 @@ bool position(uint64_t ticket, int32_t target, const State &caps, bool starting)
 }
 FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing) {
     if (!read(ticket).ready) return {Frame::Rejected, "guard"};
+    if (simulateReserve) {
+        if (!observedPulseRunning) return {Frame::Rejected, "pulse_underrun"};
+        if (reserveThrough + 2 > clockMs + 16) return {Frame::Retry, "pulse_full"};
+        reserveThrough += 2;
+        frames.push_back(target);
+        return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0,
+                static_cast<uint16_t>((reserveThrough - clockMs) * 1000)};
+    }
     if (timedPulses && clockMs < nextPulseAt) return {Frame::Retry, "pulse_full"};
     if (feedback.state == Frame::Accepted) {
         frames.push_back(target);
@@ -105,7 +115,7 @@ void setUp() {
     frame_plan::RawFramePlanner::pumpInline = true;
     frame_plan::RawFramePlanner::workerAvailable = true;
     io::observedPulseRunning = true;
-    timedPulses = false;
+    timedPulses = simulateReserve = false;
     nextPulseAt = 0;
     settings = {};
     bleState = {};
@@ -186,13 +196,11 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
             TEST_ASSERT_EQUAL_DOUBLE(phase, motionPhase.phase);
         });
         tick();
-        TEST_ASSERT_EQUAL_UINT(before, frames.size()); // prior calculation was discarded
-        TEST_ASSERT_EQUAL_INT(int(Planner::Action::Produced), int(produce()));
-        tick();
-        TEST_ASSERT_EQUAL_UINT(before + 1, frames.size()); // first freshly planned frame, without rewarming
+        TEST_ASSERT_EQUAL_UINT(before + 1, frames.size()); // CPU1 supplied this fresh goal without rewarming
         TEST_ASSERT_EQUAL_DOUBLE(edit == 64 ? 0 : drawnPatternStatus().speed.phaseRateHz, stampedGoal);
     }
     io::observedPulseRunning = false;
+    motor.speed = 900; // retire a possible one-row assist from the previous goal
     tick();
     TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
     PatternWork stats;
@@ -200,6 +208,70 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
     TEST_ASSERT_EQUAL_UINT(Planner::capacity, stats.maxPrepared);
     TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.discarded);
     TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.emptyTurns);
+}
+
+void test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on_real_exhaustion() {
+    using Planner = frame_plan::RawFramePlanner;
+    Planner::pumpInline = false;
+    motor.speed = 1600;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(2);
+    for (unsigned i = 0; i < Planner::capacity; ++i) rawPlanner->prepare([] {});
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(4);
+    TEST_ASSERT_EQUAL_UINT(Planner::capacity, frames.size());
+    // The 16 ms observed electrical reserve is all the hardware can use.
+    // Suspend the background planner for the failed 22 ms, then longer.
+    simulateReserve = true;
+    reserveThrough = clockMs + 16;
+    tick(22);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(10, frames.size() - Planner::capacity);
+    tick(60);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(16, reserveThrough - clockMs);
+    const auto accepted = frames.size();
+    clockMs = reserveThrough;
+    tick(); // now suspend BOTH service paths past electrical exhaustion
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_UINT(accepted, frames.size());
+    PatternFeedGap gap;
+    TEST_ASSERT_TRUE(stoppedPatternFeedGap(gap));
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(35, gap.assistPublished);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(gap.assistPublished, gap.assistAttempts);
+}
+
+void test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing() {
+    using Planner = frame_plan::RawFramePlanner;
+    Planner::pumpInline = false;
+    motor.speed = 1000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(2);
+    for (unsigned i = 0; i < Planner::capacity; ++i) rawPlanner->prepare([] {});
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(4);
+    auto *old = rawPlanner;
+    TEST_ASSERT_TRUE(old->requestAssist(0));
+    old->assist([&] { old->prepare([] {}); }); // CPU0 wins this ordinal
+    TEST_ASSERT_NOT_NULL(old->front());
+    old->pop();
+    TEST_ASSERT_NULL(old->front());
+    old->prepare([&] {
+        TEST_ASSERT_TRUE(old->requestAssist(0));
+        old->assist([] {}); // CPU1 wins the next ordinal
+    });
+    TEST_ASSERT_NOT_NULL(old->front());
+    old->pop();
+    TEST_ASSERT_NULL(old->front());
+    const auto accepted = frames.size();
+    TEST_ASSERT_TRUE(old->requestAssist(0));
+    old->assist([&] {
+        cancelDrawnPattern();
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+        tick(2);
+    });
+    TEST_ASSERT_EQUAL_UINT(accepted, frames.size());
+    TEST_ASSERT_NULL(rawPlanner->front()); // old in-flight row never entered replacement
 }
 
 void test_rejected_next_row_does_not_hide_a_started_prefill() {
@@ -1092,6 +1164,8 @@ int main() {
     RUN_TEST(test_worker_allocation_failure_leaves_motor_and_serial_available);
     RUN_TEST(test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop);
     RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);
+    RUN_TEST(test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on_real_exhaustion);
+    RUN_TEST(test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing);
     RUN_TEST(test_rejected_next_row_does_not_hide_a_started_prefill);
     RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);
     RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);
