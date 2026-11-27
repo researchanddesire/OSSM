@@ -608,8 +608,35 @@ void test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends() {
     }
 }
 
+void test_refill_turn_is_bounded_and_retains_work_only_after_stop() {
+    motor.speed = 500;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick();  // accepted finite entry
+    PatternWork summary;
+    TEST_ASSERT_FALSE(stoppedPatternWork(summary));
+    tick();
+    TEST_ASSERT_EQUAL_UINT(3, frames.size());
+    tick();
+    TEST_ASSERT_EQUAL_UINT(6, frames.size());
+    feedback = {io::Frame::Retry, "pulse_full"};
+    tick(4);
+    TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+    cancelDrawnPattern();
+    TEST_ASSERT_TRUE(stoppedPatternWork(summary));
+    TEST_ASSERT_EQUAL_UINT(6, summary.frames);
+    TEST_ASSERT_EQUAL_UINT(4, summary.retries);
+    TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_FALSE(stoppedPatternWork(summary));
+    cancelDrawnPattern();
+    TEST_ASSERT_TRUE(stoppedPatternWork(summary));
+    TEST_ASSERT_EQUAL_UINT(0, summary.frames);
+    TEST_ASSERT_EQUAL_UINT(0, summary.retries);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_refill_turn_is_bounded_and_retains_work_only_after_stop);
     RUN_TEST(test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends);
     RUN_TEST(test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause);
     RUN_TEST(test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey_ownership);

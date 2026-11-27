@@ -41,6 +41,11 @@ struct PatternStop {
     int8_t driverResult = 0;
     uint32_t frameGapMs = 0;
 };
+struct PatternWork {
+    uint32_t frames = 0, retries = 0;
+    uint32_t maxPlanUs = 0, maxSubmitUs = 0, maxRenewLockUs = 0;
+};
+bool stoppedPatternWork(PatternWork &out);
 struct PatternStatus {
     bool active;
     uint32_t periodMs;

@@ -3,6 +3,7 @@
 #include "drawn_phase_rate.h"
 #include "drawn_pattern.h"
 
+#include <chrono>
 #include <mutex>
 #include <memory>
 #include <new>
@@ -20,11 +21,18 @@ Stage stage = Stage::Idle;
 bool ready = false, local = false, serial = false;
 uint64_t owner = 0;
 PatternStop lastStop;
+PatternWork work;
+
+uint32_t workMicros() {
+    return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, lastProgressAt = 0, effectivePeriod = 0;
 int32_t lower = 0, upper = 0, entry = 0;
 struct Marking {
     drawn_pattern::Modifiers authored;
     drawn_pattern::MarkerIndex index;
+    drawn_pattern::PauseBrakeBounds brakeBounds;
 };
 std::unique_ptr<Marking> activeMarkers;
 const drawn_pattern::MarkerIndex unmarked{};
@@ -144,6 +152,9 @@ void service(uint32_t now) {
             clockJerk = std::min(clockJerk, 8 * r);
             if (!fading) vibrationBudget = {span, v, a, caps.stepsPerMm, {r, clockAcceleration, clockJerk}};
         }
+        if (markerIndex.holds) {
+            activeMarkers->brakeBounds.reset({1000. / period, clockAcceleration, clockJerk});
+        }
         reserveVibration = reserve;
         // Re-evaluate once a changed physical cap's old carrier reaches zero.
         reconfigureAfterFade = fading;
@@ -184,7 +195,11 @@ void service(uint32_t now) {
     if (serial && now - lastFrameAt < frameMs) return;
     const double dt = frameMs / 1000.0;
     const drawn_pattern::PhaseLimits phaseLimits{1000. / effectivePeriod, clockAcceleration, clockJerk};
-    for (unsigned i = 0; i < (serial ? 1u : drawn_pattern::pulseQueueFrames); ++i) {
+    // Three 2 ms frames per turn rebuild the existing bounded hardware queue
+    // faster than it drains. Release the lock and CPU between refill batches.
+    constexpr unsigned pulseFramesPerTurn = 3;
+    for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
+        const uint32_t planStart = workMicros();
         const bool withinNewEnvelope =
             motionPhase.clock.secondsToGoal() == 0 && motionPhase.clock.rate() <= phaseLimits.rate + 1e-12;
         const double amplitude = requestedVibration && vibrationBudget.matches(caps.speed, caps.acceleration) &&
@@ -194,6 +209,7 @@ void service(uint32_t now) {
         auto nextPhase = motionPhase;
         auto nextVibration = vibration;
         drawn_pattern::FrameBrake frameBrake;
+        if (markerIndex.holds) frameBrake.bounds = &activeMarkers->brakeBounds;
         const auto advance = [&](auto &p, auto &v, double seconds) {
             p.advance(seconds, phaseLimits, markerIndex, caps.strength, &frameBrake);
             if (markerIndex.hasVibration) v.advance(seconds, amplitude);
@@ -216,12 +232,16 @@ void service(uint32_t now) {
                 });
             crossingCached = true;
         }
+        const uint32_t submitStart = workMicros();
+        work.maxPlanUs = std::max(work.maxPlanUs, submitStart - planStart);
         const auto result = pattern_motor::submit(logical, owner, serial, firstCrossing);
+        work.maxSubmitUs = std::max(work.maxSubmitUs, workMicros() - submitStart);
         if (result.timing == drawn_pattern::FrameTiming::Started)
             observeQueueStart(pattern_motor::now());
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
+            ++work.retries;
             if (result.timing == drawn_pattern::FrameTiming::PrimeTail) lastProgressAt = now;
             if (now - lastProgressAt >= drawn_pattern::frameStarvationMs)
                 stopLocked(result.reason, now, result.driverResult);
@@ -232,7 +252,7 @@ void service(uint32_t now) {
              (lastStampedStrength != caps.strength || vibration.gain.goal() != nextVibration.gain.goal())))
             recordRateGoal(pattern_motor::now(), result.timing, caps.strength, nextVibration.gain.goal());
         crossingCached = false;
-        ++acceptedFrames;
+        work.frames = ++acceptedFrames;
         motionPhase = nextPhase;
         vibration = nextVibration;
         lastProgressAt = lastFrameAt = now;
@@ -291,14 +311,25 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     local = localControl;
     serial = caps.serial;
     lastStop = {};
+    work = {};
     startedAt = renewedAt = pattern_motor::now();
     lastAppliedPeriod = acceptedFrames = 0;
     stage = Stage::Waiting;
     return PatternStart::Accepted;
 }
 
-bool renewDrawnPattern(uint64_t revision) {
+bool stoppedPatternWork(PatternWork &out) {
     std::lock_guard<std::mutex> guard(lock);
+    if (stage != Stage::Idle || !lastStop.reason) return false;
+    out = work;
+    return true;
+}
+
+bool renewDrawnPattern(uint64_t revision) {
+    const uint32_t waiting = workMicros();
+    std::lock_guard<std::mutex> guard(lock);
+    if (stage != Stage::Idle)
+        work.maxRenewLockUs = std::max(work.maxRenewLockUs, workMicros() - waiting);
     const auto now = pattern_motor::now();
     if (local || stage == Stage::Idle || owner != revision || !pattern_motor::current(revision) ||
         now - renewedAt >= drawn_pattern::leaseMs) return false;

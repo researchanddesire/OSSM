@@ -613,8 +613,42 @@ void test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength
     TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
 }
 
+void test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks() {
+    using namespace drawn_pattern;
+    Modifiers items;
+    items.count = 3;
+    items.entries[0] = {125, 125, 37};
+    items.entries[1] = {201, 625, 0};
+    items.entries[2] = {875, 875, 800};
+    MarkerIndex index;
+    TEST_ASSERT_TRUE(index.reset(items, .0625));
+    for (const double dt : {.002, .020}) {
+        MarkedPhase exact, fast;
+        PauseBrakeBounds bounds;
+        PhaseLimits limits{.0833, .1666, .6664};
+        double strength = .5;
+        bounds.reset(limits);
+        for (unsigned frame = 0; frame < 20000; ++frame) {
+            if (frame % 431 == 240) {
+                const double rate = (.2 + frame % 8) / 12;
+                limits = {rate, 2 * rate, 8 * rate};
+                bounds.reset(limits);
+            }
+            if (frame % 517 == 117) strength = (frame % 5) * .25;
+            FrameBrake reference, optimized;
+            optimized.bounds = &bounds;
+            exact.advance(dt, limits, index, strength, &reference);
+            fast.advance(dt, limits, index, strength, &optimized);
+            TEST_ASSERT_EQUAL_DOUBLE(exact.phase, fast.phase);
+            TEST_ASSERT_EQUAL_DOUBLE(exact.clock.rate(), fast.clock.rate());
+            TEST_ASSERT_EQUAL_DOUBLE(exact.clock.acceleration(), fast.clock.acceleration());
+        }
+    }
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks);
     RUN_TEST(test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength);
     RUN_TEST(test_live_sensation_changes_the_duration_of_the_current_pause);
     RUN_TEST(test_original_phase_across_q8_q16_and_sparse_inputs);

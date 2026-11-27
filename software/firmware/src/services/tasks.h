@@ -26,7 +26,8 @@ namespace Tasks {
     // if the task never starts.
     bool startOperation(TaskFunction_t task, const char *name,
                         uint32_t stackSize, TaskHandle_t *handle = nullptr,
-                        void *context = nullptr);
+                        void *context = nullptr, BaseType_t core = operationTaskCore,
+                        UBaseType_t priority = configMAX_PRIORITIES - 1);
 }
 
 #endif  // OSSM_SOFTWARE_TASKS_H

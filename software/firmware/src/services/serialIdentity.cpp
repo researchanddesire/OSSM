@@ -142,6 +142,17 @@ void console(void*) {
             else if (serialIdentity::unsignedArgument(command, "patterntime", argument)) announcePatternTime(argument);
             else if (serialIdentity::unsignedArgument(command, "patternfeel", argument))
                 announcePatternFeel(argument);
+            else if (strcmp(command, "patternwork") == 0) {
+                streaming::PatternWork work;
+                if (streaming::stoppedPatternWork(work)) {
+                    Serial.printf("RAD_PATTERN_WORK %lu %lu %lu %lu %lu\n",
+                                  static_cast<unsigned long>(work.frames), static_cast<unsigned long>(work.retries),
+                                  static_cast<unsigned long>(work.maxPlanUs), static_cast<unsigned long>(work.maxSubmitUs),
+                                  static_cast<unsigned long>(work.maxRenewLockUs));
+                } else {
+                    Serial.println("RAD_PATTERN_WORK unavailable");
+                }
+            }
             else if (strcmp(command, "hat") == 0) announceHat();
 #if OSSM_HAT_SERIAL_BACKEND
             else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();

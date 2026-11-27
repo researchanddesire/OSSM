@@ -92,12 +92,38 @@ namespace drawn_pattern {
         double rate, acceleration, jerk;
     };
 
+    // Reused only while the clock limits remain unchanged. At cruise the
+    // exact stopping distance is identical on every frame. During a forward
+    // ramp the upper bound rules out distant pauses before solving the exact
+    // brake. The slow path remains authoritative near every marker.
+    struct PauseBrakeBounds {
+        double cruise = 0, far = 0;
+        static constexpr double horizon = .020;  // longest serial or STEP frame
+
+        void reset(const PhaseLimits &limits) {
+            PhaseClock atCruise;
+            atCruise.setGoal(limits.rate, limits.acceleration, limits.jerk);
+            atCruise.advance(atCruise.secondsToGoal() + 1e-12);
+            atCruise.setGoal(0, limits.acceleration, limits.jerk);
+            cruise = atCruise.advance(atCruise.secondsToGoal() + 1e-12);
+
+            // The two jerk ramps of a stop from |a| <= A take <= 3A/J.
+            // A constant-acceleration segment exists only at peak A and
+            // lasts <= R/A + A/(2J). Account for motion during this frame.
+            const double a = limits.acceleration;
+            const double r = limits.rate + a * horizon;
+            const double duration = r / a + 4 * a / limits.jerk;
+            far = r * horizon + (r + a * duration) * duration;
+        }
+    };
+
     // A peripheral frame samples eleven possible edge times. Solve the
     // braking decision once on that frame, then reuse it for those previews.
     struct FrameBrake {
         bool known = false;
         double when = HUGE_VAL, target = 0;
         uint16_t holdMs = 0;
+        const PauseBrakeBounds *bounds = nullptr;
     };
 
     // Braking uses the original bounded-jerk phase clock; its analytical stop
@@ -136,17 +162,28 @@ namespace drawn_pattern {
         }
 
         FrameBrake planBrake(double dt, const PhaseLimits &limits,
-                             const MarkerIndex &index) const {
+                             const MarkerIndex &index, const PauseBrakeBounds *bounds) const {
             FrameBrake result;
             result.known = true;
-            const double front = phase + stopDistance(clock, limits);
+            const bool cruising = bounds && clock.secondsToGoal() == 0;
+            if (bounds && !cruising && dt <= PauseBrakeBounds::horizon &&
+                clock.rate() >= 0 && clock.rate() <= limits.rate &&
+                clock.acceleration() >= 0 && clock.acceleration() <= limits.acceleration) {
+                // With nonnegative initial rate/acceleration the earliest
+                // prospective stop starts at or forward of the current phase.
+                const double next = index.upcoming(std::max(skipThrough + 1e-8, phase - 1e-10), result.holdMs);
+                if (next > phase + bounds->far + 1e-10) return result;
+            }
+            const double front = phase + (cruising ? bounds->cruise : stopDistance(clock, limits));
             result.target = index.upcoming(
                 std::max(skipThrough + 1e-8, front - 1e-10), result.holdMs);
-            PhaseClock end = clock;
-            const double distance = end.advance(dt);
-            if (phase + distance + stopDistance(end, limits) <
-                result.target - 1e-12)
-                return result;
+            if (cruising) {
+                if (phase + limits.rate * dt + bounds->cruise < result.target - 1e-12) return result;
+            } else {
+                PhaseClock end = clock;
+                const double distance = end.advance(dt);
+                if (phase + distance + stopDistance(end, limits) < result.target - 1e-12) return result;
+            }
             double low = 0, high = dt;
             if (front < result.target - 1e-12) {
                 for (unsigned k = 0; k < 23; ++k) {
@@ -195,7 +232,7 @@ namespace drawn_pattern {
                 clock.setGoal(limits.rate, limits.acceleration, limits.jerk);
                 const FrameBrake decision = frame && frame->known
                                                 ? *frame
-                                                : planBrake(dt, limits, index);
+                                                : planBrake(dt, limits, index, frame ? frame->bounds : nullptr);
                 if (frame) {
                     *frame = decision;
                     frame = nullptr;
