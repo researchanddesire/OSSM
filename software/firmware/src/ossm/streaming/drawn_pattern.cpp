@@ -28,6 +28,7 @@ bool ready = false, local = false, serial = false;
 uint64_t owner = 0;
 PatternStop lastStop;
 PatternWork work;
+drawn_pattern::PulseRefillSchedule refillSchedule;
 PatternSpeedStatus speedStatus;
 double goalRate = 0, stampedGoal = -1;
 uint32_t drainAt = 0, entryStopBudget = 0;
@@ -141,10 +142,14 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     speedStatus = {};
 }
 
-void service(uint32_t now) {
+void service(uint32_t now, bool &lowAfterBatch) {
     if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const uint32_t readStart = patternServiceMicros();
-    const auto caps = pattern_motor::read(owner, activeMarkers != nullptr);
+    auto caps = pattern_motor::read(owner, activeMarkers != nullptr);
+    if (caps.ready && (stage == Stage::Positioning || stage == Stage::EntryBraking ||
+                       (stage == Stage::Waiting && caps.fraction > 0))) {
+        pattern_motor::readFiniteState(caps, stage != Stage::Positioning);
+    }
     work.lastService.readUs = patternServiceMicros() - readStart;
     const auto &markerIndex = activeMarkers ? activeMarkers->index : unmarked;
     if (!caps.ready) return stopLocked("guard", now);
@@ -318,8 +323,8 @@ void service(uint32_t now) {
                 committedTargetValid = true;
             }
             frame.crossing = 32768;
-            if (frame.target != committedTarget) {
-                ++work.movingPlans;
+            const bool moving = frame.target != committedTarget;
+            if (moving) {
                 if (!serial && !activeMarkers) {
                     auto clock = motionPhase.clock;
                     clock.setGoal(phaseLimits.rate, phaseLimits.acceleration, phaseLimits.jerk);
@@ -339,6 +344,11 @@ void service(uint32_t now) {
             const uint32_t planUs = patternServiceMicros() - planStart;
             ++work.plans;
             work.planTotalUs += planUs;
+            if (moving) {
+                ++work.movingPlans;
+                work.movingPlanTotalUs += planUs;
+                work.maxMovingPlanUs = std::max(work.maxMovingPlanUs, planUs);
+            }
             if (planUs > 2000) ++work.planOver2ms;
             work.maxPlanUs = std::max(work.maxPlanUs, planUs);
         }
@@ -360,6 +370,13 @@ void service(uint32_t now) {
             if (now - lastProgressAt >= drawn_pattern::frameStarvationMs)
                 stopLocked(result.reason, now, result.driverResult);
             return;
+        }
+        if (result.queuedUs != UINT16_MAX) {
+            work.lastQueuedUs = result.queuedUs;
+            work.maxQueuedUs = std::max(work.maxQueuedUs, result.queuedUs);
+            if (result.timing == drawn_pattern::FrameTiming::Running)
+                work.minRunningUs = std::min(work.minRunningUs, result.queuedUs);
+            lowAfterBatch = i + 1 == pulseFramesPerTurn && result.queuedUs < drawn_pattern::refillBelowUs;
         }
         const bool entryToRaw = softwareEntry &&
             (result.timing == drawn_pattern::FrameTiming::Prefill ||
@@ -409,7 +426,9 @@ PatternStart startStatusLocked(uint64_t revision, pattern_motor::State &caps) {
     if (!ready || owner != revision) return PatternStart::NotReady;
     caps = pattern_motor::read(revision);
     if (!caps.ready) return PatternStart::NotReady;
-    if (stage != Stage::Idle || caps.moving || caps.queued) return PatternStart::Busy;
+    if (stage != Stage::Idle) return PatternStart::Busy;
+    pattern_motor::readFiniteState(caps, true);
+    if (caps.moving || caps.queued) return PatternStart::Busy;
     return PatternStart::Accepted;
 }
 }  // namespace
@@ -460,6 +479,7 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     serial = caps.serial;
     lastStop = {};
     work = {};
+    refillSchedule = {};
     haveServiceEnd = false;
     startedAt = renewedAt = pattern_motor::now();
     lastAppliedPeriod = acceptedFrames = 0;
@@ -546,7 +566,8 @@ void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReaso
         stopLocked(exitReason, pattern_motor::now());
     }
 }
-bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs) {
+bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
+    if (refillNow) *refillNow = false;
     const uint32_t callUs = patternServiceMicros();
     std::lock_guard<std::mutex> guard(lock);
     if (stage == Stage::Idle || owner != revision) return false;
@@ -559,7 +580,13 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs) {
     turn.offUs = haveServiceEnd ? wakeUs - lastServiceEnd : 0;
     turn.outerUs = callUs - wakeUs;
     turn.mailboxUs = acquiredUs - callUs;
-    service(turn.atMs);
+    bool lowAfterBatch = false;
+    service(turn.atMs, lowAfterBatch);
+    const bool low = stage == Stage::Playing && lowAfterBatch;
+    const bool immediate = refillSchedule.immediate(low);
+    if (immediate) ++work.immediateTurns;
+    else if (low) ++work.lowWaterYields;
+    if (refillNow) *refillNow = immediate;
     lastServiceEnd = patternServiceMicros();
     haveServiceEnd = true;
     turn.serviceUs = lastServiceEnd - acquiredUs;

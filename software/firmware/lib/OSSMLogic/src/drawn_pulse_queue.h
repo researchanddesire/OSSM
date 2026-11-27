@@ -15,6 +15,7 @@ struct FrameResult {
     int8_t driverResult = 0;
     FrameTiming timing = FrameTiming::Unknown;
     uint32_t commandGateUs = 0;
+    uint16_t queuedUs = UINT16_MAX; // FAS time behind its current command, when sampled.
 };
 
 constexpr uint32_t frameStarvationMs = 200;
@@ -60,6 +61,22 @@ static_assert(queuedDurationMs + 2*maxGroupMs < pulseStopDrainMs);
 // Reserve two additional frame intervals inside the existing stop deadline
 // for hardware buffering, direction setup and timer rounding.
 static_assert((pulseQueueFrames + 2) * pulseFrameMs < pulseStopDrainMs);
+
+// Refill toward 14 ms within the 16 ms hardware limit. A full-sized
+// command may not fit before that threshold; wait normally on such retries.
+constexpr uint16_t refillBelowUs = (queuedDurationMs - pulseFrameMs) * 1000;
+class PulseRefillSchedule {
+    uint8_t consecutive_ = 0;
+public:
+    bool immediate(bool lowAfterProgress) {
+        if (lowAfterProgress && consecutive_ < 2) {
+            ++consecutive_;
+            return true;
+        }
+        consecutive_ = 0;
+        return false;
+    }
+};
 
 // Raw pulses can leave FAS's last finite target behind the drained queue.
 // Its idle forceStop flag would then consume the next move to that old target.
@@ -185,10 +202,18 @@ public:
             // An interrupt can drain the queue between the first check and
             // our append. The unstarted straggler is flushed during Stop.
             if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
-        } else if (driver.queueEntries() >= pulseQueueFrames || driver.ticksInQueue() >= queuedLimit) {
-            return startQueue(driver);
         }
-        return {Frame::Accepted,nullptr,0,running ? FrameTiming::Running : FrameTiming::Prefill};
+        FrameResult result{Frame::Accepted, nullptr, 0, running ? FrameTiming::Running : FrameTiming::Prefill};
+        if (!running && (driver.queueEntries() >= pulseQueueFrames || driver.ticksInQueue() >= queuedLimit)) {
+            result = startQueue(driver);
+        }
+        if (result.state == Frame::Accepted) {
+            // Read after the append/start: the interrupt may have consumed
+            // commands since the admission check. FAS excludes the active entry.
+            const uint32_t queuedTicks = driver.ticksInQueue();
+            result.queuedUs = static_cast<uint16_t>(queuedTicks * (1000 * pulseFrameMs) / frameTicks);
+        }
+        return result;
     }
 
 private:

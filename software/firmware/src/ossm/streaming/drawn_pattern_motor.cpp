@@ -52,12 +52,15 @@ State read(uint64_t revision, bool annotated) {
         state.acceleration = std::min(state.acceleration, caps.accelerationRpmPerSec * stepsPerRpm);
     }
     state.speed = state.fullSpeed * state.fraction;
+    state.ready = true;
+    return state;
+}
+
+void readFiniteState(State &state, bool checkQueue) {
     state.moving = stepper->isRunning();
     // Entry completion consumes the position only after the move stops.
     if (!state.moving) state.position = stepper->getCurrentPosition();
-    state.queued = !targetQueue.empty();
-    state.ready = true;
-    return state;
+    if (checkQueue) state.queued = !targetQueue.empty();
 }
 
 bool position(uint64_t revision, int32_t target, const State &caps, bool starting) {

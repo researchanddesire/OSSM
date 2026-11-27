@@ -75,11 +75,14 @@ static void startStreamingTask(void *pvParameters) {
         }
         if (!motorSafetyCanEnableOutputs()) { exitReason = "guard"; break; }
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
-        if (serviceDrawnPattern(safetyRevision, wakeUs)) {
+        bool refillNow;
+        if (serviceDrawnPattern(safetyRevision, wakeUs, &refillNow)) {
             haveTarget = false;
             lastPositionTime = {};
             best = std::chrono::steady_clock::now();
-            vTaskDelay(1);
+            // A depleted raw queue gets another separately guarded turn.
+            // All other paths, including driver retries, yield a full tick.
+            if (!refillNow) vTaskDelay(1);
             continue;
         }
         // Keep the actual popped item pending while waiting for reversal.

@@ -18,6 +18,7 @@ io::Park parkState;
 unsigned parkPolls;
 int entrySubmissions;
 int entryUpdates;
+unsigned finiteReads, legacyQueueReads;
 double entrySpeed, entryAcceleration;
 bool timedPulses = false;
 uint32_t nextPulseAt = 0;
@@ -40,12 +41,23 @@ void setSensation(uint8_t value) {
 }
 State read(uint64_t ticket, bool) {
     auto copy = motor;
+    copy.moving = copy.queued = false;
+    copy.position = 0;
     copy.ready = copy.ready && ticket == revision;
     copy.fullSpeed = std::max(20000., copy.speed);
     copy.nominalSpeed = copy.fullSpeed;
     copy.fraction = copy.speed / copy.fullSpeed;
     copy.stepsPerMm = 20;
     return copy;
+}
+void readFiniteState(State &out, bool checkQueue) {
+    ++finiteReads;
+    out.moving = motor.moving;
+    if (!out.moving) out.position = motor.position;
+    if (checkQueue) {
+        ++legacyQueueReads;
+        out.queued = motor.queued;
+    }
 }
 uint32_t now() { return clockMs; }
 bool current(uint64_t ticket) { return ticket == revision; }
@@ -89,6 +101,7 @@ void setUp() {
     parkState = io::Park::Parked;
     entrySubmissions = 0;
     entryUpdates = 0;
+    finiteReads = legacyQueueReads = 0;
     timedPulses = false;
     nextPulseAt = 0;
     settings = {};
@@ -97,6 +110,46 @@ void setUp() {
     setDrawnPatternReady(revision, true);
 }
 void tearDown() { setDrawnPatternReady(revision, false); }
+
+void test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns() {
+    motor.speed = 240;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(); // guarded finite move
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
+    bool again = false;
+    auto turn = [&]() { return serviceDrawnPattern(revision, 0, &again); };
+    TEST_ASSERT_TRUE(turn());
+    TEST_ASSERT_TRUE(again);
+    const auto entryReads = finiteReads;
+    const auto queueReads = legacyQueueReads;
+    TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+    TEST_ASSERT_TRUE(turn());
+    TEST_ASSERT_TRUE(again);
+    TEST_ASSERT_TRUE(turn());
+    TEST_ASSERT_FALSE(again); // lower-priority tasks get a blocking tick
+    TEST_ASSERT_EQUAL_UINT(entryReads, finiteReads);
+    TEST_ASSERT_EQUAL_UINT(queueReads, legacyQueueReads);
+    feedback.queuedUs = drawn_pattern::refillBelowUs;
+    TEST_ASSERT_TRUE(turn());
+    TEST_ASSERT_FALSE(again);
+    feedback.queuedUs = 1300;
+    TEST_ASSERT_TRUE(turn());
+    TEST_ASSERT_TRUE(again);
+    feedback = {io::Frame::Retry, "pulse_full"};
+    TEST_ASSERT_TRUE(turn());
+    TEST_ASSERT_FALSE(again); // no spin when the hardware cannot accept a frame
+    cancelRemoteDrawnPattern();
+    const auto atStop = frames.size();
+    TEST_ASSERT_FALSE(turn());
+    TEST_ASSERT_FALSE(again);
+    TEST_ASSERT_EQUAL_UINT(atStop, frames.size());
+    PatternWork stopped;
+    TEST_ASSERT_TRUE(stoppedPatternWork(stopped));
+    TEST_ASSERT_EQUAL_UINT(3, stopped.immediateTurns);
+    TEST_ASSERT_EQUAL_UINT(1, stopped.lowWaterYields);
+    TEST_ASSERT_EQUAL_UINT(1300, stopped.minRunningUs);
+    TEST_ASSERT_EQUAL_UINT(drawn_pattern::refillBelowUs, stopped.maxQueuedUs);
+}
 
 void test_accepted_entry_waits_for_backend_without_reissuing_move() {
     deferEntry = true;
@@ -926,6 +979,7 @@ void test_paused_remote_lease_and_finite_entry_remain_guarded() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);
     RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);
     RUN_TEST(test_stopped_service_cost_retains_failing_turn_and_longest_interval);
     RUN_TEST(test_paused_remote_lease_and_finite_entry_remain_guarded);

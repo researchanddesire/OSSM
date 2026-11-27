@@ -194,6 +194,25 @@ struct InterruptingQueue {
 };
 }
 
+#include "refill_driver.h"
+
+void test_raw_watermark_recovers_between_measured_size_service_gaps() {
+    // Rounded 2 / 4 mm/s brake periods observed on the same 12 mm Q8
+    // calibration. The spacing of these stress intervals is synthetic.
+    for (auto period : {19737, 9869}) {
+        const auto fixedTick = replayDrain(period, 3, false);
+        const auto refill = replayDrain(period, 3, true);
+        TEST_ASSERT_TRUE(fixedTick.underrun);
+        TEST_ASSERT_FALSE(refill.underrun);
+        TEST_ASSERT_GREATER_OR_EQUAL_UINT(2300, refill.accepted);
+        TEST_ASSERT_GREATER_THAN_UINT(0, refill.immediate);
+        TEST_ASSERT_LESS_THAN_UINT(drawn_pattern::pulseStopDrainMs * 1000, refill.drainUs);
+        // Two adjacent disruptions can exceed the actual reserve. Stop at
+        // that first depletion even when spare software frames are available.
+        TEST_ASSERT_TRUE(replayDrain(period, 1, true).underrun);
+    }
+}
+
 void test_stationary_entry_requires_untouched_empty_driver_and_matching_position() {
     using namespace drawn_pattern;
     using Entry = PulseQueue::Entry;
@@ -740,6 +759,7 @@ void test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_raw_watermark_recovers_between_measured_size_service_gaps);
     RUN_TEST(test_speed_fraction_sets_true_peak_on_classic_rail_independent_of_source_duration);
     RUN_TEST(test_deliberate_raw_park_requires_positive_tail_and_verified_empty_anchor);
     RUN_TEST(test_stationary_entry_requires_untouched_empty_driver_and_matching_position);

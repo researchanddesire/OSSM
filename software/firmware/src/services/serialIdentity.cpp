@@ -156,6 +156,18 @@ void announcePatternFeel(uint32_t sequence) {
                   static_cast<unsigned long>(work.maxRenewLockUs));
 }
 
+[[gnu::noinline]] void announcePatternBuffer() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_BUFFER unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_BUFFER %u %u %u %u %u %llu %u\n", unsigned(work.lastQueuedUs),
+                  unsigned(work.minRunningUs), unsigned(work.maxQueuedUs),
+                  unsigned(work.immediateTurns), unsigned(work.lowWaterYields),
+                  static_cast<unsigned long long>(work.movingPlanTotalUs), unsigned(work.maxMovingPlanUs));
+}
+
 [[gnu::noinline]] void announcePatternSchedule(uint32_t argument) {
     streaming::PatternWork work;
     if (argument > 1 || !streaming::stoppedPatternWork(work)) {
@@ -212,6 +224,7 @@ void console(void*) {
             else if (strcmp(command, "patternwork") == 0) announcePatternWork();
             else if (serialIdentity::unsignedArgument(command, "patternsched", argument))
                 announcePatternSchedule(argument);
+            else if (strcmp(command, "patternbuffer") == 0) announcePatternBuffer();
             else if (strcmp(command, "patterncost") == 0) announcePatternCost();
             else if (strcmp(command, "identitystack") == 0) {
                 Serial.printf("RAD_ID_STACK %lu %lu\n", static_cast<unsigned long>(consoleStackBytes),

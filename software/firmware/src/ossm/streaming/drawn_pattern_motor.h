@@ -20,6 +20,7 @@ struct State {
 using drawn_pattern::Frame;
 using drawn_pattern::FrameResult;
 State read(uint64_t revision, bool annotated = false);
+void readFiniteState(State &state, bool checkQueue);
 void setSensation(uint8_t value);
 uint32_t now();
 bool current(uint64_t revision);

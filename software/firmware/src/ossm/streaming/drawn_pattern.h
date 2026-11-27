@@ -55,6 +55,9 @@ struct PatternWork {
     uint32_t submissions = 0, submitOver2ms = 0, rawStartSequence = 0;
     uint64_t planTotalUs = 0, submitTotalUs = 0;
     uint32_t maxPlanUs = 0, maxSubmitUs = 0, maxRenewLockUs = 0;
+    uint64_t movingPlanTotalUs = 0;
+    uint32_t maxMovingPlanUs = 0, immediateTurns = 0, lowWaterYields = 0;
+    uint16_t lastQueuedUs = 0, minRunningUs = UINT16_MAX, maxQueuedUs = 0;
 };
 bool stoppedPatternWork(PatternWork &out);
 struct PatternSpeedStatus {
@@ -73,5 +76,5 @@ PatternStatus drawnPatternStatus();
 // Called only by the guarded streaming task.
 void setDrawnPatternReady(uint64_t revision, bool ready, const char *exitReason = "mode_exit");
 uint32_t patternServiceMicros();
-bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs = 0);
+bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs = 0, bool *refillNow = nullptr);
 }
