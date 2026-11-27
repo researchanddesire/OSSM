@@ -148,9 +148,9 @@ PatternStart drawnPatternStartStatus(uint64_t revision) {
 }
 
 PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs,
-                               uint64_t revision, bool localControl, bool highPrecision) {
+                               uint64_t revision, bool localControl, drawn_pattern::SampleFormat format) {
     drawn_pattern::Waveform incoming;
-    if (!incoming.decode(hex, length, periodMs, highPrecision)) return PatternStart::Invalid;
+    if (!incoming.decode(hex, length, periodMs, format)) return PatternStart::Invalid;
     std::lock_guard<std::mutex> guard(lock);
     pattern_motor::State caps;
     const auto status = startStatusLocked(revision, caps);

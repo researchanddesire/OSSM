@@ -147,9 +147,9 @@ void test_q16_upgrade_preserves_all_prior_slot_bytes_and_selected_name() {
     const std::string hex = std::string(64, '1');
     SavedPattern ordinary, precise;
     TEST_ASSERT_TRUE(makeSavedPattern(ordinary, hex.data(), hex.size(), 2000));
-    TEST_ASSERT_TRUE(makeSavedPattern(precise, hex.data(), hex.size(), 2000, true));
-    TEST_ASSERT_FALSE(ordinary.highPrecision());
-    TEST_ASSERT_TRUE(precise.highPrecision());
+    TEST_ASSERT_TRUE(makeSavedPattern(precise, hex.data(), hex.size(), 2000, drawn_pattern::SampleFormat::Q16));
+    TEST_ASSERT_TRUE(ordinary.format() == drawn_pattern::SampleFormat::Q8);
+    TEST_ASSERT_TRUE(precise.format() == drawn_pattern::SampleFormat::Q16);
     TEST_ASSERT_TRUE(upgraded.save(1, "Wave", 4, ordinary, writeRecord));
     const int beforePrecision = writes;
     TEST_ASSERT_TRUE(upgraded.save(1, "Wave", 4, precise, writeRecord));
@@ -162,8 +162,88 @@ void test_q16_upgrade_preserves_all_prior_slot_bytes_and_selected_name() {
     TEST_ASSERT_EQUAL_MEMORY(&precise, &loaded, sizeof(loaded));
     TEST_ASSERT_EQUAL_STRING("Second", rebooted.catalog().slots[0].name);
     TEST_ASSERT_EQUAL_STRING("Donor", rebooted.catalog().slots[2].name);
-    TEST_ASSERT_FALSE(makeSavedPattern(loaded, hex.data(), 62, 2000, true));
-    TEST_ASSERT_FALSE(makeSavedPattern(loaded, hex.data(), 32, 2000, true));
+    TEST_ASSERT_FALSE(makeSavedPattern(loaded, hex.data(), 62, 2000, drawn_pattern::SampleFormat::Q16));
+    TEST_ASSERT_FALSE(makeSavedPattern(loaded, hex.data(), 32, 2000, drawn_pattern::SampleFormat::Q16));
+}
+
+void test_sparse_samples_cover_one_cycle_and_survive_named_save_and_reboot() {
+    const char *hex = "020066660201680c02026c660203728c02047999020580a6020686cc02078b26"
+                      "02088ccc02098b26020a86cc020b80a6020c7999020d728c020e6c66020f680c03ff6666";
+    JsonDocument args;
+    args["periodMs"] = 60000;
+    args["samples16Runs"] = hex;
+    SavedPattern value;
+    TEST_ASSERT_TRUE(readPatternSamples(args.as<JsonObjectConst>(), value));
+    TEST_ASSERT_EQUAL_UINT32(3, value.version);
+    SavedPatternLibrary library;
+    TEST_ASSERT_TRUE(library.save(3, "Excursion", 9, value, writeRecord));
+    SavedPatternLibrary reboot;
+    reboot.load(readRecord);
+    SavedPattern recovered;
+    TEST_ASSERT_TRUE(reboot.get(recovered));
+    TEST_ASSERT_EQUAL_MEMORY(&value, &recovered, sizeof(value));
+    drawn_pattern::Waveform waveform;
+    TEST_ASSERT_TRUE(waveform.decode(recovered.samples, recovered.length, recovered.periodMs, recovered.format()));
+    for (unsigned i = 0; i <= 8192; ++i) {
+        const double phase = i / 8192.;
+        const double u = std::max(0., 1. - std::abs((phase - 65./128) * 128));
+        const double source = .4 + .15*u*u*(3-2*u);
+        TEST_ASSERT_TRUE(std::abs(source - waveform.position(phase)) <= .00020);
+        if (phase < .5 || phase >= 66./128) {
+            TEST_ASSERT_TRUE(std::abs(waveform.position(phase)-.4) < 1e-12);
+            TEST_ASSERT_TRUE(waveform.phaseDerivative(phase, 1) == 0);
+            TEST_ASSERT_TRUE(waveform.phaseDerivative(phase, 2) == 0);
+        }
+    }
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(60000, waveform.safePeriodMs(100, 1000, 10000));
+}
+
+void test_invalid_numeric_and_overlapping_formats_are_rejected_at_the_ble_boundary() {
+    JsonDocument args;
+    args["periodMs"] = 7251;
+    SavedPattern value;
+    auto parse = [&] { return readPatternSamples(args.as<JsonObjectConst>(), value); };
+    TEST_ASSERT_FALSE(parse());
+    args["samples"] = samples;
+    TEST_ASSERT_TRUE(parse());
+    args["samples16Runs"] = nullptr;
+    TEST_ASSERT_FALSE(parse());
+    args.remove("samples");
+    for (const char *invalid : {"", "03ff", "03ffzzzz", "04000000", "03fe1234",
+                               "000600010006000203ffffff", "000600010001000203ffffff",
+                               "0007000103ff0001", "03ff123400000000"}) {
+        args["samples16Runs"] = invalid;
+        TEST_ASSERT_FALSE(parse());
+    }
+    args["samples16Runs"] = "0000ffff03ff0000"; // one-position run is legal
+    TEST_ASSERT_TRUE(parse());
+    args["samples16"] = std::string(64, 'a');
+    TEST_ASSERT_FALSE(parse());
+    args.remove("samples16Runs");
+    TEST_ASSERT_TRUE(parse());
+    args["periodMs"] = -1;
+    TEST_ASSERT_FALSE(parse());
+    args["periodMs"] = 7251;
+    args["samples16"] = 42;
+    TEST_ASSERT_FALSE(parse());
+    args.remove("samples16");
+    std::string runs;
+    char entry[9];
+    for (unsigned i = 0; i < 32; ++i) {
+        snprintf(entry, sizeof(entry), "%04x%04x", (i+1)*32-1, i % 2 ? 0 : 65535);
+        runs += entry;
+    }
+    args["samples16Runs"] = runs;
+    TEST_ASSERT_TRUE(parse());
+    // Offset 128 was the old invalid cache sentinel. Entry rotates to knot 32;
+    // make the first lookup land on knot 128, whose height is the maximum.
+    drawn_pattern::Waveform waveform;
+    TEST_ASSERT_TRUE(waveform.decode(value.samples, value.length, 7251, value.format()));
+    TEST_ASSERT_TRUE(std::abs(waveform.position(96./1024) - 1.) < 1e-12);
+    args["samples16Runs"] = runs + "03ff0000";
+    TEST_ASSERT_FALSE(parse());
+    value.version = 259; // low byte alone must never authorize a corrupt record.
+    TEST_ASSERT_FALSE(validSavedPattern(value));
 }
 
 void test_storage_requires_stationary_current_feedback_when_available() {
@@ -297,6 +377,8 @@ int main() {
     RUN_TEST(test_failed_or_repeated_transactions_preserve_selection_and_slot);
     RUN_TEST(test_bounded_names_slots_and_corrupt_flash);
     RUN_TEST(test_q16_upgrade_preserves_all_prior_slot_bytes_and_selected_name);
+    RUN_TEST(test_sparse_samples_cover_one_cycle_and_survive_named_save_and_reboot);
+    RUN_TEST(test_invalid_numeric_and_overlapping_formats_are_rejected_at_the_ble_boundary);
     RUN_TEST(test_storage_requires_stationary_current_feedback_when_available);
     RUN_TEST(test_catalog_optional_slot_preserves_full_and_empty_entries);
     RUN_TEST(test_catalog_rejects_invalid_page_without_returning_other_entries);

@@ -294,9 +294,9 @@ void test_high_precision_sine_tracks_the_authored_third_derivative() {
         std::snprintf(q16+4*i,5,"%04x",static_cast<unsigned>(std::lround(y*65535)));
     }
     Waveform fine,coarse;
-    TEST_ASSERT_TRUE(fine.decode(q16,4*n,4000,true));
+    TEST_ASSERT_TRUE(fine.decode(q16,4*n,4000,drawn_pattern::SampleFormat::Q16));
     TEST_ASSERT_TRUE(coarse.decode(q8,2*n,4000));
-    TEST_ASSERT_FALSE(coarse.decode(q8,2*n-2,4000,true));
+    TEST_ASSERT_FALSE(coarse.decode(q8,2*n-2,4000,drawn_pattern::SampleFormat::Q16));
     double errFine=0,errCoarse=0;
     for (unsigned i=0;i<8192;++i) {
         const double f=(i+.5)/8192;

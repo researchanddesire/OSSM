@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "drawn_sample_format.h"
 
 namespace motion_link { class Owner; }
 
@@ -11,7 +12,7 @@ bool patternOwnerCurrent(const PatternReferenceLost &event);
 enum class PatternStart { Accepted, Invalid, NotReady, Busy };
 PatternStart drawnPatternStartStatus(uint64_t revision);
 PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t ownerRevision,
-                               bool localControl = false, bool highPrecision = false);
+                               bool localControl = false, drawn_pattern::SampleFormat format = drawn_pattern::SampleFormat::Q8);
 bool renewDrawnPattern(uint64_t ownerRevision);
 bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
                          float value, bool selectBleSource);

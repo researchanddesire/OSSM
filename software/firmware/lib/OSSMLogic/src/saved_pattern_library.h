@@ -13,26 +13,26 @@ constexpr uint8_t patternSlotCount = 4;
 constexpr int selectedPatternSlot = -1;
 constexpr size_t maxPatternNameBytes = 24;
 
-// Preserve the 268-byte curveV1 layout. Version 1 is Q8, version 2 is big-endian Q16.
+// Preserve the 268-byte curveV1 layout. The format word distinguishes Q8, Q16 and sparse Q16.
 struct SavedPattern {
     uint32_t version = 1;
     uint32_t periodMs = 0;
     uint32_t length = 0;
     char samples[drawn_pattern::maxSamples * 2] = {};
-    bool highPrecision() const { return version == 2; }
+    drawn_pattern::SampleFormat format() const { return static_cast<drawn_pattern::SampleFormat>(version); }
 };
 static_assert(sizeof(SavedPattern) == 268);
 
 inline bool validSavedPattern(const SavedPattern &value) {
     drawn_pattern::Waveform curve;
-    return (value.version == 1 || value.version == 2) && value.length <= sizeof(value.samples) &&
-           curve.decode(value.samples, value.length, value.periodMs, value.highPrecision());
+    return (value.version >= 1 && value.version <= 3) && value.length <= sizeof(value.samples) &&
+           curve.decode(value.samples, value.length, value.periodMs, value.format());
 }
 
 inline bool makeSavedPattern(SavedPattern &out, const char *samples, size_t length,
-                             uint32_t periodMs, bool highPrecision = false) {
+                             uint32_t periodMs, drawn_pattern::SampleFormat format = drawn_pattern::SampleFormat::Q8) {
     if (!samples || length > sizeof(out.samples)) return false;
-    out.version = highPrecision ? 2 : 1;
+    out.version = static_cast<uint32_t>(format);
     out.periodMs = periodMs;
     out.length = length;
     std::memcpy(out.samples, samples, length);

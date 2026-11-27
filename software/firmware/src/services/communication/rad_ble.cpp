@@ -265,6 +265,7 @@ radble::Result patternStatus() {
     status["liveSpeed"] = true;
     status["interpolationVersion"] = 2;
     status["maxSampleBits"] = 16;
+    status["maxSparseSamples"] = drawn_pattern::sparseSamples;
     status["libraryVersion"] = 1;
     status["libraryPageSize"] = 1;
     status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
@@ -328,14 +329,8 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
         if (!getSavedPattern(value, slot))
             return radble::Result::failure("not_found", "No pattern saved in this slot");
     } else {
-        const bool highPrecision = !args["samples16"].isUnbound();
-        if (highPrecision && !args["samples"].isUnbound())
-            return radble::Result::failure("invalid_value", "Supply samples or samples16, not both");
-        const auto samples = args[highPrecision ? "samples16" : "samples"].as<JsonString>();
         const bool named = slot != selectedPatternSlot;
-        if ((named && (!save || args.size() != 4)) ||
-            samples.isNull() || !args["periodMs"].is<uint32_t>() ||
-            !makeSavedPattern(value, samples.c_str(), samples.size(), args["periodMs"].as<uint32_t>(), highPrecision))
+        if ((named && (!save || args.size() != 4)) || !readPatternSamples(args, value))
             return radble::Result::failure("invalid_value", "Expected samples, period and optional named destination");
     }
     if (save) {
@@ -350,7 +345,7 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
         return patternStatus();
     }
     const auto started = startBlePattern(radBleServer.currentRequestConnection(),
-                                         value.samples, value.length, value.periodMs, value.highPrecision());
+                                         value.samples, value.length, value.periodMs, value.format());
     if (started == PatternStart::Accepted) return patternStatus();
     if (started == PatternStart::Busy)
         return radble::Result::failure("busy", "Stop the current pattern before playing another");
