@@ -202,6 +202,25 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
     TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.emptyTurns);
 }
 
+void test_rejected_next_row_does_not_hide_a_started_prefill() {
+    using Planner = frame_plan::RawFramePlanner;
+    Planner::pumpInline = false;
+    motor.speed = 500;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(2);
+    for (unsigned i = 0; i < Planner::capacity; ++i) rawPlanner->prepare([] {});
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Prefill};
+    tick(2);
+    feedback = {io::Frame::Retry, "pulse_full", 0, drawn_pattern::FrameTiming::Started};
+    tick();
+    const auto accepted = frames.size();
+    motor.speed = 700; // invalidates only future RAM rows
+    io::observedPulseRunning = false; // prefilled driver exhausted before a new row
+    tick();
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_UINT(accepted, frames.size());
+}
+
 void test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns() {
     motor.speed = 240;
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
@@ -1073,6 +1092,7 @@ int main() {
     RUN_TEST(test_worker_allocation_failure_leaves_motor_and_serial_available);
     RUN_TEST(test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop);
     RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);
+    RUN_TEST(test_rejected_next_row_does_not_hide_a_started_prefill);
     RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);
     RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);
     RUN_TEST(test_stopped_service_cost_retains_failing_turn_and_longest_interval);

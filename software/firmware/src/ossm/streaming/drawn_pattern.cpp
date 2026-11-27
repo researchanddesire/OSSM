@@ -352,8 +352,11 @@ void service(uint32_t now, bool &lowAfterBatch) {
         work.submitTotalUs += submitUs;
         if (submitUs > 2000) ++work.submitOver2ms;
         work.maxSubmitUs = std::max(work.maxSubmitUs, submitUs);
-        if (result.timing == drawn_pattern::FrameTiming::Started)
+        if (result.timing == drawn_pattern::FrameTiming::Started) {
+            // Starting a full prefill can leave this prospective frame pending.
+            rawClockStarted = true;
             observeQueueStart(pattern_motor::now());
+        }
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
@@ -380,8 +383,7 @@ void service(uint32_t now, bool &lowAfterBatch) {
             recordRateGoal(pattern_motor::now(), result.timing, caps.strength, frame.vibration.gain.goal(), entryToRaw);
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
-        if (result.timing == drawn_pattern::FrameTiming::Started ||
-            result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
+        if (result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
         const bool settled = zero && frame.phase.clock.secondsToGoal() == 0 &&
             frame.phase.clock.rate() == 0 && frame.vibration.gain.atZero() && frame.from == frame.target;
         stationaryFrames = settled ? stationaryFrames + 1 : 0;
