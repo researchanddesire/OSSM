@@ -3,6 +3,7 @@
 #if OSSM_HAT_SERIAL_BACKEND
 
 #include <Arduino.h>
+#include <atomic>
 #include <cmath>
 #include <driver/gpio.h>
 #include <driver/uart.h>
@@ -11,6 +12,7 @@
 #include <soc/uart_struct.h>
 
 #include "constants/Pins.h"
+#include "tasks.h"
 #include "ossmHatProtocol.hpp"
 #include "ossmHatPositionProtocol.hpp"
 #include "ossmHatTxAudit.hpp"
@@ -29,6 +31,10 @@ constexpr uint32_t pollIntervalMs = 20;
 constexpr uint32_t reconnectAfterMs = 2000;
 
 portMUX_TYPE stateMux = portMUX_INITIALIZER_UNLOCKED;
+// A stalled reader must not prevent the safety task from recording its last
+// progress. These counters are diagnostic only and do not authorize motion.
+std::atomic<uint32_t> rxPollAt{0}, rxByteAt{0}, rxPublishAt{0};
+std::atomic<uint32_t> rxBytesSinceSample{0}, rxCrcSinceSample{0};
 OssmHatStatus publishedStatus;
 OssmHatTelemetry publishedSample;
 OssmHatControlSnapshot publishedControls;
@@ -345,6 +351,7 @@ void reader(void *) {
     bool awaiting = false;
     uint32_t slotAt = millis();
     uint32_t lastByteAt = slotAt;
+    uint32_t lastRxStamp = 0, bytesSinceSample = 0, crcAtSample = 0;
     uint32_t lastFrameAt = slotAt;
     uint32_t lastPollAt = slotAt;
     uint32_t lastControlPollAt = 0;
@@ -400,6 +407,9 @@ void reader(void *) {
             publishedDriveConfig = driveConfig;
         }
         portEXIT_CRITICAL(&stateMux);
+        rxBytesSinceSample.store(bytesSinceSample, std::memory_order_relaxed);
+        rxCrcSinceSample.store(decoder.crcErrors() - crcAtSample, std::memory_order_relaxed);
+        rxPublishAt.store(at, std::memory_order_relaxed);
         ossm_hat_emergency::ownerLease(lockedBaud && !status.passive && status.baudRate==115200);
         ossm_hat_emergency::observe(decoder.sample(),decoder.controls());
     };
@@ -538,6 +548,7 @@ void reader(void *) {
     };
 
     for (;;) {
+        rxPollAt.store(millis(), std::memory_order_relaxed);
         if (emergencyService()) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
         uint32_t now = millis();
         portENTER_CRITICAL(&stateMux);
@@ -598,6 +609,18 @@ void reader(void *) {
             lastByteAt = now;
             const bool lateOwn = latePositionReply.push(static_cast<uint8_t>(byte), now);
             const uint8_t events = decoder.push(static_cast<uint8_t>(byte), now);
+            ++bytesSinceSample;
+            if (events & ossm_hat::Decoder::Telemetry) {
+                bytesSinceSample = 0;
+                crcAtSample = decoder.crcErrors();
+            }
+            // At most once per millisecond, including inside a long drain.
+            if (now != lastRxStamp) {
+                lastRxStamp = now;
+                rxByteAt.store(now, std::memory_order_relaxed);
+                rxBytesSinceSample.store(bytesSinceSample, std::memory_order_relaxed);
+                rxCrcSinceSample.store(decoder.crcErrors() - crcAtSample, std::memory_order_relaxed);
+            }
             if ((events & ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
                 if (!status.passive) {
                     ESP_LOGI(tag, "External RS485 master detected; receive only until reboot");
@@ -771,7 +794,7 @@ void initOssmHat() {
     digitalWrite(Pins::Hat::direction, LOW);
     initialized = true;
     if (xTaskCreatePinnedToCore(reader, "ossmHat", 4096, nullptr,
-                              configMAX_PRIORITIES - 3, nullptr, 1) != pdPASS) {
+                              Tasks::hatReaderPriority, nullptr, Tasks::stepperCore) != pdPASS) {
         ESP_LOGE(tag, "Cannot create HAT reader task");
         portENTER_CRITICAL(&stateMux);
         publishedStatus.discoveryComplete = true;
@@ -791,6 +814,12 @@ bool readOssmHatTelemetry(OssmHatTelemetry &out) {
     out = publishedSample;
     portEXIT_CRITICAL(&stateMux);
     return ossm_hat::fresh(out, millis());
+}
+
+OssmHatRxProgress getOssmHatRxProgress() {
+    return {rxPollAt.load(std::memory_order_relaxed), rxByteAt.load(std::memory_order_relaxed),
+            rxPublishAt.load(std::memory_order_relaxed), rxBytesSinceSample.load(std::memory_order_relaxed),
+            rxCrcSinceSample.load(std::memory_order_relaxed)};
 }
 
 OssmHatStatus getOssmHatStatus() {

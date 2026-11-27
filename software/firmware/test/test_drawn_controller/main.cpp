@@ -14,6 +14,8 @@ uint32_t clockMs;
 int stops;
 bool deferEntry;
 int entrySubmissions;
+int entryUpdates;
+double entrySpeed, entryAcceleration;
 bool timedPulses = false;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
@@ -40,9 +42,12 @@ State read(uint64_t ticket, bool) {
 }
 uint32_t now() { return clockMs; }
 bool current(uint64_t ticket) { return ticket == revision; }
-bool position(uint64_t ticket, int32_t target, const State &, bool starting) {
+bool position(uint64_t ticket, int32_t target, const State &caps, bool starting) {
     if (!read(ticket).ready) return false;
     if (starting) ++entrySubmissions;
+    else ++entryUpdates;
+    entrySpeed = caps.speed;
+    entryAcceleration = caps.acceleration;
     if (!deferEntry) motor.position = target;
     return true;
 }
@@ -66,6 +71,7 @@ void setUp() {
     stops = 0;
     deferEntry = false;
     entrySubmissions = 0;
+    entryUpdates = 0;
     timedPulses = false;
     nextPulseAt = 0;
     settings = {};
@@ -108,6 +114,51 @@ void test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate() {
     tick();
     TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
     TEST_ASSERT_EQUAL_INT(2, stops);
+}
+
+void test_finite_entry_applies_only_changed_caps_and_stops_before_playback() {
+    deferEntry = true;
+    char flat[] = "00000000000000000000000000000000";
+    for (bool serial : {false, true}) {
+        motor.serial = serial;
+        motor.speed = 200;
+        motor.acceleration = 8000;
+        motor.ready = true;
+        motor.moving = false;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+                              int(startDrawnPattern(flat, sizeof(flat) - 1, 2000, revision)));
+        tick();
+        const int initialUpdates = entryUpdates;
+        motor.speed = 160;
+        tick(); // accepted finite move, first pulse still pending
+        TEST_ASSERT_EQUAL_INT(initialUpdates + 1, entryUpdates);
+        TEST_ASSERT_EQUAL_FLOAT(160, entrySpeed);
+        motor.moving = true;
+        tick(300); // spans the real shared HAT's freshness deadline
+        TEST_ASSERT_EQUAL_INT(initialUpdates + 1, entryUpdates);
+        motor.acceleration = 4000;
+        tick(2);
+        TEST_ASSERT_EQUAL_INT(initialUpdates + 2, entryUpdates);
+        TEST_ASSERT_EQUAL_FLOAT(4000, entryAcceleration);
+        motor.ready = false;
+        tick();
+        TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+        TEST_ASSERT_EQUAL_STRING("positioning", drawnPatternStatus().lastStop.stage);
+        TEST_ASSERT_TRUE(frames.empty());
+
+        motor.ready = true;
+        motor.moving = false;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+        tick();
+        motor.moving = true;
+        tick(300);
+        cancelDrawnPattern();
+        TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
+        TEST_ASSERT_FALSE(drawnPatternActive());
+        TEST_ASSERT_TRUE(frames.empty());
+    }
+    TEST_ASSERT_EQUAL_INT(4, entrySubmissions);
+    TEST_ASSERT_EQUAL_INT(4, stops);
 }
 
 void test_zero_speed_arms_but_expiry_never_restarts() {
@@ -643,6 +694,7 @@ int main() {
     RUN_TEST(test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop);
     RUN_TEST(test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_time);
     RUN_TEST(test_accepted_entry_waits_for_backend_without_reissuing_move);
+    RUN_TEST(test_finite_entry_applies_only_changed_caps_and_stops_before_playback);
     RUN_TEST(test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate);
     RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately);
     RUN_TEST(test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits);

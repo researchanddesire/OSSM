@@ -129,9 +129,9 @@ void service(uint32_t now) {
         return stopLocked("window_changed", now);
     const bool requestedVibration = markerIndex.hasVibration && caps.strength > 0;
     const bool reserve = requestedVibration || !vibration.gain.atZero();
+    const bool limitsChanged = caps.speed != lastSpeed || caps.acceleration != lastAcceleration;
     if (stage == Stage::Waiting || reserve != reserveVibration ||
-        (reconfigureAfterFade && vibration.gain.atZero()) || caps.speed != lastSpeed ||
-        caps.acceleration != lastAcceleration) {
+        (reconfigureAfterFade && vibration.gain.atZero()) || limitsChanged) {
         crossingCached = false;
         const double span = static_cast<double>(caps.to) - caps.from;
         const double share = reserve ? drawn_pattern::VibrationBudget::baseShare : 1.;
@@ -177,10 +177,12 @@ void service(uint32_t now) {
         return;
     }
     if (stage == Stage::Positioning) {
-        if (caps.moving) {
-            if (!pattern_motor::position(owner, entry, caps, false)) stopLocked("entry_guard", now);
-            return;
-        }
+        // The finite backend retains its caps. Keep the safety/owner check
+        // each tick but write the driver only for an actual live adjustment,
+        // including one that arrives before the first pulse.
+        if (limitsChanged && !pattern_motor::position(owner, entry, caps, false))
+            return stopLocked("entry_guard", now);
+        if (caps.moving) return;
         if (std::abs(static_cast<int64_t>(caps.position) - entry) > 1) {
             // A finite command was accepted, but the backend may not yet
             // report motion. Allow one backend update without resubmitting it.

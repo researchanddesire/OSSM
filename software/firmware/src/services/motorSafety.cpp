@@ -36,6 +36,8 @@ motor_guard::Config guardConfig() {
 motor_guard::Guard guard(guardConfig());
 portMUX_TYPE guardMux = portMUX_INITIALIZER_UNLOCKED;
 MotorSafetyStatus published;
+uint32_t sharedRxTripAt = 0;
+OssmHatRxProgress sharedRxAtTrip{};
 std::atomic_bool initialized{false};
 std::atomic_bool rememberedHat{false};
 std::atomic_bool savedFault{false};
@@ -739,10 +741,15 @@ void monitor(void *) {
         // drive executes STEP/DIR. Without that word pulses must stop; a
         // drive in serial control would store them for a later handback.
         if (shared && digitalRead(Pins::Driver::motorEnablePin) == LOW) {
-            if (sharedInterlock == shared_bus::Interlock::MonitorSilent)
+            if (sharedInterlock == shared_bus::Interlock::MonitorSilent) {
+                if (guard.fault() == motor_guard::Fault::None) {
+                    sharedRxTripAt = now;
+                    sharedRxAtTrip = getOssmHatRxProgress();
+                }
                 guard.tripFault(motor_guard::Fault::TelemetryStale);
-            else if (sharedInterlock == shared_bus::Interlock::DriveNotStepDir)
+            } else if (sharedInterlock == shared_bus::Interlock::DriveNotStepDir) {
                 guard.tripFault(motor_guard::Fault::StopPathUnverified);
+            }
         }
         guard.tick(now);
         armed = guard.armed();
@@ -866,6 +873,14 @@ void report(void *) {
                                   detail.sequence, detail.sampleAtMs, detail.decisionAtMs,
                                   static_cast<long long>(detail.deltaCounts), detail.gapMs,
                                   detail.instantaneousMmS, detail.windowMmS, detail.windowMs);
+                portENTER_CRITICAL(&guardMux);
+                const uint32_t tripAt = sharedRxTripAt;
+                const auto rx = sharedRxAtTrip;
+                portEXIT_CRITICAL(&guardMux);
+                if (tripAt && currentState.fault == static_cast<uint8_t>(motor_guard::Fault::TelemetryStale))
+                    Serial.printf("RAD_GUARD_RX tripAt=%u pollAt=%u byteAt=%u publishAt=%u bytesSinceSample=%u crcSinceSample=%u\n",
+                                  tripAt, rx.pollAtMs, rx.byteAtMs, rx.publishAtMs,
+                                  rx.bytesSinceSample, rx.crcSinceSample);
                 if (stateMachine != nullptr)
                     stateMachine->process_event(MotorSafetyFault{currentState.controlRevision});
                 else reported = UINT8_MAX;
@@ -1284,6 +1299,7 @@ bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket) {
     if (ticketCurrentLocked(ticket) && pass == 1 &&
         guard.fault() == motor_guard::Fault::None) {
         guard.resetAfterReview();
+        sharedRxTripAt = 0;
         deadlineArmed = false;
         published.ready = false;
         publishCoreLocked(millis());
@@ -1575,6 +1591,7 @@ bool resetMotorSafetyAfterReview() {
         !guard.armed() && !serialProbeClaimed.load();
     if (cleared) {
         guard.resetAfterReview();
+        sharedRxTripAt = 0;
         deadlineTripped = false;
         deadlineArmed = false;
         ++safetyControlRevision;

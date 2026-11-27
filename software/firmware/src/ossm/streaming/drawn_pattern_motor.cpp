@@ -48,7 +48,8 @@ State read(uint64_t revision, bool annotated) {
         state.acceleration = std::min(state.acceleration, caps.accelerationRpmPerSec * stepsPerRpm);
     }
     state.moving = stepper->isRunning();
-    state.position = stepper->getCurrentPosition();
+    // Entry completion consumes the position only after the move stops.
+    if (!state.moving) state.position = stepper->getCurrentPosition();
     state.queued = !targetQueue.empty();
     state.ready = true;
     return state;

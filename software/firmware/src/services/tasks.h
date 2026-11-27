@@ -20,6 +20,9 @@ namespace Tasks {
     // Constants can stay in the header
     constexpr int stepperCore = 1;
     constexpr int operationTaskCore = 0;
+    // The HAT consumes the guard's UART feed on the same core as streaming.
+    constexpr UBaseType_t hatReaderPriority = configMAX_PRIORITIES - 3;
+    constexpr UBaseType_t streamingPriority = hatReaderPriority - 1;
 
     // Start a motion mode's task. Internal RAM fragments while TLS sessions
     // come and go, so retry briefly before giving up; logs and returns false

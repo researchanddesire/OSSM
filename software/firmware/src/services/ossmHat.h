@@ -86,6 +86,12 @@ struct OssmHatDriveConfig {
 
 #if OSSM_HAT_SERIAL_BACKEND
 bool readOssmHatDriveConfig(OssmHatDriveConfig &out);
+// Device processing timestamps, independently sampled for fault diagnosis.
+// They do not assert when a byte reached the UART pins.
+struct OssmHatRxProgress {
+    uint32_t pollAtMs, byteAtMs, publishAtMs, bytesSinceSample, crcSinceSample;
+};
+OssmHatRxProgress getOssmHatRxProgress();
 #endif
 
 constexpr uint32_t ossmHatFreshnessMs = 250;

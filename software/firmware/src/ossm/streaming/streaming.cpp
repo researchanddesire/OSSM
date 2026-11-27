@@ -158,10 +158,10 @@ void startStreaming() {
     auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
     if (!revision) return;
     // Leave CPU0 available to the Bluetooth host and independent motor guard.
-    // Hardware pulse interrupts and FastAccelStepper retain priority over the producer.
+    // The UART safety reader and pulse engine can preempt every refill.
     if (!Tasks::startOperation(startStreamingTask, "startStreamingTask",
                                stackSize, nullptr, revision, Tasks::stepperCore,
-                               configMAX_PRIORITIES - 3)) {
+                               Tasks::streamingPriority)) {
         delete revision;
         return;
     }
