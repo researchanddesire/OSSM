@@ -568,8 +568,49 @@ void test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause() {
     TEST_ASSERT_FALSE(activeMarkers);
 }
 
+void test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends() {
+    using namespace drawn_pattern;
+    Modifiers markers;
+    markers.count = 1;
+    markers.entries[0] = {0, 0, 60000};
+    motor.speed = 450;
+    motor.stepsPerMm = 20;
+    motor.strength = 1.;
+    for (bool serial : {false, true}) {
+        timedPulses = !serial;
+        motor.serial = serial;
+        auto play = [&]() {
+            nextPulseAt = 0;
+            frames.clear();
+            TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+                samples, 32, 2000, revision, false, SampleFormat::Q8, markers)));
+        };
+        play();
+        for (unsigned seconds = 0; seconds < 32; seconds += 4) {
+            tick(4000);
+            TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+        }
+        TEST_ASSERT_TRUE(drawnPatternActive());
+        TEST_ASSERT_FALSE(frames.empty());
+        TEST_ASSERT_TRUE(std::all_of(frames.begin(), frames.end(), [&](int32_t v) { return v == motor.to; }));
+        cancelDrawnPattern();
+        TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
+        play();
+        tick(leaseMs);
+        TEST_ASSERT_FALSE(drawnPatternActive());
+        TEST_ASSERT_EQUAL_STRING("lease_expired", drawnPatternStatus().lastStop.reason);
+        play();
+        tick(100);
+        motor.ready = false;
+        tick();
+        TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+        motor.ready = true;
+    }
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends);
     RUN_TEST(test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause);
     RUN_TEST(test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey_ownership);
     RUN_TEST(test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop);

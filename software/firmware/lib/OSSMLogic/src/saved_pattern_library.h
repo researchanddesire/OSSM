@@ -110,6 +110,7 @@ class SavedPatternLibrary {
     };
     static_assert(sizeof(SlotHeader) == 304);
     static constexpr uint32_t slotMagic = 0x534c3400;
+    static constexpr uint32_t longPauseSlotMagic = 0x534c3500;
     static constexpr uint32_t selectionMagic = 0x53453400;
     static constexpr int allSlots = -2;
     static constexpr const char *key(unsigned i) {
@@ -121,6 +122,7 @@ class SavedPatternLibrary {
     bool selectionKnown_ = true;
     int initial_ = -1;
     uint8_t damaged_ = 0;
+    Encoded::Version versions_[patternSlotCount]{};
     uint16_t counts_[patternSlotCount]{};
     std::unique_ptr<uint8_t[]> blobs_[patternSlotCount];
 
@@ -197,9 +199,11 @@ class SavedPatternLibrary {
             if (!data || !read(key(i), data.get(), size)) return false;
             SlotHeader header;
             std::memcpy(&header, data.get(), sizeof(header));
-            if (header.magic != (slotMagic | i) || header.count > Modifiers::capacity ||
+            const bool longPauses = header.magic == (longPauseSlotMagic | i);
+            const auto version = longPauses ? Encoded::Version::V5 : Encoded::Version::V4;
+            if ((!longPauses && header.magic != (slotMagic | i)) || header.count > Modifiers::capacity ||
                 header.initial > 1 || size != sizeof(header) + Encoded::bytes(header.count) ||
-                !validSlot(header.slot) || !Encoded::decode(data.get() + sizeof(header), header.count))
+                !validSlot(header.slot) || !Encoded::decode(data.get() + sizeof(header), header.count, version))
                 continue;
             if (header.initial) {
                 if (initial_ >= 0) ambiguousInitial = true;
@@ -213,6 +217,7 @@ class SavedPatternLibrary {
             damaged_ &= uint8_t(~(1u << i));
             record_.slots[i] = header.slot;
             counts_[i] = header.count;
+            versions_[i] = version;
             if (header.count && (retain == allSlots || retain == int(i) ||
                                  (retain == selectedPatternSlot && record_.selected == i)))
                 blobs_[i] = std::move(data);
@@ -232,7 +237,7 @@ class SavedPatternLibrary {
         }
         if (!occupied(index)) return false;
         if (effects && ((counts_[index] && !encoded(index)) ||
-                        !Encoded::decode(encoded(index), counts_[index], effects)))
+                        !Encoded::decode(encoded(index), counts_[index], versions_[index], effects)))
             return false;
         out = record_.slots[index].value;
         return true;
@@ -293,7 +298,9 @@ class SavedPatternLibrary {
         const size_t size = sizeof(SlotHeader) + Encoded::bytes(effects.count);
         std::unique_ptr<uint8_t[]> blob(new (std::nothrow) uint8_t[size]);
         if (!blob) return false;
-        const SlotHeader header{slotMagic | uint32_t(index), effects.count,
+        const auto version = Encoded::versionFor(effects);
+        const auto magic = version == Encoded::Version::V5 ? longPauseSlotMagic : slotMagic;
+        const SlotHeader header{magic | uint32_t(index), effects.count,
                                 uint16_t(first || initial_ == index), replacement};
         std::memcpy(blob.get(), &header, sizeof(header));
         Encoded::encode(blob.get() + sizeof(header), effects);
@@ -307,6 +314,7 @@ class SavedPatternLibrary {
         damaged_ &= uint8_t(~(1u << index));
         extended_ = true;
         counts_[index] = effects.count;
+        versions_[index] = version;
         blobs_[index] = std::move(blob);
         slot = replacement;
         return true;

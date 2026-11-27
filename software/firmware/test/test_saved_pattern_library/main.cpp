@@ -426,7 +426,7 @@ void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input(
     args["key"] = 10;
     for (const auto bad : {"", "000000000000", "00g000080000", "000100000005",
                            "000000000002000203e80000", "03e803e80001",
-                           "006400642711", "000000010001", "0000002a0000002900290001"}) {
+                           "00640064ea61", "00640064ffff", "ffff03e80000", "000000010001", "0000002a0000002900290001"}) {
         args["data"] = bad;
         TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
     }
@@ -435,15 +435,116 @@ void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input(
     TEST_ASSERT_TRUE(bool(upload.take(1, 12, args)));
 }
 
+void test_v1_upload_supports_typed_ranges_and_long_pauses_with_stable_ids() {
+    using namespace drawn_pattern;
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    auto args = doc.to<JsonObject>();
+    args["key"] = 12;
+    args["offset"] = 0;
+    args["data"] = "0000000a0000001400147530001e001eea60";
+    TEST_ASSERT_EQUAL_UINT(3, upload.append(1, 2, args));
+    args["modifierKey"] = 12;
+    args["modifierCount"] = 3;
+    auto items = upload.take(1, 2, args);
+    TEST_ASSERT_NOT_NULL(items.get());
+    TEST_ASSERT_TRUE(items->entries[0].geometry() == EffectGeometry::TimeRange);
+    TEST_ASSERT_TRUE(items->entries[0].range().kind == TimeRangeEffect::Kind::Vibration);
+    TEST_ASSERT_TRUE(items->entries[1].geometry() == EffectGeometry::Instant);
+    TEST_ASSERT_TRUE(items->entries[1].point().kind == InstantEffect::Kind::Pause);
+    TEST_ASSERT_EQUAL_UINT16(30000, items->entries[1].point().maximumMs);
+    TEST_ASSERT_EQUAL_UINT16(60000, items->entries[2].point().maximumMs);
+    for (uint16_t id : {33, 65, 257, 1025, 2047, 2049}) {
+        const Modifier range(TimeRangeEffect{static_cast<TimeRangeEffect::Kind>(id), 0, 2});
+        const Modifier point(InstantEffect{static_cast<InstantEffect::Kind>(id), 0, 30000});
+        TEST_ASSERT_EQUAL_UINT16(id <= 2047 ? id : 0, uint16_t(range.range().kind));
+        TEST_ASSERT_EQUAL_UINT16(id <= 2047 ? id : 0, uint16_t(point.point().kind));
+        TEST_ASSERT_FALSE(range.valid());
+        TEST_ASSERT_FALSE(range.isVibration());
+        TEST_ASSERT_FALSE(point.valid());
+        TEST_ASSERT_FALSE(point.isPause());
+    }
+    TEST_ASSERT_FALSE(Modifier::fromV1(1, 1024 + 2, 0).valid());
+}
+
+void test_every_dense_word_has_one_meaning_and_v4_rejects_long_pauses() {
+    using namespace drawn_pattern;
+    using V = StoredModifiers::Version;
+    unsigned pauses = 0, ranges = 0, legacy = 0;
+    Modifier item;
+    for (uint32_t word = 0; word <= UINT16_MAX; ++word) {
+        if (StoredModifiers::decodeWord(0, word, V::V4, item)) ++legacy;
+        if (!StoredModifiers::decodeWord(0, word, V::V5, item)) continue;
+        TEST_ASSERT_EQUAL_UINT16(word, StoredModifiers::denseWord(item));
+        if (item.isVibration()) ++ranges;
+        if (item.isPause()) ++pauses;
+    }
+    TEST_ASSERT_EQUAL_UINT(1000, ranges);
+    TEST_ASSERT_EQUAL_UINT(60000, pauses);
+    TEST_ASSERT_EQUAL_UINT(11000, legacy);
+    for (uint32_t ms = 1; ms <= 60000; ++ms) {
+        Modifier authored{250, 250, uint16_t(ms)};
+        TEST_ASSERT_TRUE(StoredModifiers::decodeWord(250, StoredModifiers::denseWord(authored), V::V5, item));
+        if (!item.isPause() || item.holdMs != ms) TEST_FAIL_MESSAGE("dense pause duration changed");
+    }
+    for (uint16_t word : {0, 0x8000, 61002, 65535})
+        TEST_ASSERT_FALSE(StoredModifiers::decodeWord(0, word, V::V5, item));
+    TEST_ASSERT_FALSE(StoredModifiers::decodeWord(600, 0x8000 | 600, V::V5, item));
+}
+
+void test_sparse_and_dense_reboots_keep_range_tags_and_long_pause_boundaries() {
+    using namespace drawn_pattern;
+    const uint16_t ms[] = {1, 2400, 10000, 10001, 30000, 32767, 32768, 33768, 33769, 60000};
+    SavedPatternLibrary library;
+    const auto pattern = curve(2200);
+    Modifiers markers, loaded;
+    SavedPattern saved;
+    TEST_ASSERT_TRUE(markers.reserve(1000));
+    unsigned slot = 0;
+    for (uint16_t count : {333, 334, 1000}) {
+        markers.count = count;
+        for (uint16_t i = 0; i < count; ++i)
+            markers.entries[i] = {i, i, ms[i % 10]};
+        // At 1,000 occupied starts there is no free tick between a range end
+        // and adjacent pauses. Exercise a genuine range in the two mixed slots.
+        if (count < 1000) markers.entries[count - 1] = {uint16_t(count), 999, 0};
+        TEST_ASSERT_TRUE(library.save(slot, "Mixed", 5, pattern, writeRecord, markers));
+        const auto key = std::string("slot4_") + std::to_string(slot);
+        auto &blob = flash.at(key);
+        TEST_ASSERT_EQUAL_UINT(304 + std::min<unsigned>(6 * count, 2000), blob.size());
+        TEST_ASSERT_EQUAL_UINT8(0x35, blob[1]);
+        TEST_ASSERT_TRUE(library.load(readRecord));
+        TEST_ASSERT_TRUE(library.get(saved, slot, &loaded));
+        TEST_ASSERT_EQUAL_MEMORY(markers.entries, loaded.entries, count * sizeof(Modifier));
+        // The exact same bytes under an old V4 header are malformed.
+        blob[1] = 0x34;
+        TEST_ASSERT_TRUE(library.load(readRecord));
+        TEST_ASSERT_FALSE(library.get(saved, slot, &loaded));
+        blob[1] = 0x35;
+        TEST_ASSERT_TRUE(library.load(readRecord));
+        ++slot;
+    }
+    markers.count = 2;
+    markers.entries[0] = {0, 10, 0};
+    markers.entries[1] = {200, 200, 2400};
+    TEST_ASSERT_TRUE(library.save(3, "Short", 5, pattern, writeRecord, markers));
+    const auto &blob = flash.at("slot4_3");
+    const uint16_t legacyWords[] = {0, 10, 0, 200, 200, 2400};
+    TEST_ASSERT_EQUAL_UINT8(0x34, blob[1]);
+    TEST_ASSERT_EQUAL_MEMORY(legacyWords, blob.data() + 304, sizeof(legacyWords));
+}
+
 void test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply() {
     JsonDocument reply;
     addModifierCapabilities(reply);
     TEST_ASSERT_EQUAL_UINT(1, reply["modifierVersion"].as<unsigned>());
     TEST_ASSERT_EQUAL_UINT(1000, reply["maxModifiers"].as<unsigned>());
+    TEST_ASSERT_EQUAL_UINT(60000, reply["maxPauseMs"].as<unsigned>());
     reply["lastStop"]["reason"] = "scheduler_gap";
     reply["diagnostic"] = std::string(279,'x');
     addModifierCapabilities(reply);
     TEST_ASSERT_TRUE(reply["maxModifiers"].isUnbound());
+    TEST_ASSERT_TRUE(reply["maxPauseMs"].isUnbound());
     TEST_ASSERT_EQUAL_STRING("scheduler_gap", reply["lastStop"]["reason"].as<const char*>());
     TEST_ASSERT_LESS_OR_EQUAL_UINT(347, measureJson(reply));
 }
@@ -616,6 +717,9 @@ void test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_rese
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_every_dense_word_has_one_meaning_and_v4_rejects_long_pauses);
+    RUN_TEST(test_sparse_and_dense_reboots_keep_range_tags_and_long_pause_boundaries);
+    RUN_TEST(test_v1_upload_supports_typed_ranges_and_long_pauses_with_stable_ids);
     RUN_TEST(test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_reselection);
     RUN_TEST(test_first_modified_save_and_selection_are_single_atomic_writes);
     RUN_TEST(test_corrupt_implicit_first_slot_cannot_redirect_wired_recall_to_its_neighbor);

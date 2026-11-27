@@ -57,9 +57,11 @@ public:
         if (!target.reserve(end)) return 0;
         for (unsigned index = offset; index < end; ++index) {
             const auto *hex = data.c_str() + (index - offset)*12;
-            Modifier marker;
-            if (!readWord(hex, marker.start) || !readWord(hex+4, marker.end) ||
-                !readWord(hex+8, marker.holdMs)) return 0;
+            uint16_t start, finish, maximumMs;
+            if (!readWord(hex, start) || !readWord(hex + 4, finish) ||
+                !readWord(hex + 8, maximumMs)) return 0;
+            const auto marker = Modifier::fromV1(start, finish, maximumMs);
+            if (!marker.valid()) return 0;
             if (index < have) {
                 const auto &old = target.entries[index];
                 if (old.start != marker.start || old.end != marker.end || old.holdMs != marker.holdMs) return 0;

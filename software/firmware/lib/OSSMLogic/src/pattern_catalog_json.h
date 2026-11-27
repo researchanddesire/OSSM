@@ -10,9 +10,11 @@ namespace streaming {
 inline void addModifierCapabilities(JsonDocument &result) {
     result["modifierVersion"] = 1;
     result["maxModifiers"] = drawn_pattern::Modifiers::capacity;
+    result["maxPauseMs"] = drawn_pattern::maxPauseMs;
     if (result["lastStop"].is<JsonObjectConst>() && measureJson(result) > 347) {
         result.remove("modifierVersion");
         result.remove("maxModifiers");
+        result.remove("maxPauseMs");
     }
 }
 

@@ -579,8 +579,43 @@ void test_live_sensation_changes_the_duration_of_the_current_pause() {
     TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
 }
 
+void test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength() {
+    using namespace drawn_pattern;
+    Modifiers items;
+    items.count = 1;
+    MarkerIndex index;
+    const PhaseLimits limits{.5, 2, 10};
+    for (uint16_t maximum : {30000, 60000}) {
+        items.entries[0] = Modifier(InstantEffect{InstantEffect::Kind::Pause, 0, maximum});
+        TEST_ASSERT_TRUE(index.reset(items, 0));
+        for (double strength : {.5, 1.}) {
+            for (unsigned frameMs : {2, 20}) {
+                MarkedPhase motion;
+                const unsigned duration = unsigned(maximum * strength);
+                // The stationary interval begins on entry at phase zero.
+                for (unsigned ms = 0; ms < duration; ms += frameMs)
+                    motion.advance(frameMs * .001, limits, index, strength);
+                TEST_ASSERT_DOUBLE_WITHIN(1e-12, 0, motion.phase);
+                motion.advance(.001, limits, index, strength);
+                TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
+            }
+        }
+    }
+    items.entries[0] = {0, 0, 30000};
+    MarkedPhase motion;
+    motion.advance(12., limits, index, .5);
+    motion.advance(8., limits, index, 1.);
+    TEST_ASSERT_EQUAL_DOUBLE(0, motion.phase);
+    motion.advance(.002, limits, index, .25);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
+    motion = {};
+    motion.advance(.002, limits, index, 0.);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength);
     RUN_TEST(test_live_sensation_changes_the_duration_of_the_current_pause);
     RUN_TEST(test_original_phase_across_q8_q16_and_sparse_inputs);
     RUN_TEST(test_ms_hold_and_queue_fraction_keep_the_same_park_across_serial_and_step_durations);

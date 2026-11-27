@@ -18,16 +18,18 @@ namespace drawn_pattern {
             markers = &items;
             offset = firstMinimum;
             holds = 0;
-            for (unsigned i = 0; i < items.count; ++i)
-                if (items.entries[i].pause()) ++holds;
-            hasVibration = holds < items.count;
+            hasVibration = false;
+            for (unsigned i = 0; i < items.count; ++i) {
+                if (items.entries[i].isPause()) ++holds;
+                if (items.entries[i].isVibration()) hasVibration = true;
+            }
             extraPauses.reset(holds > inlineCapacity ? new (std::nothrow)
                                                            uint16_t[holds]
                                                      : nullptr);
             if (holds > inlineCapacity && !extraPauses) return false;
             uint16_t *out = extraPauses ? extraPauses.get() : inlinePauses;
             for (unsigned i = 0; i < items.count; ++i)
-                if (items.entries[i].pause()) *out++ = static_cast<uint16_t>(i);
+                if (items.entries[i].isPause()) *out++ = static_cast<uint16_t>(i);
             return true;
         }
 
@@ -42,7 +44,7 @@ namespace drawn_pattern {
                 else
                     hi = k;
             }
-            if (!lo || p >= markers->entries[lo - 1].end) return nullptr;
+            if (!lo || !markers->entries[lo - 1].isVibration() || p >= markers->entries[lo - 1].end) return nullptr;
             return &markers->entries[lo - 1];
         }
 

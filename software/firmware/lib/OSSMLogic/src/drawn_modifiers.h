@@ -9,10 +9,73 @@
 
 namespace drawn_pattern {
 
-// Start and end are thousandths of the authored (unrotated) cycle.
+constexpr uint16_t maxPauseMs = 60000;
+constexpr uint16_t originalMaxPauseMs = 10000;
+
+// The two families have independent, stable effect IDs. V1's transport
+// represents only Vibration and Pause and infers these IDs from its geometry.
+enum class EffectGeometry : uint8_t { TimeRange, Instant };
+struct TimeRangeEffect {
+    enum class Kind : uint16_t { Vibration = 1 };
+    Kind kind;
+    uint16_t start, end;
+    bool valid() const {
+        return kind == Kind::Vibration && start < end && end <= 1000;
+    }
+};
+struct InstantEffect {
+    enum class Kind : uint16_t { Pause = 1 };
+    Kind kind;
+    uint16_t at, maximumMs;
+    bool valid() const {
+        return kind == Kind::Pause && at < 1000 && maximumMs && maximumMs <= maxPauseMs;
+    }
+};
+
+// Keep a thousand tagged records within the original six kilobytes. Bit fields
+// are private to the in-memory representation; flash and wire use explicit words.
 struct Modifier {
-    uint16_t start, end, holdMs;
-    bool pause() const { return start == end; }
+    uint16_t start : 10;
+    uint16_t kindLow : 6;
+    uint16_t end : 10;
+    uint16_t kindHigh : 5;
+    uint16_t instant : 1;
+    uint16_t holdMs;
+
+private:
+    // Preserve 2,047 independently identifiable effects per geometry in two
+    // phase words. Reject out-of-range raw values before narrowing any field.
+    static uint16_t checkedId(uint16_t start, uint16_t end, uint16_t id) {
+        return start < 1000 && end <= 1000 && id <= 2047 ? id : 0;
+    }
+    Modifier(uint16_t start, uint16_t end, uint16_t id, bool point, uint16_t ms)
+        : start(start), kindLow(id & 63), end(end), kindHigh(id >> 6), instant(point), holdMs(ms) {}
+
+public:
+    Modifier() : Modifier(0, 0, 0, false, 0) {}
+    explicit Modifier(TimeRangeEffect range)
+        : Modifier(range.start, range.end, checkedId(range.start, range.end, uint16_t(range.kind)), false, 0) {}
+    explicit Modifier(InstantEffect point)
+        : Modifier(point.at, point.at, checkedId(point.at, point.at, uint16_t(point.kind)), true, point.maximumMs) {}
+
+    // Decode the original untagged three-word record. Reject malformed range
+    // durations before converting them to the tagged range representation.
+    static Modifier fromV1(uint16_t start, uint16_t end, uint16_t ms) {
+        if (start == end) return Modifier(InstantEffect{InstantEffect::Kind::Pause, start, ms});
+        if (ms) return {};
+        return Modifier(TimeRangeEffect{TimeRangeEffect::Kind::Vibration, start, end});
+    }
+    Modifier(uint16_t start, uint16_t end, uint16_t ms) : Modifier(fromV1(start, end, ms)) {}
+    EffectGeometry geometry() const { return instant ? EffectGeometry::Instant : EffectGeometry::TimeRange; }
+    uint16_t kindId() const { return (kindHigh << 6) | kindLow; }
+    InstantEffect point() const { return {static_cast<InstantEffect::Kind>(kindId()), start, holdMs}; }
+    TimeRangeEffect range() const { return {static_cast<TimeRangeEffect::Kind>(kindId()), start, end}; }
+    bool isPause() const { return instant && point().kind == InstantEffect::Kind::Pause; }
+    bool isVibration() const { return !instant && range().kind == TimeRangeEffect::Kind::Vibration; }
+    bool valid() const {
+        if (instant) return end == start && point().valid();
+        return !holdMs && range().valid();
+    }
 };
 static_assert(sizeof(Modifier) == 6);
 
@@ -52,17 +115,17 @@ public:
     }
 
     static bool validItem(const Modifier &item) {
-        if (item.start >= 1000 || item.end > 1000 || item.start > item.end) return false;
-        return item.pause() ? item.holdMs > 0 && item.holdMs <= 10000 : item.holdMs == 0;
+        return item.valid();
     }
 
     static bool ordered(const Modifier &left, const Modifier &right) {
         return left.end < right.start ||
-               (left.end == right.start && !left.pause() && !right.pause());
+               (left.end == right.start && left.geometry() == EffectGeometry::TimeRange &&
+                right.geometry() == EffectGeometry::TimeRange);
     }
 
     static bool validSeam(const Modifier &first, const Modifier &last, size_t size) {
-        return size < 2 || !first.pause() || first.start != 0 || last.end != 1000;
+        return size < 2 || first.geometry() != EffectGeometry::Instant || first.start != 0 || last.end != 1000;
     }
 
     static bool valid(const Modifier *items, size_t size) {
