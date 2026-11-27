@@ -111,7 +111,7 @@ void test_time_stretch_bounds_entire_curve_at_speed_and_acceleration_caps() {
     TEST_ASSERT_TRUE(curve.decode(shape.data(), shape.size(), 500));
     for (double acceleration : {50., 20000.}) {
         const double span = 2300, maxSpeed = 700;
-        const double seconds = curve.safePeriodMs(span, maxSpeed, acceleration) / 1000.;
+        const double seconds = 1. / curve.pace(span, maxSpeed, acceleration, 1., 2).rate;
         TEST_ASSERT_GREATER_THAN_FLOAT(.5, seconds);
         constexpr double fraction = 1. / 32768;
         const double dt = seconds * fraction;
@@ -126,7 +126,7 @@ void test_time_stretch_bounds_entire_curve_at_speed_and_acceleration_caps() {
             v = speed;
         }
     }
-    TEST_ASSERT_EQUAL_UINT32(0, curve.safePeriodMs(2300, 0, 100));
+    TEST_ASSERT_EQUAL_UINT32(0, curve.pace(2300, 0, 100, 1., 2).periodMs);
 }
 
 void test_step_frames_track_multiple_periods_without_waypoint_stops_or_drift() {
@@ -231,6 +231,57 @@ void test_crossing_clock_projection_matches_full_clock_during_retargets() {
             clock.advance(.002);
         }
     }
+}
+
+void test_deliberate_raw_park_requires_positive_tail_and_verified_empty_anchor() {
+    using namespace drawn_pattern;
+    PulseQueue q;
+    InterruptingQueue driver;
+    TEST_ASSERT_EQUAL_INT(int(Park::Parked), int(q.park(driver, -896, false)));
+    for (unsigned i = 0; i < pulseQueueFrames; ++i) {
+        q.submit<PulseCommand>(driver, -896, 32000, 32768, 3200, 7);
+        if (i+1 < pulseQueueFrames)
+            TEST_ASSERT_EQUAL_INT(int(Park::Fill), int(q.park(driver, -896, false)));
+    }
+    TEST_ASSERT_EQUAL_INT(int(Park::Failed), int(q.park(driver, -895, false)));
+    TEST_ASSERT_EQUAL_INT(int(Park::Draining), int(q.park(driver, -896, false)));
+    driver.running = false;
+    driver.count = 0;
+    TEST_ASSERT_EQUAL_INT(int(Park::Failed), int(q.park(driver, -896, false)));
+    TEST_ASSERT_TRUE(q.owned());
+    TEST_ASSERT_EQUAL_INT(int(Park::Parked), int(q.park(driver, -896, true)));
+    TEST_ASSERT_FALSE(q.owned());
+}
+
+void test_speed_fraction_sets_true_peak_on_classic_rail_independent_of_source_duration() {
+    std::string hex;
+    constexpr double tau = 6.283185307179586;
+    for (unsigned i = 0; i < 16; ++i) {
+        char point[5];
+        std::snprintf(point, sizeof(point), "%04x", unsigned(std::lround(32767.5*(1-std::cos(tau*i/16)))));
+        hex += point;
+    }
+    Waveform shortSource, longSource;
+    TEST_ASSERT_TRUE(shortSource.decode(hex.c_str(), hex.size(), 500, drawn_pattern::SampleFormat::Q16));
+    TEST_ASSERT_TRUE(longSource.decode(hex.c_str(), hex.size(), 60000, drawn_pattern::SampleFormat::Q16));
+    double observed = 0;
+    for (unsigned i = 0; i < 32768; ++i)
+        observed = std::max(observed, std::abs(longSource.phaseDerivative(i/32768., 1)));
+    for (double fraction : {.00000000001, .01, .25, .5, 1.}) {
+        auto plan = longSource.pace(3280, 20000, 500000, fraction, 2);
+        TEST_ASSERT_TRUE(plan.rate > 0);
+        TEST_ASSERT_EQUAL_DOUBLE(shortSource.pace(3280, 20000, 500000, fraction, 2).rate, plan.rate);
+        TEST_ASSERT_EQUAL_STRING("speed", plan.limit);
+        TEST_ASSERT_DOUBLE_WITHIN(fraction*.02, fraction*1000, observed*164*plan.rate);
+        TEST_ASSERT_TRUE(observed <= longSource.maximumSlope(1) + 1.e-12);
+        if (fraction < 1.e-9) TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, plan.periodMs);
+    }
+    auto stopped = longSource.pace(3280, 20000, 500000, 0, 2);
+    TEST_ASSERT_EQUAL_UINT32(0, stopped.periodMs);
+    TEST_ASSERT_EQUAL_DOUBLE(0, stopped.rate);
+    const auto limited = longSource.pace(120, 20000, 2000, 1., 2);
+    TEST_ASSERT_TRUE(limited.peak < 20000);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-10, limited.peak/4, longSource.pace(120, 20000, 2000, .25, 2).peak);
 }
 
 void test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead() {
@@ -407,12 +458,12 @@ void test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets(
     TEST_ASSERT_TRUE(curve.decode(hex.data(),hex.size(),500));
     drawn_pattern::PhaseClock clock;
     constexpr double span=1800, acceleration=100000, dt=.0005;
-    const auto limits=curve.rateLimits(span,acceleration);
+    const auto limits=curve.pace(span,20000,acceleration,1.,2);
     double phase=0, previousAcceleration=0;
     for (unsigned frame=0;frame<60000;++frame) {
         const double speed=(frame/3100)%3==0?650.:((frame/3100)%3==1?20000.:1400.);
-        clock.setGoal(1000./curve.safePeriodMs(span,speed,acceleration/2),
-                      limits.acceleration,limits.jerk);
+        clock.setGoal(curve.pace(span,20000,acceleration,speed/20000.,2).rate,
+                      limits.phaseAcceleration,limits.phaseJerk);
         phase+=clock.advance(dt);
         const double r=clock.rate(), a=clock.acceleration();
         const double positionAcceleration=span*(curve.phaseDerivative(phase,2)*r*r+
@@ -689,6 +740,8 @@ void test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_speed_fraction_sets_true_peak_on_classic_rail_independent_of_source_duration);
+    RUN_TEST(test_deliberate_raw_park_requires_positive_tail_and_verified_empty_anchor);
     RUN_TEST(test_stationary_entry_requires_untouched_empty_driver_and_matching_position);
     RUN_TEST(test_crossing_clock_projection_matches_full_clock_during_retargets);
     RUN_TEST(test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks);

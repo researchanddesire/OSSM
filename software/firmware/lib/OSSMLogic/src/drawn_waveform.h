@@ -50,6 +50,7 @@ public:
         cachedIndex_ = count_;
         periodMs_ = period;
         slope_ = curvature_ = third_ = 0;
+        double lowerPeaks[3]{};
         // Within each run the height is constant. Only its last cell can
         // move; validate the bounds and first-minimum entry in O(run count).
         const size_t intervals = runs ? runs_ : count_;
@@ -62,10 +63,11 @@ public:
             if (height != sample((last + 1) % count_)) {
                 double controls[6];
                 controlPoints(last, controls);
-                boundDerivatives(controls, 0);
+                boundDerivatives(controls, lowerPeaks);
             }
             first = last + 1;
         }
+        slopeWitness_ = lowerPeaks[0];
         return true;
     }
 
@@ -93,29 +95,48 @@ public:
         return shallowest - static_cast<int32_t>(std::lround(span * position(phase)));
     }
 
-    // acceleration is the share reserved for the position curve at steady rate.
-    // The complementary half is available for live changes in phase rate.
-    uint32_t safePeriodMs(double span, double speed, double acceleration) const {
-        if (!(speed > 0 && acceleration > 0 && span >= 0)) return 0;
-        const double velocityTime = maximumSlope(span) / speed;
-        const double accelerationTime = std::sqrt(maximumCurvature(span) / acceleration);
-        const double jerkTime = std::cbrt(maximumThird(span) / jerkBudget(acceleration));
-        const double ms = std::max(double(periodMs_), 1000 * std::max({velocityTime, accelerationTime, jerkTime}));
-        return std::isfinite(ms) && ms <= UINT32_MAX ? static_cast<uint32_t>(std::ceil(ms)) : 0;
-    }
+    struct Pace {
+        uint32_t periodMs = 0;
+        double rate = 0, peak = 0, phaseAcceleration = 0, phaseJerk = 0;
+        const char *limit = "flat";
+    };
 
-    struct RateLimits { double acceleration, jerk; };
-    RateLimits rateLimits(double span, double acceleration) const {
-        const double slope = std::max(1., maximumSlope(span));
+    // Positive speed selects a fraction of the fastest shape-preserving
+    // clock on this physical span. Reserve derivative headroom for live
+    // changes in phase rate, acceleration and jerk.
+    Pace pace(double span, double fullSpeed, double acceleration,
+              double fraction, uint32_t frameMs) const {
+        Pace out;
+        if (!(span > 0 && fullSpeed > 0 && acceleration > 0 &&
+              fraction > 0 && fraction <= 1 && frameMs > 0)) return out;
+        const double slope = maximumSlope(span);
         const double curvature = maximumCurvature(span);
-        const double quarterJerk = jerkBudget(acceleration) / 4;
-        const double fastest = safePeriodMs(span, HUGE_VAL, acceleration / 2);
-        double phaseAcceleration = acceleration / (2*slope);
-        // The third derivative of the shape times rate cubed uses half the jerk budget. The terms 3 X'' r a and
-        // X' j each receive one quarter across the full positive speed range.
-        if (curvature > 0 && fastest > 0)
-            phaseAcceleration = std::min(phaseAcceleration, quarterJerk*fastest/(3000*curvature));
-        return {phaseAcceleration, quarterJerk/slope};
+        const double third = maximumThird(span);
+        const double jerk = jerkBudget(acceleration);
+        double seconds = slope / fullSpeed;
+        out.limit = "speed";
+        const auto constrain = [&](double duration, const char *cause) {
+            if (duration > seconds) { seconds = duration; out.limit = cause; }
+        };
+        constrain(std::sqrt(curvature / (.6 * acceleration)), "acceleration");
+        constrain(std::cbrt(third / (.7 * jerk)), "jerk");
+        // Cover each cell at the actual backend cadence. A spatially
+        // constant path has no slope from which to recover its clock.
+        constrain(double(count_) * frameMs / 1000., "sampling");
+        if (slope == 0) {
+            seconds = std::max(seconds, periodMs_ / 1000.);
+            out.limit = "flat";
+        }
+        const double milliseconds = std::ceil(1000. * seconds / fraction);
+        out.periodMs = static_cast<uint32_t>(std::min(milliseconds, double(UINT32_MAX)));
+        out.rate = fraction / seconds;
+        out.peak = slopeWitness_ * count_ / scale() * span * out.rate;
+        const double stableSlope = std::max(1., slope);
+        out.phaseAcceleration = .4 * acceleration / stableSlope;
+        if (curvature > 0)
+            out.phaseAcceleration = std::min(out.phaseAcceleration, .15 * jerk * seconds / (3 * curvature));
+        out.phaseJerk = .15 * jerk / stableSlope;
+        return out;
     }
 
     double maximumSlope(double span) const { return slope_ * count_ / scale() * span; }
@@ -123,8 +144,8 @@ public:
     double maximumThird(double span) const { return third_ * count_ * count_ * count_ / scale() * span; }
 
     // Caps the change in commanded acceleration to its configured range per
-    // 100 ms. The steady shape receives half this jerk budget, the phase clock
-    // receives the rest. Physical Stop and guard trips bypass the motion clock.
+    // 100 ms. The steady shape receives 70% of this jerk budget, and
+    // the live phase clock reserves 15% for each mixed/control term. Physical Stop and guard trips bypass the motion clock.
     static double jerkBudget(double acceleration) { return acceleration / .100; }
 
 private:
@@ -213,31 +234,57 @@ private:
         b[0]=l.y; b[1]=l.y+left*l.m/5; b[2]=l.y+left*(.4*l.m+.05*l.a);
         b[5]=r.y; b[4]=r.y-right*r.m/5; b[3]=r.y+right*(-.4*r.m+.05*r.a);
     }
-    void boundDerivatives(double (&b)[6], unsigned depth) {
-        // Two exact half subdivisions tighten the convex-hull bounds on the
-        // derivatives without solving a quartic or sampling a potentially
-        // narrow extremum. Rescale subinterval derivatives to one sample cell.
-        if (depth < 2) {
-            double left[6], right[6];
-            for (unsigned k=0;k<6;++k) {
-                left[k]=b[0]; right[5-k]=b[5-k];
-                for (unsigned j=0;j<5-k;++j) b[j]=.5*(b[j]+b[j+1]);
+    // Bernstein coefficients enclose the full polynomial. Bisect only
+    // intervals whose upper bound can exceed an observed endpoint peak.
+    // At the depth limit the enclosing bound remains conservative.
+    template <size_t N>
+    static void boundPeak(const double (&values)[N], double &lower, double &upper) {
+        constexpr unsigned maximumDepth = 12;
+        struct Branch { double b[N]; unsigned depth; };
+        Branch saved[maximumDepth];
+        unsigned count = 0, depth = 0;
+        double cell[N];
+        std::copy(values, values+N, cell);
+        for (;;) {
+            lower = std::max({lower, std::abs(cell[0]), std::abs(cell[N-1])});
+            double hull = 0;
+            for (double v : cell) hull = std::max(hull, std::abs(v));
+            if (hull > lower * 1.00001 + 1.e-12 && depth < maximumDepth) {
+                // Depth-first traversal needs at most twelve right halves
+                // on the ESP32 callback stack. Reuse the current left half.
+                auto &right = saved[count++];
+                right.depth = ++depth;
+                double work[N];
+                std::copy(cell, cell+N, work);
+                for (size_t k = 0; k < N; ++k) {
+                    cell[k] = work[0];
+                    right.b[N-1-k] = work[N-1-k];
+                    for (size_t j = 0; j+1 < N-k; ++j) work[j] = .5 * (work[j] + work[j+1]);
+                }
+            } else {
+                upper = std::max(upper, hull);
+                if (!count) return;
+                const auto &right = saved[--count];
+                std::copy(right.b, right.b+N, cell);
+                depth = right.depth;
             }
-            boundDerivatives(left,depth+1);
-            boundDerivatives(right,depth+1);
-            return;
         }
-        for (unsigned j=0;j<5;++j) { b[j]=20*(b[j+1]-b[j]); slope_=std::max(slope_,std::abs(b[j])); }
-        for (unsigned j=0;j<4;++j) { b[j]=16*(b[j+1]-b[j]); curvature_=std::max(curvature_,std::abs(b[j])); }
-        for (unsigned j=0;j<3;++j) { b[j]=12*(b[j+1]-b[j]); third_=std::max(third_,std::abs(b[j])); }
     }
-
+    void boundDerivatives(const double (&b)[6], double (&lower)[3]) {
+        double v[5], a[4], j[3];
+        for (size_t i=0; i<5; ++i) v[i] = 5 * (b[i+1] - b[i]);
+        for (size_t i=0; i<4; ++i) a[i] = 4 * (v[i+1] - v[i]);
+        for (size_t i=0; i<3; ++i) j[i] = 3 * (a[i+1] - a[i]);
+        boundPeak(v, lower[0], slope_);
+        boundPeak(a, lower[1], curvature_);
+        boundPeak(j, lower[2], third_);
+    }
     uint8_t samples_[maxSamples]{};
     size_t count_=0, start_=0;
     uint32_t periodMs_=0;
     SampleFormat format_=SampleFormat::Q8;
     uint8_t runs_=0;
-    double slope_=0, curvature_=0, third_=0;
+    double slope_=0, slopeWitness_=0, curvature_=0, third_=0;
     mutable size_t cachedIndex_=0;
     mutable double polynomial_[6]{};
 };

@@ -7,12 +7,14 @@
 
 namespace drawn_pattern {
 enum class Frame { Accepted, Retry, Rejected };
+enum class Park { Fill, Draining, Parked, Failed };
 enum class FrameTiming : uint8_t { Unknown, EntryHold, Prefill, Started, Running, PrimeTail };
 struct FrameResult {
     Frame state;
     const char *reason = nullptr;
     int8_t driverResult = 0;
     FrameTiming timing = FrameTiming::Unknown;
+    uint32_t commandGateUs = 0;
 };
 
 constexpr uint32_t frameStarvationMs = 200;
@@ -94,6 +96,21 @@ public:
     bool filling() const { return stage_.load() == Stage::Filling; }
     int32_t initialPosition() const { return initialPosition_; }
     void reset() { stage_ = Stage::Idle; }
+
+    // The controller has committed two identical terminal frames. Approve
+    // the drain while the driver still runs, then verify its physical count
+    // and empty queue before surrendering raw ownership.
+    template <class Driver>
+    Park park(Driver &driver, int32_t target, bool draining) {
+        if (filling()) return Park::Fill;
+        if (owned() && (pendingTarget_ != target || (!draining && !driver.isQueueRunning())))
+            return Park::Failed;
+        if (owned() && driver.getPositionAfterCommandsCompleted() != target) return Park::Failed;
+        if (driver.isQueueRunning() || !driver.isQueueEmpty()) return owned() ? Park::Draining : Park::Failed;
+        if (driver.getCurrentPosition() != target) return Park::Failed;
+        reset();
+        return Park::Parked;
+    }
 
     // A moving group's first electrical edge is immediate in moveTimed().
     // Start that group at the outgoing half-step crossing. Its duration runs

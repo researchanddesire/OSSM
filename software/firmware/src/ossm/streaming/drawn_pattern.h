@@ -32,6 +32,8 @@ struct PatternRateStamp {
     bool first, serial, leadKnown;
     float requestedStrength, gain, targetGain, carrier;
     uint32_t frameIndex;
+    double goalRateHz;
+    bool rawHandoff;
 };
 bool drawnPatternRateStamp(uint32_t sequence, PatternRateStamp &out);
 struct PatternStop {
@@ -41,7 +43,13 @@ struct PatternStop {
     int8_t driverResult = 0;
     uint32_t frameGapMs = 0;
 };
+struct PatternServiceTiming {
+    uint32_t atMs = 0, frame = 0, offUs = 0, outerUs = 0, mailboxUs = 0;
+    uint32_t readUs = 0, commandGateUs = 0, serviceUs = 0;
+    uint64_t intervalUs() const { return uint64_t(offUs) + outerUs + mailboxUs + serviceUs; }
+};
 struct PatternWork {
+    PatternServiceTiming lastService, longestService;
     uint32_t frames = 0, retries = 0;
     uint32_t plans = 0, movingPlans = 0, planOver2ms = 0;
     uint32_t submissions = 0, submitOver2ms = 0, rawStartSequence = 0;
@@ -49,14 +57,21 @@ struct PatternWork {
     uint32_t maxPlanUs = 0, maxSubmitUs = 0, maxRenewLockUs = 0;
 };
 bool stoppedPatternWork(PatternWork &out);
+struct PatternSpeedStatus {
+    const char *state = "idle", *limit = "flat";
+    double speedPct = 0, nominalMmS = 0, plannedPeakMmS = 0, phaseRateHz = 0;
+    uint32_t periodMs = 0;
+};
 struct PatternStatus {
     bool active;
     uint32_t periodMs;
     PatternStop lastStop;
+    PatternSpeedStatus speed;
 };
 PatternStatus drawnPatternStatus();
 
 // Called only by the guarded streaming task.
 void setDrawnPatternReady(uint64_t revision, bool ready, const char *exitReason = "mode_exit");
-bool serviceDrawnPattern(uint64_t revision);
+uint32_t patternServiceMicros();
+bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs = 0);
 }

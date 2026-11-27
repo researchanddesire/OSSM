@@ -90,6 +90,15 @@ void announceDriveConfig() {
 }
 #endif
 
+void announcePatternRate(uint32_t sequence) {
+    streaming::PatternRateStamp stamp{};
+    if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
+        Serial.printf("RAD_PATTERN_RATE unavailable %lu\n", static_cast<unsigned long>(sequence));
+        return;
+    }
+    Serial.printf("RAD_PATTERN_RATE %lu %lld %u\n", static_cast<unsigned long>(stamp.sequence),
+                  std::llround(stamp.goalRateHz * 1.e9), stamp.rawHandoff);
+}
 void announcePatternTime(uint32_t sequence) {
     streaming::PatternRateStamp stamp{};
     if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
@@ -140,6 +149,7 @@ void console(void*) {
                               static_cast<unsigned long>(sampledAt));
             }
             else if (serialIdentity::unsignedArgument(command, "patterntime", argument)) announcePatternTime(argument);
+            else if (serialIdentity::unsignedArgument(command, "patternrate", argument)) announcePatternRate(argument);
             else if (serialIdentity::unsignedArgument(command, "patternfeel", argument))
                 announcePatternFeel(argument);
             else if (strcmp(command, "patternwork") == 0) {
@@ -151,6 +161,18 @@ void console(void*) {
                                   static_cast<unsigned long>(work.maxRenewLockUs));
                 } else {
                     Serial.println("RAD_PATTERN_WORK unavailable");
+                }
+            }
+            else if (serialIdentity::unsignedArgument(command, "patternsched", argument)) {
+                streaming::PatternWork work;
+                if (argument <= 1 && streaming::stoppedPatternWork(work)) {
+                    const auto &turn = argument == 0 ? work.lastService : work.longestService;
+                    Serial.printf("RAD_PATTERN_SCHED %u %u %u %u %u %u %u %u %u\n",
+                                  unsigned(argument), unsigned(turn.atMs), unsigned(turn.frame),
+                                  unsigned(turn.offUs), unsigned(turn.outerUs), unsigned(turn.mailboxUs),
+                                  unsigned(turn.readUs), unsigned(turn.commandGateUs), unsigned(turn.serviceUs));
+                } else {
+                    Serial.println("RAD_PATTERN_SCHED unavailable");
                 }
             }
             else if (strcmp(command, "patterncost") == 0) {

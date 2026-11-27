@@ -240,6 +240,23 @@ public:
         portEXIT_CRITICAL(&mux_);
         return {Frame::Accepted};
     }
+    drawn_pattern::Park parkPattern(uint64_t owner, int32_t target, bool draining) {
+        using drawn_pattern::Park;
+        if (!serialSelected()) {
+            if (primingPulse_ || pulse_->isRampGeneratorActive()) return Park::Failed;
+            return pulseQueue_.park(*pulse_, target, draining);
+        }
+        refresh();
+        portENTER_CRITICAL(&mux_);
+        const bool available = commandOwnerRevision_ == owner && frameValid_ &&
+                               position_.fresh(millis()) && commandTarget_ == target;
+        const bool acknowledged = !pending_ && !trajectory_.active();
+        const bool settled = !position_.running(millis()) &&
+                             std::abs(int64_t(position_.current()) - target) <= 1;
+        portEXIT_CRITICAL(&mux_);
+        if (!available) return Park::Failed;
+        return acknowledged && settled ? Park::Parked : Park::Draining;
+    }
     bool beginPatternStop(uint64_t owner) {
         if (!motorSafetyEventCurrent(owner)) return false;
         if (!serialSelected()) {
@@ -558,6 +575,9 @@ FastAccelStepper *getMotorPulseStepper() { return pulseEngine; }
 
 drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing) {
     return axis.patternFrame(target, revision, serial, crossing);
+}
+drawn_pattern::Park parkPatternMotion(uint64_t owner, int32_t target, bool draining) {
+    return axis.parkPattern(owner, target, draining);
 }
 void stopPatternMotion(uint64_t owner) {
     bool drain = false;

@@ -65,7 +65,9 @@ static void startStreamingTask(void *pvParameters) {
     PositionTime targetPositionTime{};
     bool haveTarget = false;
     const char *exitReason = "mode_exit";
-    while (isInCorrectState()) {
+    for (;;) {
+        const uint32_t wakeUs = patternServiceMicros();
+        if (!isInCorrectState()) break;
         if (!calibration.isHomed) {
             exitReason = "reference_lost";
             stateMachine->process_event(PatternReferenceLost{safetyRevision});
@@ -73,7 +75,7 @@ static void startStreamingTask(void *pvParameters) {
         }
         if (!motorSafetyCanEnableOutputs()) { exitReason = "guard"; break; }
         uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
-        if (serviceDrawnPattern(safetyRevision)) {
+        if (serviceDrawnPattern(safetyRevision, wakeUs)) {
             haveTarget = false;
             lastPositionTime = {};
             best = std::chrono::steady_clock::now();
@@ -157,10 +159,10 @@ void startStreaming() {
     const uint32_t stackSize = 5 * configMINIMAL_STACK_SIZE;
     auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
     if (!revision) return;
-    // Keep the finite and timed paths off the HAT reader's core. Radio and
-    // safety tasks can preempt each short refill on the operation core.
+    // Keep radio callbacks off the timed refill core. HAT sampling and the
+    // pulse driver can still preempt every three-frame service batch.
     if (!Tasks::startOperation(startStreamingTask, "startStreamingTask",
-                               stackSize, nullptr, revision, Tasks::operationTaskCore,
+                               stackSize, nullptr, revision, Tasks::stepperCore,
                                Tasks::streamingPriority)) {
         delete revision;
         return;

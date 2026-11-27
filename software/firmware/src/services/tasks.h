@@ -20,10 +20,10 @@ namespace Tasks {
     // Constants can stay in the header
     constexpr int stepperCore = 1;
     constexpr int operationTaskCore = 0;
-    // CPU1 owns the HAT UART. Run the bounded producer on CPU0, below the
-    // independent motor guard (-1), radio controller and NimBLE host (-4).
+    // The radio controller and Wi-Fi run on CPU0. Service the bounded STEP
+    // queue beside its driver, strictly below the HAT reader and FAS tasks.
     constexpr UBaseType_t hatReaderPriority = configMAX_PRIORITIES - 3;
-    constexpr UBaseType_t streamingPriority = configMAX_PRIORITIES - 5;
+    constexpr UBaseType_t streamingPriority = configMAX_PRIORITIES - 4;
 
     // Start a motion mode's task. Internal RAM fragments while TLS sessions
     // come and go, so retry briefly before giving up; logs and returns false

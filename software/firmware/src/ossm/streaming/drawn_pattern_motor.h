@@ -15,6 +15,7 @@ struct State {
     int32_t from = 0, to = 0;
     double speed = 0, acceleration = 0;
     double strength = 0, stepsPerMm = 0;
+    double fullSpeed = 0, nominalSpeed = 0, fraction = 0;
 };
 using drawn_pattern::Frame;
 using drawn_pattern::FrameResult;
@@ -24,5 +25,8 @@ uint32_t now();
 bool current(uint64_t revision);
 bool position(uint64_t revision, int32_t target, const State &limits, bool starting);
 FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing);
+bool pauseEntry(uint64_t revision);
+using drawn_pattern::Park;
+Park park(uint64_t revision, int32_t target, bool draining);
 void stop(uint64_t revision);
 }

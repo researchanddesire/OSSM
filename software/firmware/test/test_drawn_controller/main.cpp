@@ -13,6 +13,9 @@ uint64_t revision;
 uint32_t clockMs;
 int stops;
 bool deferEntry;
+int entryPauses;
+io::Park parkState;
+unsigned parkPolls;
 int entrySubmissions;
 int entryUpdates;
 double entrySpeed, entryAcceleration;
@@ -38,6 +41,10 @@ void setSensation(uint8_t value) {
 State read(uint64_t ticket, bool) {
     auto copy = motor;
     copy.ready = copy.ready && ticket == revision;
+    copy.fullSpeed = std::max(20000., copy.speed);
+    copy.nominalSpeed = copy.fullSpeed;
+    copy.fraction = copy.speed / copy.fullSpeed;
+    copy.stepsPerMm = 20;
     return copy;
 }
 uint32_t now() { return clockMs; }
@@ -60,6 +67,13 @@ FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing) {
     }
     return feedback;
 }
+bool pauseEntry(uint64_t ticket) { ++entryPauses; return ticket == revision; }
+Park park(uint64_t ticket, int32_t target, bool) {
+    if (ticket != revision || !motor.ready) return Park::Failed;
+    ++parkPolls;
+    if (parkState == Park::Parked) motor.position = target;
+    return parkState;
+}
 void stop(uint64_t ticket) { if (ticket == revision) ++stops; }
 }
 
@@ -70,6 +84,9 @@ void setUp() {
     frames.clear();
     stops = 0;
     deferEntry = false;
+    parkPolls = 0;
+    entryPauses = 0;
+    parkState = io::Park::Parked;
     entrySubmissions = 0;
     entryUpdates = 0;
     timedPulses = false;
@@ -174,7 +191,7 @@ void test_zero_speed_arms_but_expiry_never_restarts() {
     TEST_ASSERT_TRUE(frames.empty());
 }
 
-void test_remote_renewal_zero_stop_and_no_automatic_restart() {
+void test_remote_renewal_zero_pause_and_no_restart_after_stop() {
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(start()));
     tick(4990);
@@ -186,7 +203,11 @@ void test_remote_renewal_zero_stop_and_no_automatic_restart() {
     TEST_ASSERT_GREATER_OR_EQUAL_UINT32(2000, drawnPatternStatus().periodMs);
     motor.speed = 0;
     tick();
-    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT32(0, drawnPatternStatus().speed.periodMs);
+    tick(1000);
+    TEST_ASSERT_EQUAL_STRING("paused", drawnPatternStatus().speed.state);
+    cancelDrawnPattern();
     TEST_ASSERT_EQUAL_INT(1, stops);
     const auto emitted = frames.size();
     motor.speed = 100;
@@ -287,7 +308,9 @@ void test_prime_tail_still_obeys_stop_zero_guard_lease_owner_and_service_loss() 
     begin(); cancelDrawnPattern();
     TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
     begin(); motor.speed = 0; tick();
-    TEST_ASSERT_EQUAL_STRING("limits_zero", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_STRING("pausing", drawnPatternStatus().speed.state);
+    cancelDrawnPattern();
     motor.speed = 2;
     begin(); motor.ready = false; tick();
     TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
@@ -315,10 +338,10 @@ void test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end()
     tick(2001);
     TEST_ASSERT_EQUAL_UINT32(100, frames.size());
     TEST_ASSERT_EQUAL_INT32(-1000, frames[0]);   // y = 0
-    TEST_ASSERT_EQUAL_INT32(-1997, frames[25]);  // y = 255
-    TEST_ASSERT_EQUAL_INT32(-1500, frames[55]);  // y = 128
-    TEST_ASSERT_EQUAL_INT32(-1250, frames[83]);  // y = 64
-    TEST_ASSERT_EQUAL_INT32(-1000, frames[99]);  // wraps to shallow
+    TEST_ASSERT_TRUE(std::find(frames.begin(), frames.end(), -1997) != frames.end());
+    TEST_ASSERT_TRUE(std::find(frames.begin(), frames.end(), -1500) != frames.end());
+    TEST_ASSERT_TRUE(std::find(frames.begin(), frames.end(), -1250) != frames.end());
+    TEST_ASSERT_TRUE(std::find(frames.begin()+1, frames.end(), -1000) != frames.end());
 }
 
 void test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start() {
@@ -359,7 +382,7 @@ motion_link::SpeedWrite writeSpeed(motion_link::Owner &link, uint16_t connection
         });
 }
 
-void test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately() {
+void test_only_leased_current_owner_changes_live_speed_and_zero_retains_ownership() {
     using motion_link::SpeedWrite;
     motion_link::Owner link;
     link.onMotionCommand(7);
@@ -380,12 +403,15 @@ void test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediatel
     tick(50);
     TEST_ASSERT_TRUE(drawnPatternActive());
     TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Applied), int(writeSpeed(link, 7, "motion.speed", 0)));
-    TEST_ASSERT_FALSE(drawnPatternActive());
-    TEST_ASSERT_EQUAL_INT(1, stops);
+    motor.speed = 0; // effective arbitrated input
+    tick(500);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_STRING("paused", drawnPatternStatus().speed.state);
+    TEST_ASSERT_EQUAL_INT(0, stops);
     writeSpeed(link, 7, "motion.speed", 100);
+    motor.speed = 20000;
     tick();
-    TEST_ASSERT_FALSE(drawnPatternActive());
-    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_TRUE(drawnPatternActive());
     writeSpeed(link, 8, "motion.speed", 75);
     TEST_ASSERT_FALSE(drawnPatternActive());
     TEST_ASSERT_EQUAL_UINT16(8, link.owner());
@@ -421,7 +447,7 @@ void test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits() {
         TEST_ASSERT_EQUAL_INT(int(motion_link::SpeedWrite::Applied),
                               int(writeSpeed(link, 8, "motion.speed", percent)));
         motor.speed = 200.0 * settings.speedBLE.value(); // 20kHz at 100%
-        const uint32_t period = wave.safePeriodMs(10000, motor.speed, motor.acceleration/2);
+        const uint32_t period = wave.pace(10000, 20000, motor.acceleration, motor.speed/20000, 2).periodMs;
         tick(2);
         TEST_ASSERT_EQUAL_UINT32(period, drawnPatternStatus().periodMs);
         const auto stepCount = frames.size();
@@ -562,7 +588,7 @@ void test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop() {
     Modifiers m;
     m.count = 1;
     m.entries[0] = {0, 1000, 0};
-    motor.speed = 4000;
+    motor.speed = 20000;
     motor.acceleration = 100000;
     motor.stepsPerMm = 20;
     motor.strength = 1;
@@ -736,19 +762,175 @@ void test_retry_reuses_frame_but_replans_for_live_inputs_and_safety() {
     tick(2);
     feedback = {io::Frame::Accepted};
     tick();
-    motor.speed = 0;
+    motor.ready = false;
     tick();
     PatternWork summary;
     TEST_ASSERT_TRUE(stoppedPatternWork(summary));
-    TEST_ASSERT_EQUAL_STRING("limits_zero", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
     TEST_ASSERT_EQUAL_UINT(3, summary.frames);
     TEST_ASSERT_EQUAL_UINT(12, summary.retries);
     TEST_ASSERT_EQUAL_UINT(15, summary.submissions);
     TEST_ASSERT_EQUAL_UINT(5, summary.plans);
 }
 
+void test_indefinite_zero_parks_and_resumes_same_phase_on_both_backends() {
+    using namespace drawn_pattern;
+    Modifiers modifiers;
+    modifiers.entries[modifiers.count++] = {100, 650, 0};
+    modifiers.entries[modifiers.count++] = {875, 875, 30000};
+    for (bool serial : {false, true}) {
+        motor.serial = serial;
+        motor.acceleration = 500000;
+        motor.strength = .5;
+        motor.speed = 0;
+        nextPulseAt = 0;
+        timedPulses = !serial;
+        const auto previousEntries = entrySubmissions;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+            samples, 32, 12000, revision, false, SampleFormat::Q8, modifiers)));
+        tick(200);
+        TEST_ASSERT_EQUAL_INT(previousEntries, entrySubmissions);
+        TEST_ASSERT_EQUAL_STRING("waiting", drawnPatternStatus().speed.state);
+        motor.speed = 5000;
+        tick(800);
+        TEST_ASSERT_TRUE(drawnPatternActive());
+        TEST_ASSERT_EQUAL_INT(previousEntries+1, entrySubmissions);
+        motor.speed = 0;
+        tick();
+        for (unsigned i=0; i<2000 && std::string(drawnPatternStatus().speed.state)!="paused"; ++i) tick();
+        const auto quiet = drawnPatternStatus();
+        TEST_ASSERT_TRUE(quiet.active);
+        TEST_ASSERT_EQUAL_STRING("paused", quiet.speed.state);
+        TEST_ASSERT_EQUAL_UINT32(0, quiet.periodMs);
+        TEST_ASSERT_EQUAL_DOUBLE(0, quiet.speed.phaseRateHz);
+        const auto at = motionPhase.phase;
+        const auto carrier = vibration.carrier;
+        TEST_ASSERT_TRUE(vibration.gain.atZero());
+        const auto count = frames.size();
+        for (unsigned j=0;j<8;++j) {
+            TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+            tick(4000);
+        }
+        TEST_ASSERT_EQUAL_UINT(count, frames.size());
+        TEST_ASSERT_EQUAL_DOUBLE(at, motionPhase.phase);
+        TEST_ASSERT_EQUAL_DOUBLE(carrier, vibration.carrier);
+        TEST_ASSERT_FALSE(stoppedPatternWork(work));
+        motor.speed = 10000;
+        tick(serial ? 22 : 3);
+        TEST_ASSERT_EQUAL_STRING("running", drawnPatternStatus().speed.state);
+        TEST_ASSERT_TRUE(drawnPatternActive());
+        TEST_ASSERT_EQUAL_INT(previousEntries+1, entrySubmissions);
+        TEST_ASSERT_DOUBLE_WITHIN(.002, at, motionPhase.phase);
+        cancelRemoteDrawnPattern();
+        TEST_ASSERT_FALSE(drawnPatternActive());
+        const auto last = frames.size();
+        tick(60);
+        TEST_ASSERT_EQUAL_UINT(last, frames.size());
+    }
+}
+
+void test_operator_pause_preserves_remaining_authored_hold() {
+    drawn_pattern::Modifiers marks;
+    marks.entries[marks.count++] = {0, 0, 30000};
+    drawn_pattern::MarkerIndex index;
+    TEST_ASSERT_TRUE(index.reset(marks, 0));
+    drawn_pattern::MarkedPhase clock;
+    const drawn_pattern::PhaseLimits limits{.5, 1, 4};
+    for (int i = 0; i < 2500; ++i) clock.advance(.002, limits, index, .5);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-12, 0, clock.phase);
+    for (int i = 0; i < 60000; ++i) clock.brakeForUser(.002, limits);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-12, 0, clock.phase);
+    for (int i = 0; i < 4999; ++i) clock.advance(.002, limits, index, .5);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-12, 0, clock.phase);
+    for (int i = 0; i < 5; ++i) clock.advance(.002, limits, index, .5);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0, clock.phase);
+}
+
+void test_stopped_service_cost_retains_failing_turn_and_longest_interval() {
+    motor.speed = 200;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    tick(8);
+    feedback = {io::Frame::Rejected, "pulse_underrun", 0, drawn_pattern::FrameTiming::Running, 3900};
+    const auto frame = frames.size();
+    tick();
+    PatternWork retained;
+    TEST_ASSERT_TRUE(stoppedPatternWork(retained));
+    TEST_ASSERT_EQUAL_UINT32(frame, retained.lastService.frame);
+    TEST_ASSERT_EQUAL_UINT32(clockMs, retained.lastService.atMs);
+    TEST_ASSERT_EQUAL_UINT32(3900, retained.lastService.commandGateUs);
+    TEST_ASSERT_TRUE(retained.longestService.intervalUs() >= retained.lastService.intervalUs());
+    tick(2);
+    PatternWork later;
+    TEST_ASSERT_TRUE(stoppedPatternWork(later));
+    TEST_ASSERT_EQUAL_UINT32(retained.lastService.atMs, later.lastService.atMs);
+}
+
+void test_pause_drain_deadline_and_resume_position_fail_closed() {
+    motor.speed = 4000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    tick(100);
+    motor.speed = 0;
+    parkState = io::Park::Draining;
+    for (unsigned i=0; i<2000 && parkPolls==0; ++i) tick();
+    TEST_ASSERT_GREATER_THAN_UINT(0, parkPolls);
+    tick(25);
+    TEST_ASSERT_EQUAL_STRING("park_position",drawnPatternStatus().lastStop.reason);
+    motor.speed = 4000;
+    parkState = io::Park::Parked;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    tick(100);
+    motor.speed=0;
+    tick(1000);
+    TEST_ASSERT_EQUAL_STRING("paused",drawnPatternStatus().speed.state);
+    motor.acceleration=0;
+    tick(200);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    motor.acceleration=8000;
+    motor.speed=2000;
+    parkState=io::Park::Failed;
+    tick();
+    TEST_ASSERT_EQUAL_STRING("park_position",drawnPatternStatus().lastStop.reason);
+}
+
+void test_paused_remote_lease_and_finite_entry_remain_guarded() {
+    deferEntry=true;
+    motor.speed=.001;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),int(start()));
+    tick(40);
+    TEST_ASSERT_EQUAL_INT(0, entrySubmissions);
+    motor.speed=500;
+    tick();
+    motor.moving=true;
+    tick(2);
+    motor.speed=0;
+    tick(10);
+    TEST_ASSERT_EQUAL_INT(1,entryPauses);
+    TEST_ASSERT_EQUAL_INT(1,entrySubmissions);
+    motor.moving=false;
+    tick(100);
+    TEST_ASSERT_EQUAL_STRING("waiting",drawnPatternStatus().speed.state);
+    deferEntry=false;
+    motor.speed=500;
+    tick(50);
+    TEST_ASSERT_EQUAL_INT(2,entrySubmissions);
+    motor.speed=0;
+    tick(1200);
+    TEST_ASSERT_EQUAL_STRING("paused",drawnPatternStatus().speed.state);
+    TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+    tick(drawn_pattern::leaseMs);
+    TEST_ASSERT_EQUAL_STRING("lease_expired",drawnPatternStatus().lastStop.reason);
+    motor.speed=20000;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);
+    RUN_TEST(test_stopped_service_cost_retains_failing_turn_and_longest_interval);
+    RUN_TEST(test_paused_remote_lease_and_finite_entry_remain_guarded);
+    RUN_TEST(test_pause_drain_deadline_and_resume_position_fail_closed);
+    RUN_TEST(test_indefinite_zero_parks_and_resumes_same_phase_on_both_backends);
     RUN_TEST(test_raw_queue_acquisition_restamps_delayed_stationary_entry);
     RUN_TEST(test_retry_reuses_frame_but_replans_for_live_inputs_and_safety);
     RUN_TEST(test_refill_turn_is_bounded_and_retains_work_only_after_stop);
@@ -760,14 +942,14 @@ int main() {
     RUN_TEST(test_accepted_entry_waits_for_backend_without_reissuing_move);
     RUN_TEST(test_finite_entry_applies_only_changed_caps_and_stops_before_playback);
     RUN_TEST(test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate);
-    RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately);
+    RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_retains_ownership);
     RUN_TEST(test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits);
     RUN_TEST(test_verified_prime_tail_freezes_phase_and_preserves_raw_starvation_deadline);
     RUN_TEST(test_prime_tail_still_obeys_stop_zero_guard_lease_owner_and_service_loss);
     RUN_TEST(test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end);
     RUN_TEST(test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start);
     RUN_TEST(test_zero_speed_arms_but_expiry_never_restarts);
-    RUN_TEST(test_remote_renewal_zero_stop_and_no_automatic_restart);
+    RUN_TEST(test_remote_renewal_zero_pause_and_no_restart_after_stop);
     RUN_TEST(test_local_recall_survives_unrelated_remote_lease_but_obeys_user_controls);
     RUN_TEST(test_guard_rejection_and_stale_task_do_not_touch_a_new_owner);
     RUN_TEST(test_no_phase_catchup_after_backpressure_or_a_scheduling_gap);

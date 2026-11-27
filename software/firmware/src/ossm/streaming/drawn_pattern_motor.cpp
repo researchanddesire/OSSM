@@ -35,7 +35,9 @@ State read(uint64_t revision, bool annotated) {
     const auto offset = streaming_logic::calculateDepthOffset(rail, span, depth);
     state.from = -offset - span;
     state.to = -offset;
-    state.speed = Config::Driver::maxSpeedMmPerSecond * Config::Driver::stepsPerMM * s / 100.0;
+    state.nominalSpeed = Config::Driver::maxSpeedMmPerSecond * Config::Driver::stepsPerMM;
+    state.fullSpeed = state.nominalSpeed;
+    state.fraction = s / 100.0;
     state.strength = a / 100.0;
     state.stepsPerMm = Config::Driver::stepsPerMM;
     state.acceleration =
@@ -44,9 +46,12 @@ State read(uint64_t revision, bool annotated) {
     if (state.serial) {
         const auto caps = getOssmHatPositionStatus();
         const double stepsPerRpm = Config::Driver::motorStepPerRevolution / 60.0;
-        state.speed = std::min(state.speed, caps.maximumSpeedRpm * stepsPerRpm);
+        // Serial samples may move at most one millimetre per 20 ms update.
+        state.fullSpeed = std::min({state.fullSpeed, caps.maximumSpeedRpm * stepsPerRpm,
+                                    state.stepsPerMm * 50.});
         state.acceleration = std::min(state.acceleration, caps.accelerationRpmPerSec * stepsPerRpm);
     }
+    state.speed = state.fullSpeed * state.fraction;
     state.moving = stepper->isRunning();
     // Entry completion consumes the position only after the move stops.
     if (!state.moving) state.position = stepper->getCurrentPosition();
@@ -57,7 +62,7 @@ State read(uint64_t revision, bool annotated) {
 
 bool position(uint64_t revision, int32_t target, const State &caps, bool starting) {
     return runMotorPatternCommand(revision, [&] {
-        stepper->setSpeedInHz(static_cast<uint32_t>(caps.speed));
+        stepper->setSpeedInHz(static_cast<uint32_t>(std::max(1., caps.speed)));
         stepper->setAcceleration(static_cast<int32_t>(caps.acceleration));
         if (starting) return stepper->moveToForOwner(target, revision, motorSafetyEventCurrent, false) == 0;
         stepper->applySpeedAcceleration();
@@ -66,10 +71,28 @@ bool position(uint64_t revision, int32_t target, const State &caps, bool startin
 }
 FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing) {
     FrameResult result{Frame::Rejected, "guard"};
+    const uint32_t start = micros();
+    uint32_t gateUs = 0;
     if (!runMotorPatternCommand(revision, [&] {
+        gateUs = micros() - start;
         result = submitPatternFrame(target, revision, serial, crossing);
         return true;
-    })) return {Frame::Rejected, "guard"};
+    })) return {Frame::Rejected, "guard", 0, drawn_pattern::FrameTiming::Unknown, micros() - start};
+    result.commandGateUs = gateUs;
+    return result;
+}
+bool pauseEntry(uint64_t revision) {
+    return runMotorPatternCommand(revision, [&] {
+        stepper->stopMoveForOwner(revision, motorSafetyEventCurrent);
+        return true;
+    });
+}
+Park park(uint64_t revision, int32_t target, bool draining) {
+    Park result = Park::Failed;
+    if (!runMotorPatternCommand(revision, [&] {
+        result = parkPatternMotion(revision, target, draining);
+        return true;
+    })) return Park::Failed;
     return result;
 }
 void stop(uint64_t revision) {

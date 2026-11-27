@@ -144,6 +144,34 @@ namespace drawn_pattern {
             } else {
                 advanceWithPauses(dt, limits, index, strength, frame);
             }
+            wrap();
+        }
+
+        // A user pause freezes authored dwell time. An already committed
+        // approach to an authored pause still lands exactly on its point.
+        void brakeForUser(double dt, const PhaseLimits &limits) {
+            if (state == Holding) return;
+            if (state == Braking) {
+                const double remaining = clock.secondsToGoal();
+                if (remaining <= dt) {
+                    clock.advance(remaining + 1e-12);
+                    phase = target;
+                    state = Holding;
+                    wrap();
+                    return;
+                }
+            } else {
+                clock.setGoal(0, limits.acceleration, limits.jerk);
+            }
+            phase += clock.advance(dt);
+            wrap();
+        }
+      private:
+        enum State { Free, Braking, Holding } state = Free;
+        double target = 0, skipThrough = -2, holdElapsed = 0;
+        uint16_t maximumHoldMs = 0;
+
+        void wrap() {
             if (phase >= 1 || phase < 0) {
                 const double turns = std::floor(phase);
                 phase -= turns;
@@ -151,11 +179,6 @@ namespace drawn_pattern {
                 skipThrough = std::max(-2., skipThrough - turns);
             }
         }
-
-      private:
-        enum State { Free, Braking, Holding } state = Free;
-        double target = 0, skipThrough = -2, holdElapsed = 0;
-        uint16_t maximumHoldMs = 0;
 
         static double stopDistance(PhaseClock clock,
                                    const PhaseLimits &limits) {
