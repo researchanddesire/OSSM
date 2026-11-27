@@ -11,10 +11,14 @@ inline void addModifierCapabilities(JsonDocument &result) {
     result["modifierVersion"] = 1;
     result["maxModifiers"] = drawn_pattern::Modifiers::capacity;
     result["maxPauseMs"] = drawn_pattern::maxPauseMs;
-    if (result["lastStop"].is<JsonObjectConst>() && measureJson(result) > 347) {
+    if (measureJson(result) > 347) {
         result.remove("modifierVersion");
         result.remove("maxModifiers");
         result.remove("maxPauseMs");
+        // The separate capability reads remain available after a long Stop
+        // record. Preserve the entire record and all legacy status fields.
+        if (result["lastStop"].is<JsonObjectConst>() && measureJson(result) > 347)
+            result.remove("speedLaw");
     }
 }
 

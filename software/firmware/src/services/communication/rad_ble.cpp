@@ -18,6 +18,7 @@
 #include "ossm/state/actions.h"
 #include "ossm/streaming/saved_pattern.h"
 #include "ossm/streaming/drawn_pattern.h"
+#include "ossm/streaming/pattern_speed_json.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/motion.h"
 #include "ossm/state/settings.h"
@@ -100,6 +101,7 @@ const radble::Resource RESOURCES[] = {
      "{\"min\":0,\"max\":100}"},
     {"drawn_pattern", "pattern.play", "motion", "object", "", RWS,
      R"({"version":1,"minSamples":16,"maxSamples":128,"timeUnit":"ms"})"},
+    {"pattern_speed", "pattern.speed", "motion", "object", "", R, R"({"version":2})"},
     {"pattern_library", "pattern.library", "motion", "object", "", R,
      R"({"version":1,"capacity":4,"maxNameBytes":24})"},
     {"homed", "motion.homed", "motion", "bool", "", RS, ""},
@@ -263,28 +265,8 @@ radble::Result patternLibrary(JsonObjectConst request) {
 
 radble::Result patternStatus() {
     JsonDocument status;
-    status["version"] = 1;
-    status["liveSpeed"] = true;
-    status["interpolationVersion"] = 2;
-    status["maxSampleBits"] = 16;
-    status["maxSparseSamples"] = drawn_pattern::sparseSamples;
-    status["libraryVersion"] = 1;
-    status["libraryPageSize"] = 1;
-    status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
-    const auto playback = streaming::drawnPatternStatus();
-    status["active"] = playback.active;
-    status["periodMs"] = playback.periodMs;
-    if (playback.lastStop.reason) {
-        auto stop = status["lastStop"].to<JsonObject>();
-        stop["reason"] = playback.lastStop.reason;
-        stop["stage"] = playback.lastStop.stage;
-        stop["atMs"] = playback.lastStop.atMs;
-        stop["elapsedMs"] = playback.lastStop.elapsedMs;
-        stop["driverResult"] = playback.lastStop.driverResult;
-        stop["frameGapMs"] = playback.lastStop.frameGapMs;
-    }
-    status["stored"] = streaming::hasSavedPattern();
-    streaming::addModifierCapabilities(status);
+    streaming::writePatternStatus(status, streaming::drawnPatternStatus(),
+                                  Pins::Remote::hasSpeedKnob, streaming::hasSavedPattern());
     String output;
     serializeJson(status, output);
     return radble::Result::success(output);
@@ -401,6 +383,13 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
         return radble::Result::success(output);
     }
     if (operation == "sensor.read" && path == "pattern.library") return patternLibrary(request);
+    if (operation == "sensor.read" && path == "pattern.speed") {
+        JsonDocument status;
+        streaming::writePatternSpeed(status, streaming::drawnPatternStatus().speed);
+        String output;
+        serializeJson(status, output);
+        return radble::Result::success(output);
+    }
     if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
     if (operation.startsWith("pattern.")) {
         if (!request["args"].is<JsonObjectConst>() && operation == "pattern.play")

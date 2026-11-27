@@ -4,6 +4,7 @@
 #include <vector>
 #include "saved_pattern_library.h"
 #include "pattern_catalog_json.h"
+#include "../../src/ossm/streaming/pattern_speed_json.h"
 #include "pattern_modifier_upload.h"
 
 using namespace streaming;
@@ -198,7 +199,11 @@ void test_sparse_samples_cover_one_cycle_and_survive_named_save_and_reboot() {
             TEST_ASSERT_TRUE(waveform.phaseDerivative(phase, 2) == 0);
         }
     }
-    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(60000, waveform.safePeriodMs(100, 1000, 10000));
+    TEST_ASSERT_EQUAL_UINT32(60000, recovered.periodMs);
+    const auto full = waveform.pace(100, 1000, 10000, 1., 2);
+    const auto quarter = waveform.pace(100, 1000, 10000, .25, 2);
+    TEST_ASSERT_TRUE(full.rate > 0 && full.peak <= 1000);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-10, full.rate * .25, quarter.rate);
 }
 
 void test_invalid_numeric_and_overlapping_formats_are_rejected_at_the_ble_boundary() {
@@ -715,8 +720,65 @@ void test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_rese
     TEST_ASSERT_TRUE(slot == flash.at("slot4_0"));
 }
 
+void test_live_speed_telemetry_fits_one_heartbeat_with_legacy_fields() {
+    PatternStatus playback{};
+    playback.active = true;
+    playback.periodMs = UINT32_MAX;
+    playback.speed.state = "running";
+    playback.speed.limit = "acceleration";
+    playback.speed.speedPct = 99.987655;
+    playback.speed.nominalMmS = 999.87655;
+    playback.speed.plannedPeakMmS = 123.45678;
+    playback.speed.periodMs = playback.periodMs;
+    playback.speed.phaseRateHz = 1000.0 / UINT32_MAX;
+    JsonDocument status;
+    writePatternStatus(status, playback, false, false);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(347, measureJson(status));
+    TEST_ASSERT_EQUAL_INT(1, status["version"].as<int>());
+    TEST_ASSERT_EQUAL_INT(2, status["speedLaw"].as<int>());
+    TEST_ASSERT_TRUE(status["hasSpeedKnob"].is<bool>());
+    TEST_ASSERT_TRUE(status["stored"].is<bool>());
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, status["periodMs"].as<uint32_t>());
+    const auto plan = status["speedPlan"].as<JsonArrayConst>();
+    TEST_ASSERT_EQUAL_UINT32(5, plan.size());
+    TEST_ASSERT_FLOAT_WITHIN(.00001, playback.speed.speedPct, plan[0].as<double>());
+    TEST_ASSERT_FLOAT_WITHIN(.00001, 999.9, plan[1].as<double>());
+    TEST_ASSERT_FLOAT_WITHIN(.00001, 123.5, plan[2].as<double>());
+    TEST_ASSERT_EQUAL_STRING("running", plan[3].as<const char *>());
+    TEST_ASSERT_EQUAL_STRING("acceleration", plan[4].as<const char *>());
+}
+
+void test_paused_speed_is_indefinite_and_long_stop_keeps_its_diagnostics() {
+    PatternStatus playback{};
+    playback.active = true;
+    playback.speed.state = "paused";
+    JsonDocument heartbeat;
+    writePatternStatus(heartbeat, playback, true, true);
+    TEST_ASSERT_TRUE(heartbeat["active"].as<bool>());
+    TEST_ASSERT_EQUAL_UINT32(0, heartbeat["periodMs"].as<uint32_t>());
+    TEST_ASSERT_EQUAL_STRING("paused", heartbeat["speedPlan"][3].as<const char *>());
+
+    JsonDocument detail;
+    writePatternSpeed(detail, playback.speed);
+    TEST_ASSERT_TRUE(detail["periodMs"].is<JsonVariantConst>());
+    TEST_ASSERT_TRUE(detail["periodMs"].isNull());
+    TEST_ASSERT_EQUAL_FLOAT(0, detail["phaseRateHz"].as<float>());
+    TEST_ASSERT_EQUAL_STRING("paused", detail["state"].as<const char *>());
+
+    playback.active = false;
+    playback.lastStop = {"pulse_underrun","positioning",UINT32_MAX,UINT32_MAX,INT8_MIN,UINT32_MAX};
+    JsonDocument stopped;
+    writePatternStatus(stopped, playback, false, false);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(347, measureJson(stopped));
+    TEST_ASSERT_FALSE(stopped["speedPlan"].is<JsonArrayConst>());
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", stopped["lastStop"]["reason"].as<const char *>());
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, stopped["lastStop"]["frameGapMs"].as<uint32_t>());
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_live_speed_telemetry_fits_one_heartbeat_with_legacy_fields);
+    RUN_TEST(test_paused_speed_is_indefinite_and_long_stop_keeps_its_diagnostics);
     RUN_TEST(test_every_dense_word_has_one_meaning_and_v4_rejects_long_pauses);
     RUN_TEST(test_sparse_and_dense_reboots_keep_range_tags_and_long_pause_boundaries);
     RUN_TEST(test_v1_upload_supports_typed_ranges_and_long_pauses_with_stable_ids);
