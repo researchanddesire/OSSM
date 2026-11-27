@@ -74,6 +74,12 @@ jobs:
         env:
           PIO_ENV: ${{ matrix.environment }}
         run: python software/scripts/check_screen_build.py --build-dir "software/firmware/.pio/build/$PIO_ENV" --expect enabled
+      - name: Verify motion rearm with the installed stepper driver
+        if: matrix.environment == 'development-4mb'
+        working-directory: software/firmware
+        run: |
+          c++ -std=c++17 -DTEST -I.pio/libdeps/development-4mb/FastAccelStepper/src -Ilib/OSSMLogic/src ../scripts/verify_fas_restart.cpp -o "$RUNNER_TEMP/verify-fas-restart"
+          "$RUNNER_TEMP/verify-fas-restart" >/dev/null
   harness_tests:
     needs: changes
     if: needs.changes.outputs.firmware == 'true'

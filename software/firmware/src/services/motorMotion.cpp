@@ -55,7 +55,7 @@ public:
             // another master appearing later.
             const int32_t logical = pulse_->getCurrentPosition();
             if (pulseQueue_.owned() || primingPulse_) stopPulsesNow();
-            else pulse_->forceStop();
+            else drawn_pattern::stopPulseRamp(*pulse_);
             pulse_->disableOutputs();
             portENTER_CRITICAL(&mux_);
             seedLogical_ = logical;
@@ -325,7 +325,7 @@ public:
     }
     void forceStop() override {
         if (pulseQueue_.owned() || primingPulse_) stopPulsesNow();
-        else { pulse_->forceStop(); needsPulseRamp_ = true; }
+        else { drawn_pattern::stopPulseRamp(*pulse_); needsPulseRamp_ = true; }
         if (!serialSelected()) return;
         portENTER_CRITICAL(&mux_);
         trajectory_.reset(position_.current());

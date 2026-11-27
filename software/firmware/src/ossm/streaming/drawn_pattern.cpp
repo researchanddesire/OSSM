@@ -61,6 +61,7 @@ void service(uint32_t now) {
         phase = cyclesPerSecond = 0;
         if (!pattern_motor::position(owner, entry, caps, true)) return stopLocked("entry_command", now);
         stage = Stage::Positioning;
+        lastFrameAt = now;
         return;
     }
     if (stage == Stage::Positioning) {
@@ -68,8 +69,12 @@ void service(uint32_t now) {
             if (!pattern_motor::position(owner, entry, caps, false)) stopLocked("entry_guard", now);
             return;
         }
-        if (std::abs(static_cast<int64_t>(caps.position) - entry) > 1)
+        if (std::abs(static_cast<int64_t>(caps.position) - entry) > 1) {
+            // A finite command was accepted, but the backend may not yet
+            // report motion. Allow one backend update without resubmitting it.
+            if (now - lastFrameAt < 20) return;
             return stopLocked("entry_position", now);
+        }
         stage = Stage::Playing;
         lastFrameAt = now;
     }

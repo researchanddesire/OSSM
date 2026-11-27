@@ -12,6 +12,8 @@ io::State motor;
 uint64_t revision;
 uint32_t clockMs;
 int stops;
+bool deferEntry;
+int entrySubmissions;
 bool timedPulses = false;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
@@ -34,9 +36,10 @@ State read(uint64_t ticket) {
 }
 uint32_t now() { return clockMs; }
 bool current(uint64_t ticket) { return ticket == revision; }
-bool position(uint64_t ticket, int32_t target, const State &, bool) {
+bool position(uint64_t ticket, int32_t target, const State &, bool starting) {
     if (!read(ticket).ready) return false;
-    motor.position = target;
+    if (starting) ++entrySubmissions;
+    if (!deferEntry) motor.position = target;
     return true;
 }
 FrameResult submit(int32_t target, uint64_t ticket, bool) {
@@ -57,6 +60,8 @@ void setUp() {
     clockMs = 0;
     frames.clear();
     stops = 0;
+    deferEntry = false;
+    entrySubmissions = 0;
     timedPulses = false;
     nextPulseAt = 0;
     settings = {};
@@ -65,6 +70,41 @@ void setUp() {
     setDrawnPatternReady(revision, true);
 }
 void tearDown() { setDrawnPatternReady(revision, false); }
+
+void test_accepted_entry_waits_for_backend_without_reissuing_move() {
+    deferEntry = true;
+    motor.speed = 240;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(4);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(frames.empty());
+    motor.moving = true;
+    tick(30);
+    motor.position = motor.to;
+    motor.moving = false;
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_FALSE(frames.empty());
+    TEST_ASSERT_EQUAL_INT(1, entrySubmissions);
+}
+
+void test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate() {
+    deferEntry = true;
+    motor.speed = 240;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(20);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    tick();
+    TEST_ASSERT_EQUAL_STRING("entry_position", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_TRUE(frames.empty());
+    TEST_ASSERT_EQUAL_INT(1, entrySubmissions);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(2);
+    motor.ready = false;
+    tick();
+    TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_INT(2, stops);
+}
 
 void test_zero_speed_arms_but_expiry_never_restarts() {
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
@@ -309,6 +349,8 @@ void test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_accepted_entry_waits_for_backend_without_reissuing_move);
+    RUN_TEST(test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate);
     RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately);
     RUN_TEST(test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits);
     RUN_TEST(test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end);

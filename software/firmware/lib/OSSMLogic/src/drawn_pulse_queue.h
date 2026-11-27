@@ -19,6 +19,15 @@ constexpr uint32_t pulseStopDrainMs = 25;
 // for hardware buffering, direction setup and timer rounding.
 static_assert((pulseQueueFrames + 2) * pulseFrameMs < pulseStopDrainMs);
 
+// Raw pulses can leave FAS's last finite target behind the drained queue.
+// Its idle forceStop flag would then consume the next move to that old target.
+// Resetting an empty hardware queue also cancels an as-yet-unpublished ramp.
+template <class Driver>
+void stopPulseRamp(Driver &driver) {
+    if (driver.isQueueRunning() || !driver.isQueueEmpty()) driver.forceStop();
+    else driver.forceStopAndNewPosition(driver.getCurrentPosition());
+}
+
 // FAS may retire a leading pause in its first hardware interrupt. Fill the
 // stopped queue, start it once, and use append-only writes for every refill.
 class PulseQueue {
