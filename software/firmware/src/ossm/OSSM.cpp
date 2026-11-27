@@ -137,23 +137,28 @@ void OSSM::ble_click(String commandString) {
     }
 }
 
-String OSSM::getStateFingerprint() {
-    String currentState;
+void OSSM::writeStateFingerprint(String &output) {
+    // This buffer survives across BLE status polls. Appending each field in
+    // place keeps an unchanged connected device off the shared heap.
+    output.remove(0);
     if (stateMachine != nullptr) {
         stateMachine->visit_current_states(
-            [&currentState](auto state) { currentState = state.c_str(); });
+            [&output](auto state) { output = state.c_str(); });
     }
-
-    String output = currentState + ":";
-    output += String((int)settings.speed) + ":";
-    output += String((int)settings.stroke) + ":";
-    output += String((int)settings.sensation) + ":";
-    output += String((int)settings.depth) + ":";
-    output += String(static_cast<int>(settings.pattern)) + ":";
-    output += networkStatus.error + ":" + networkStatus.pairingCode + ":" +
-              String(networkStatus.isPaired ? 1 : 0) + ":" + networkStatus.targetVersion + ":";
+    for (int value : {static_cast<int>(settings.speed), static_cast<int>(settings.stroke),
+                      static_cast<int>(settings.sensation), static_cast<int>(settings.depth),
+                      static_cast<int>(settings.pattern)}) {
+        output += ':';
+        output += value;
+    }
+    output += ':';
+    output += networkStatus.error;
+    output += ':';
+    output += networkStatus.pairingCode;
+    output += networkStatus.isPaired ? ":1:" : ":0:";
+    output += networkStatus.targetVersion;
+    output += ':';
     output += sessionId;
-    return output;
 }
 
 // ┌──────────────────────────────────────────────────────────────────────┐

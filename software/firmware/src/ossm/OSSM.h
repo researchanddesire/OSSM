@@ -43,7 +43,7 @@ class OSSM {
     String getCurrentState();
 
     // Get state fingerprint without timestamp (for change detection)
-    String getStateFingerprint();
+    void writeStateFingerprint(String &output);
 
     // Backward compatibility accessors (deprecated - use globals directly)
     int getSpeed() { return settings.speed; }

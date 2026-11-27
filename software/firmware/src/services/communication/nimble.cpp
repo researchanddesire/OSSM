@@ -313,7 +313,7 @@ void nimbleLoop(void* pvParameters) {
     NimBLEServer* pServer = (NimBLEServer*)pvParameters;
     /** Loop here and send notifications to connected peers */
 
-    String lastState = "";
+    String lastState, fingerprint;
     int lastConnCount = 0;
     uint32_t lastMessageTime = 0, lastStatusCheck = 0;
     uint32_t lastRampStepMs = 0;
@@ -375,7 +375,7 @@ void nimbleLoop(void* pvParameters) {
             continue;
         }
         lastStatusCheck = currentTime;
-        String fingerprint = ossm->getStateFingerprint();
+        ossm->writeStateFingerprint(fingerprint);
         const bool stateChanged = fingerprint != lastState;
         if (stateChanged) {
             lastState = fingerprint;
