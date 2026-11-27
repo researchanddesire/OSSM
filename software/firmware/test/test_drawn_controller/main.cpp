@@ -21,6 +21,7 @@ int entryUpdates;
 unsigned finiteReads, legacyQueueReads;
 double entrySpeed, entryAcceleration;
 bool timedPulses = false, simulateReserve = false;
+size_t guardTripAfter = SIZE_MAX;
 uint32_t reserveThrough = 0;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
@@ -45,7 +46,7 @@ State read(uint64_t ticket, bool) {
     auto copy = motor;
     copy.moving = copy.queued = false;
     copy.position = 0;
-    copy.ready = copy.ready && ticket == revision;
+    copy.ready = copy.ready && ticket == revision && frames.size() < guardTripAfter;
     copy.fullSpeed = std::max(20000., copy.speed);
     copy.nominalSpeed = copy.fullSpeed;
     copy.fraction = copy.speed / copy.fullSpeed;
@@ -116,6 +117,7 @@ void setUp() {
     frame_plan::RawFramePlanner::workerAvailable = true;
     io::observedPulseRunning = true;
     timedPulses = simulateReserve = false;
+    guardTripAfter = SIZE_MAX;
     nextPulseAt = 0;
     settings = {};
     bleState = {};
@@ -177,13 +179,13 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     tick(2);
     auto produce = [] { return rawPlanner->prepare([] {}); };
-    for (unsigned i = 1; i < Planner::capacity; ++i) produce();
+    for (unsigned i = 1; i < Planner::warmupRows; ++i) produce();
     tick();
     TEST_ASSERT_TRUE(frames.empty()); // finite entry done; software rows cannot start the clock yet
     produce();
-    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 14000};
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
     for (unsigned batch = 0; batch < 4; ++batch) tick();
-    TEST_ASSERT_EQUAL_UINT(Planner::capacity, frames.size());
+    TEST_ASSERT_EQUAL_UINT(Planner::warmupRows, frames.size());
     // On a new positive setting and then zero, even an almost-completed
     // calculation from the prior setting cannot extend the submitted path.
     for (unsigned edit = 1; edit <= 64; ++edit) {
@@ -192,11 +194,11 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
         rawPlanner->prepare([&] {
             motor.speed = edit == 64 ? 0 : 200 + 20 * edit;
             tick();
-            TEST_ASSERT_EQUAL_UINT(before, frames.size());
-            TEST_ASSERT_EQUAL_DOUBLE(phase, motionPhase.phase);
+            TEST_ASSERT_LESS_OR_EQUAL_UINT(Planner::retargetPrefix, frames.size() - before);
+            if (frames.size() == before) TEST_ASSERT_EQUAL_DOUBLE(phase, motionPhase.phase);
         });
-        tick();
-        TEST_ASSERT_EQUAL_UINT(before + 1, frames.size()); // CPU1 supplied this fresh goal without rewarming
+        tick(3);
+        TEST_ASSERT_GREATER_THAN_UINT(before, frames.size()); // no full warmup after an edit
         TEST_ASSERT_EQUAL_DOUBLE(edit == 64 ? 0 : drawnPatternStatus().speed.phaseRateHz, stampedGoal);
     }
     io::observedPulseRunning = false;
@@ -205,7 +207,7 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
     TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
     PatternWork stats;
     TEST_ASSERT_TRUE(stoppedPatternWork(stats));
-    TEST_ASSERT_EQUAL_UINT(Planner::capacity, stats.maxPrepared);
+    TEST_ASSERT_EQUAL_UINT(Planner::warmupRows, stats.maxPrepared);
     TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.discarded);
     TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.emptyTurns);
 }
@@ -216,17 +218,17 @@ void test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on
     motor.speed = 1600;
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     tick(2);
-    for (unsigned i = 0; i < Planner::capacity; ++i) rawPlanner->prepare([] {});
-    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    for (unsigned i = 0; i < Planner::warmupRows; ++i) rawPlanner->prepare([] {});
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
     tick(4);
-    TEST_ASSERT_EQUAL_UINT(Planner::capacity, frames.size());
+    TEST_ASSERT_EQUAL_UINT(Planner::warmupRows, frames.size());
     // The 16 ms observed electrical reserve is all the hardware can use.
     // Suspend the background planner for the failed 22 ms, then longer.
     simulateReserve = true;
     reserveThrough = clockMs + 16;
     tick(22);
     TEST_ASSERT_TRUE(drawnPatternActive());
-    TEST_ASSERT_GREATER_OR_EQUAL_UINT(10, frames.size() - Planner::capacity);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(10, frames.size() - Planner::warmupRows);
     tick(60);
     TEST_ASSERT_TRUE(drawnPatternActive());
     TEST_ASSERT_LESS_OR_EQUAL_UINT(16, reserveThrough - clockMs);
@@ -247,8 +249,8 @@ void test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_re
     motor.speed = 1000;
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     tick(2);
-    for (unsigned i = 0; i < Planner::capacity; ++i) rawPlanner->prepare([] {});
-    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    for (unsigned i = 0; i < Planner::warmupRows; ++i) rawPlanner->prepare([] {});
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
     tick(4);
     auto *old = rawPlanner;
     TEST_ASSERT_TRUE(old->requestAssist(0));
@@ -272,6 +274,91 @@ void test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_re
     });
     TEST_ASSERT_EQUAL_UINT(accepted, frames.size());
     TEST_ASSERT_NULL(rawPlanner->front()); // old in-flight row never entered replacement
+}
+
+void test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest_boundary() {
+    using Planner = frame_plan::RawFramePlanner;
+    motor.speed = 5000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(3);
+    Planner::pumpInline = false;
+    const auto before = frames.size();
+    PatternRateStamp original{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, original));
+    const auto initialRate = drawnPatternStatus().speed.phaseRateHz;
+    motor.speed = 14000;
+    simulateReserve = true;
+    reserveThrough = clockMs + 7; // 6 ms before an append, 8 ms after one
+    tick();
+    TEST_ASSERT_EQUAL_UINT(before + 4, frames.size());
+    TEST_ASSERT_EQUAL_UINT32(14, reserveThrough - clockMs);
+    TEST_ASSERT_EQUAL_DOUBLE(initialRate, drawnPatternStatus().speed.phaseRateHz);
+    // The physical failure followed one new-goal append by 13.064 ms.
+    // Here that turn had an existing valid prefix, despite a stopped worker.
+    clockMs += 12;
+    motor.speed = 20000; // replace the pending edit; never extend its boundary
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(before + Planner::retargetPrefix, frames.size());
+    for (unsigned i = 0; i < 20; ++i) rawPlanner->prepare([] {});
+    tick();
+    TEST_ASSERT_GREATER_THAN_UINT(before + Planner::retargetPrefix, frames.size());
+    PatternRateStamp changed{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, changed));
+    TEST_ASSERT_EQUAL_UINT32(original.sequence + 1, changed.sequence);
+    TEST_ASSERT_EQUAL_UINT32(before + Planner::retargetPrefix, changed.frameIndex);
+    TEST_ASSERT_EQUAL_DOUBLE(100,drawnPatternStatus().speed.speedPct);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(16, reserveThrough - clockMs);
+}
+
+void test_guard_is_rechecked_before_extra_handoff_recharge_row() {
+    motor.speed = 5000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(3);
+    guardTripAfter = frames.size() + 3;
+    simulateReserve = true;
+    reserveThrough = clockMs + 7;
+    motor.speed = 20000;
+    tick();
+    TEST_ASSERT_EQUAL_UINT(guardTripAfter, frames.size());
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+}
+
+void test_urgent_zero_and_explicit_stop_cancel_a_pending_positive_handoff() {
+    using drawn_pattern::FrameTiming;
+    motor.speed = 4000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 16000};
+    tick(3);
+    motor.speed = 20000;
+    feedback = {io::Frame::Retry,"pulse_full",0,FrameTiming::Running};
+    tick();
+    TEST_ASSERT_TRUE(rawPlanner->positivePending());
+    const auto boundary = frames.size();
+    motor.speed = 0;
+    feedback = {io::Frame::Accepted,nullptr,0,FrameTiming::Running};
+    tick();
+    PatternRateStamp zero{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, zero));
+    TEST_ASSERT_EQUAL_UINT(boundary, zero.frameIndex);
+    TEST_ASSERT_EQUAL_DOUBLE(0, zero.goalRateHz);
+    TEST_ASSERT_FALSE(rawPlanner->positivePending());
+    motor.speed = 4000;
+    tick();
+    motor.speed = 20000;
+    feedback = {io::Frame::Retry,"pulse_full",0,FrameTiming::Running};
+    tick();
+    TEST_ASSERT_TRUE(rawPlanner->positivePending());
+    const auto accepted = frames.size();
+    cancelDrawnPattern();
+    feedback = {io::Frame::Accepted,nullptr,0,FrameTiming::Running};
+    tick(20);
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(accepted, frames.size());
+    TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
 }
 
 void test_rejected_next_row_does_not_hide_a_started_prefill() {
@@ -725,14 +812,16 @@ void test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_tim
     TEST_ASSERT_TRUE(revised.leadKnown);
     TEST_ASSERT_EQUAL_UINT32(first.atMs,revised.atMs);
     TEST_ASSERT_EQUAL_UINT32(clockMs-first.atMs+27,revised.leadBoundMs);
+    const auto boundary = frames.size() + frame_plan::RawFramePlanner::retargetPrefix;
     motor.speed=120;
     tick();
     TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
     TEST_ASSERT_EQUAL_UINT32(first.sequence,revised.sequence);
     feedback={io::Frame::Accepted,nullptr,0,FrameTiming::Running};
-    tick();
+    tick(3);
     TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
     TEST_ASSERT_EQUAL_UINT32(first.sequence+1,revised.sequence);
+    TEST_ASSERT_EQUAL_UINT32(boundary,revised.frameIndex);
     TEST_ASSERT_NOT_EQUAL(first.periodMs,revised.periodMs);
     TEST_ASSERT_FALSE(revised.first);
     TEST_ASSERT_TRUE(revised.leadKnown);
@@ -756,7 +845,7 @@ void test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_tim
     TEST_ASSERT_TRUE(drawnPatternRateStamp(abandoned,revised));
     TEST_ASSERT_FALSE(revised.leadKnown);
     // Eight retained events, including the latest, span multiple Plays.
-    for (int i=0;i<9;++i) { motor.speed=30+3*i; tick(); }
+    for (int i=0;i<9;++i) { motor.speed=30+3*i; tick(4); }
     TEST_ASSERT_FALSE(drawnPatternRateStamp(first.sequence,revised));
     TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
     const auto latest=revised.sequence;
@@ -1166,6 +1255,9 @@ int main() {
     RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);
     RUN_TEST(test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on_real_exhaustion);
     RUN_TEST(test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing);
+    RUN_TEST(test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest_boundary);
+    RUN_TEST(test_guard_is_rechecked_before_extra_handoff_recharge_row);
+    RUN_TEST(test_urgent_zero_and_explicit_stop_cancel_a_pending_positive_handoff);
     RUN_TEST(test_rejected_next_row_does_not_hide_a_started_prefill);
     RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);
     RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);

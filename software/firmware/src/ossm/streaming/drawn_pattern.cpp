@@ -112,7 +112,8 @@ void observeQueueStart(uint32_t now) {
     }
 }
 
-void recordRateGoal(uint32_t now, drawn_pattern::FrameTiming timing, double strength, double nextGain, bool handoff) {
+void recordRateGoal(uint32_t now, drawn_pattern::FrameTiming timing, double strength, double nextGain, bool handoff,
+                    const PatternSpeedStatus &applied) {
     using drawn_pattern::FrameTiming;
     newestRateStamp = (newestRateStamp+1)%rateHistorySize;
     if (++rateSequence==0) ++rateSequence;
@@ -120,7 +121,7 @@ void recordRateGoal(uint32_t now, drawn_pattern::FrameTiming timing, double stre
     auto &stamp = rateHistory[newestRateStamp];
     stamp = {rateSequence,
              now,
-             effectivePeriod,
+             applied.periodMs,
              static_cast<float>(motionPhase.phase),
              static_cast<float>(motionPhase.clock.rate()),
              static_cast<float>(motionPhase.clock.acceleration()),
@@ -132,11 +133,11 @@ void recordRateGoal(uint32_t now, drawn_pattern::FrameTiming timing, double stre
              static_cast<float>(vibration.gain.value()),
              static_cast<float>(nextGain),
              static_cast<float>(vibration.carrier),
-             acceptedFrames, goalRate, handoff};
-    stampedGoal = goalRate;
+             acceptedFrames, applied.phaseRateHz, handoff};
+    stampedGoal = applied.phaseRateHz;
     lastStampedStrength = strength;
     awaitingStart[newestRateStamp] = timing==FrameTiming::Prefill;
-    lastAppliedPeriod = effectivePeriod;
+    lastAppliedPeriod = applied.periodMs;
 }
 
 // These values live behind lock. A task from an older streaming session
@@ -180,7 +181,7 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     speedStatus = {};
 }
 
-void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
+void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, RawFramePlanner *&assist) {
     if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const uint32_t readStart = patternServiceMicros();
     auto caps = pattern_motor::read(owner, activeMarkers != nullptr);
@@ -198,6 +199,21 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
         return;
     }
     const bool zero = caps.fraction == 0;
+    const bool pendingPositive = rawPlanner && rawPlanner->positivePending();
+    const bool limitsChanged = caps.speed != lastSpeed || caps.acceleration != lastAcceleration;
+    const bool strengthChanged = caps.strength != lastStrength;
+    // Only an ordinary positive Speed edit can retain an outgoing prefix.
+    // Explicit Stop/revocation is checked outside and inside the motor
+    // submit. Zero, acceleration or strength edits discard the prefix.
+    const bool positiveEdit = rawPlanner && stage == Stage::Playing && rawClockStarted && !zero &&
+        lastSpeed > 0 && caps.speed != lastSpeed && caps.acceleration == lastAcceleration && !strengthChanged;
+    const bool superseded = pendingPositive && (limitsChanged || strengthChanged || zero);
+    if (positiveEdit && !pendingPositive) {
+        rawPlanner->previousSpeed = speedStatus;
+        rawPlanner->previousBudget = vibrationBudget;
+    } else if (superseded) {
+        vibrationBudget = rawPlanner->previousBudget;
+    }
     speedStatus.speedPct = 100. * caps.fraction;
     speedStatus.nominalMmS = caps.nominalSpeed * caps.fraction / caps.stepsPerMm;
     if (stage != Stage::Waiting && (lower != caps.from || upper != caps.to))
@@ -246,19 +262,26 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
     if (stage == Stage::Paused) return;
     const bool requestedVibration = !zero && markerIndex.hasVibration && caps.strength > 0;
     const bool reserve = requestedVibration || !vibration.gain.atZero();
-    const bool limitsChanged = caps.speed != lastSpeed || caps.acceleration != lastAcceleration;
     if (zero && lastSpeed != 0) {
         invalidateFrames();
         lastSpeed = 0;
     }
-    if (!zero && (stage == Stage::Waiting || reserve != reserveVibration ||
-        (reconfigureAfterFade && vibration.gain.atZero()) || limitsChanged)) {
-        invalidateFrames();
+    const bool refreshVibration = !pendingPositive && (reserve != reserveVibration ||
+        (reconfigureAfterFade && vibration.gain.atZero()));
+    if (!zero && (stage == Stage::Waiting || refreshVibration || limitsChanged || superseded)) {
+        auto boundaryVibration = vibration;
+        if (positiveEdit) {
+            if (!pattern_motor::pulseClockRunning()) return stopLocked("pulse_underrun", pattern_motor::now());
+            rawPlanner->retarget(boundaryVibration);
+        } else {
+            invalidateFrames();
+        }
+        const bool nextReserve = requestedVibration || !boundaryVibration.gain.atZero();
         committedTargetValid = false;
         const double span = static_cast<double>(caps.to) - caps.from;
-        const double share = reserve ? drawn_pattern::VibrationBudget::baseShare : 1.;
+        const double share = nextReserve ? drawn_pattern::VibrationBudget::baseShare : 1.;
         // A changing vibration budget fades out at its old safe amplitude.
-        const bool fading = !vibration.gain.atZero() && !vibrationBudget.matches(caps.speed, caps.acceleration);
+        const bool fading = !boundaryVibration.gain.atZero() && !vibrationBudget.matches(caps.speed, caps.acceleration);
         const double v = fading ? std::min(caps.speed, vibrationBudget.speed) : caps.speed;
         const double a = fading ? std::min(caps.acceleration, vibrationBudget.acceleration) : caps.acceleration;
         const auto pace = curve.pace(span, caps.fullSpeed * share, a * share, v / caps.fullSpeed,
@@ -269,19 +292,19 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
         speedStatus.plannedPeakMmS = pace.peak / caps.stepsPerMm;
         speedStatus.limit = pace.limit;
         if (std::strcmp(pace.limit, "speed") == 0) {
-            if (reserve) speedStatus.limit = "vibration";
+            if (nextReserve) speedStatus.limit = "vibration";
             else if (caps.fullSpeed < caps.nominalSpeed) speedStatus.limit = "backend";
         }
         clockAcceleration = pace.phaseAcceleration;
         clockJerk = pace.phaseJerk;
-        if (reserve) {
+        if (nextReserve) {
             clockAcceleration = std::min(clockAcceleration, 2 * goalRate);
             clockJerk = std::min(clockJerk, 8 * goalRate);
             if (!fading) vibrationBudget = {span, v, a, caps.stepsPerMm, {goalRate, clockAcceleration, clockJerk}};
         }
         if (markerIndex.holds)
             activeMarkers->brakeBounds.reset({goalRate, clockAcceleration, clockJerk});
-        reserveVibration = reserve;
+        reserveVibration = nextReserve;
         reconfigureAfterFade = fading;
         lastSpeed = caps.speed;
         lastAcceleration = caps.acceleration;
@@ -346,7 +369,6 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
     };
     if (rawPlanner && !rawPlanner->configured()) rawPlanner->configure(inputs(), cursor());
 
-    constexpr unsigned pulseFramesPerTurn = 3;
     for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
         auto *next = rawPlanner ? rawPlanner->front() : pending.get();
         if (!next) {
@@ -402,10 +424,10 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
             if (now - lastProgressAt >= drawn_pattern::frameStarvationMs)
                 return stopLocked(result.reason, now, result.driverResult);
             // The driver has declined an append for lack of space. Use that
-            // slack to prepare one row when only 0–4 ms of software work
-            // remains. The next submit rechecks every owner/guard/clock.
+            // slack to restore the software reserve before the feeder can
+            // run short during a curve or a live speed handoff. The next submit rechecks every owner/guard/clock.
             if (rawClockStarted && rawPlanner && result.reason &&
-                std::strcmp(result.reason, "pulse_full") == 0 && rawPlanner->requestAssist(2))
+                std::strcmp(result.reason, "pulse_full") == 0 && rawPlanner->requestAssist(RawFramePlanner::reserveForAssist))
                 assist = rawPlanner;
             return;
         }
@@ -420,10 +442,12 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
             (result.timing == drawn_pattern::FrameTiming::Prefill ||
              result.timing == drawn_pattern::FrameTiming::Started ||
              result.timing == drawn_pattern::FrameTiming::Running);
-        if (entryToRaw || stampedGoal != goalRate || lastAppliedPeriod != effectivePeriod ||
+        const bool retainedGoal = rawPlanner && rawPlanner->retainedFront();
+        const auto &applied = retainedGoal ? rawPlanner->previousSpeed : speedStatus;
+        if (entryToRaw || stampedGoal != applied.phaseRateHz || lastAppliedPeriod != applied.periodMs ||
             (activeMarkers &&
-             (lastStampedStrength != caps.strength || vibration.gain.goal() != frame.vibration.gain.goal())))
-            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, frame.vibration.gain.goal(), entryToRaw);
+              (lastStampedStrength != caps.strength || vibration.gain.goal() != frame.vibration.gain.goal())))
+            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, frame.vibration.gain.goal(), entryToRaw, applied);
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
         if (result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
@@ -452,9 +476,17 @@ void service(uint32_t now, bool &lowAfterBatch, RawFramePlanner *&assist) {
                 return;
             }
         }
+        if (rawPlanner && rawClockStarted && i + 1 == pulseFramesPerTurn &&
+            result.timing == drawn_pattern::FrameTiming::Running &&
+            result.queuedUs != UINT16_MAX && result.queuedUs >= drawn_pattern::refillBelowUs &&
+            rawPlanner->requestAssist(RawFramePlanner::reserveForAssist)) {
+            // Help while the peripheral has at least its refill watermark.
+            // A low hardware reserve always gives the motor feeder priority.
+            assist = rawPlanner;
+        }
         // Recompute the base budget before accepting the next frame, even
         // when this call could otherwise fill several more queue entries.
-        if (!zero && reserveVibration && vibration.gain.atZero() && (!requestedVibration || reconfigureAfterFade))
+        if (!retainedGoal && !zero && reserveVibration && vibration.gain.atZero() && (!requestedVibration || reconfigureAfterFade))
             return;
     }
 }
@@ -614,7 +646,8 @@ bool drawnPatternRateStamp(uint32_t sequence, PatternRateStamp &out) {
 }
 PatternStatus drawnPatternStatus() {
     std::lock_guard<std::mutex> guard(lock);
-    return {stage != Stage::Idle, effectivePeriod, lastStop, speedStatus};
+    const auto &applied = rawPlanner && rawPlanner->positivePending() ? rawPlanner->previousSpeed : speedStatus;
+    return {stage != Stage::Idle, applied.periodMs, lastStop, applied};
 }
 void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReason) {
     std::lock_guard<std::mutex> guard(lock);
@@ -627,11 +660,15 @@ void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReaso
         stopLocked(exitReason, pattern_motor::now());
     }
 }
-bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
+namespace {
+bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned frameLimit,
+                 bool prefixOnly, bool &recharge) {
+    recharge = false;
     if (refillNow) *refillNow = false;
     const uint32_t callUs = patternServiceMicros();
     std::unique_lock<std::mutex> guard(lock);
     if (stage == Stage::Idle || owner != revision) return false;
+    if (prefixOnly && (!rawPlanner || !rawPlanner->retainedFront())) return true;
     const uint32_t acquiredUs = patternServiceMicros();
     if (!wakeUs) wakeUs = callUs;
     auto &turn = work.lastService;
@@ -644,8 +681,9 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     turn.mailboxUs = acquiredUs - callUs;
     bool lowAfterBatch = false;
     RawFramePlanner *assist = nullptr;
-    service(turn.atMs, lowAfterBatch, assist);
+    service(turn.atMs, frameLimit, lowAfterBatch, assist);
     const bool low = stage == Stage::Playing && lowAfterBatch;
+    recharge = low && rawPlanner && rawPlanner->retainedFront() && acceptedFrames > turn.frame;
     const bool immediate = refillSchedule.immediate(low);
     if (immediate) ++work.immediateTurns;
     else if (low) ++work.lowWaterYields;
@@ -657,5 +695,20 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     guard.unlock();
     if (assist) assist->assist([] {});
     return true;
+}
+} // namespace
+
+bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
+    constexpr unsigned ordinaryBatch = 3;
+    bool recharge = false;
+    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, recharge);
+    // The peripheral may have only 6 ms before the first handoff append.
+    // Give its already prepared prefix priority up to the regular 14 ms
+    // watermark. Unlock between every extra row and repeat ownership, live
+    // controls and guard checks; only the existing bounded prefix may extend
+    // this service. Stop/zero and a real underrun retain their normal paths.
+    for (unsigned n = ordinaryBatch; recharge && n < RawFramePlanner::retargetPrefix; ++n)
+        serviceTurn(revision, 0, refillNow, 1, true, recharge);
+    return active;
 }
 } // namespace streaming

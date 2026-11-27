@@ -89,16 +89,24 @@ Moving-plan times count wall time, including preemption, for newly planned
 frames whose target changed. Divide the total by the moving-frame count in
 `patterncost` to obtain the mean.
 
-On STEP/DIR, a separate task calculates up to twelve 2 ms frames in RAM.
-The feeder checks current controls, ownership and safety before submitting
-them to the bounded peripheral queue. While the hardware is running, the
-feeder can compute one missing row on its own core. It can also use a full
-driver retry to prepare a row when at most two software rows remain. The two
-calculators share a publication ordinal and a control generation, so only one
-copy of each row can reach the driver. Both solve the curve outside the
-controller mailbox. A live edit discards future software frames and starts planning again at the last accepted phase. Serial motion
-continues to submit one acknowledged 20 ms target at a time. Play reports
-busy when the planner or its workspace cannot be allocated.
+On STEP/DIR, a separate task prepares 2 ms frames in RAM. It stores the
+changed words of the controller state exactly. The software buffer holds
+up to 64 frames, with room for at least 16 even when every word changes.
+The feeder checks ownership and safety for each hardware submission. It can
+help calculate one frame when the software buffer runs low and the peripheral
+has space covered, or when no software frame is ready. Both cores calculate
+outside the controller mailbox and publish against the same generation and
+frame number. The peripheral's lookahead and the Stop limit stay unchanged.
+
+A change from one positive Speed to another can finish up to eight prepared
+frames of the current speed law (16 ms). The new plan starts at their exact
+final position, rate and acceleration. A second positive edit during that
+handoff replaces the pending goal at the same boundary. Status and timing
+records report the applied goal when the hardware accepts its first frame.
+Zero Speed and changes to Sensation or acceleration discard the prepared
+prefix. Stop, guard trips and loss of ownership revoke playback immediately.
+Serial motion continues to submit one acknowledged 20 ms target at a time.
+Play reports busy when the planner or its workspace cannot be allocated.
 
 After Stop, `patternplanner` reports
 `RAD_PATTERN_PLANNER prepared discarded emptyTurns maxPrepared plannerStackFreeBytes`.

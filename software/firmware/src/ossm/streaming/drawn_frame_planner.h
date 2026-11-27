@@ -3,7 +3,8 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
-#include "drawn_modifier_motion.h"
+#include "drawn_frame_queue.h"
+#include "drawn_pattern.h"
 #include "drawn_waveform.h"
 
 #ifdef ARDUINO
@@ -20,21 +21,6 @@ struct Marking {
     drawn_pattern::Modifiers authored;
     drawn_pattern::MarkerIndex index;
     drawn_pattern::PauseBrakeBounds brakeBounds;
-};
-
-struct Cursor {
-    drawn_pattern::MarkedPhase phase;
-    drawn_pattern::VibrationClock vibration;
-    int32_t target = 0;
-    bool targetKnown = false;
-};
-
-struct Frame : Cursor {
-    int32_t from = 0;
-    uint32_t planUs = 0;
-    uint16_t crossing = 32768;
-    bool valid = false;
-    bool offered = false;
 };
 
 struct Inputs {
@@ -118,9 +104,19 @@ using RingMutex = std::mutex;
 // completed rows AND any calculation currently outside the short ring lock.
 class RawFramePlanner {
 public:
-    static constexpr unsigned capacity = 12;
+    static constexpr unsigned capacity = FrameQueue::capacity;
+    static constexpr unsigned warmupRows = 12;
+    // Only a positive Speed-to-Speed edit may finish this already-planned
+    // prefix. At 2 ms/frame it gives the new law at most 16 ms of software
+    // handoff. A second edit cannot extend the boundary.
+    static constexpr unsigned retargetPrefix = FrameQueue::maxRetained;
+    static constexpr unsigned reserveForAssist = 16;
     static constexpr unsigned stackBytes = 4096;
     const std::unique_ptr<Marking> marking;
+    // The motor consumer alone tracks the applied law across a positive
+    // edit. No static allocation or worker access is needed while idle.
+    PatternSpeedStatus previousSpeed;
+    drawn_pattern::VibrationBudget previousBudget;
     struct Counters {
         uint32_t produced = 0, discarded = 0, emptyTurns = 0, peakDepth = 0;
         uint32_t stackFree = 0, assistAttempts = 0, assistPublished = 0, assistMaxUs = 0;
@@ -158,7 +154,10 @@ public:
         {
             std::lock_guard<RingMutex> guard(mux_);
             inputs_ = in;
-            tail_ = accepted;
+            if (!retained_) {
+                rows_.clear(accepted);
+                tail_ = accepted;
+            }
             configured_ = true;
         }
         wake();
@@ -167,11 +166,31 @@ public:
     void invalidate(bool warmup = false) {
         std::lock_guard<RingMutex> guard(mux_);
         ++generation_;
-        counters_.discarded += count_;
-        head_ = count_ = 0;
+        counters_.discarded += rows_.size();
+        rows_.clear(tail_);
         configured_ = false;
+        retained_ = 0;
+        positivePending_ = false;
         if (warmup) warmed_ = false;
     }
+
+    // Keep the first few rows of the applied law. Their final cursor is
+    // the sole origin for the new generation. Old work outside this
+    // prefix, including any calculation on either CPU, cannot publish.
+    void retarget(drawn_pattern::VibrationClock &boundaryVibration) {
+        std::lock_guard<RingMutex> guard(mux_);
+        ++generation_;
+        const unsigned before = rows_.size();
+        retained_ = rows_.truncate(positivePending_ ? retained_ : retargetPrefix, tail_);
+        counters_.discarded += before - retained_;
+        if (retained_) boundaryVibration = tail_.vibration;
+        positivePending_ = true;
+        configured_ = false;
+    }
+
+    // Only the serialized motor consumer reads or changes these two fields.
+    bool retainedFront() const { return retained_ != 0; }
+    bool positivePending() const { return positivePending_; }
 
     enum class Action { Produced, Wait, Exit };
 
@@ -184,7 +203,7 @@ public:
     // reference, not a motor lease. No helper can submit to the peripheral.
     bool requestAssist(unsigned maximumReady) {
         std::lock_guard<RingMutex> guard(mux_);
-        if (!configured_ || !warmed_ || closed_ || assisting_ || count_ > maximumReady) return false;
+        if (!configured_ || !warmed_ || closed_ || assisting_ || rows_.size() > maximumReady) return false;
         assisting_ = true;
         assistAtDepth_ = maximumReady;
         ++references_;
@@ -210,7 +229,7 @@ public:
         if (pumpInline) while (prepare([] {}) == Action::Produced) {}
 #endif
         std::lock_guard<RingMutex> guard(mux_);
-        if (count_ && warmed_) return &rows_[head_];
+        if (warmed_ && rows_.size()) return rows_.front();
         if (warmed_) ++counters_.emptyTurns;
         return nullptr;
     }
@@ -219,8 +238,11 @@ public:
         bool refill;
         {
             std::lock_guard<RingMutex> guard(mux_);
-            head_ = (head_ + 1) % capacity;
-            refill = --count_ == capacity - 2;
+            if (retained_) --retained_;
+            else positivePending_ = false;
+            const bool full = rows_.full();
+            rows_.pop();
+            refill = full && !rows_.full();
         }
         if (refill) wake();
     }
@@ -247,11 +269,11 @@ private:
     Lane workerLane_, assistLane_;
     Inputs inputs_;
     Cursor tail_;
-    Frame rows_[capacity];
+    FrameQueue rows_;
     Counters counters_;
-    unsigned head_ = 0, count_ = 0, assistAtDepth_ = 0;
+    unsigned assistAtDepth_ = 0, retained_ = 0;
     uint32_t generation_ = 0, tailOrdinal_ = 0;
-    bool configured_ = false, warmed_ = false, closed_ = false, assisting_ = false;
+    bool configured_ = false, warmed_ = false, closed_ = false, assisting_ = false, positivePending_ = false;
 
     template<class AfterSnapshot>
     Action prepareRow(Lane &lane, unsigned maximumReady, bool assist, AfterSnapshot afterSnapshot) {
@@ -259,7 +281,7 @@ private:
         {
             std::lock_guard<RingMutex> guard(mux_);
             if (closed_) return Action::Exit;
-            if (!configured_ || count_ > maximumReady) return Action::Wait;
+            if (!configured_ || rows_.full() || rows_.size() > maximumReady) return Action::Wait;
             ordinal = tailOrdinal_;
             lane.start = tail_;
             if (lane.generation != generation_) {
@@ -275,14 +297,14 @@ private:
             if (closed_) return Action::Exit;
             if (assist) counters_.assistMaxUs = std::max(counters_.assistMaxUs, lane.row.planUs);
             if (lane.generation == generation_ && ordinal == tailOrdinal_) {
-                rows_[(head_ + count_) % capacity] = lane.row;
+                // No other producer advanced this ordinal after our snapshot.
+                rows_.push(lane.row, tail_);
                 tail_ = lane.row;
                 ++tailOrdinal_;
-                ++count_;
                 ++counters_.produced;
                 if (assist) ++counters_.assistPublished;
-                counters_.peakDepth = std::max(counters_.peakDepth, count_);
-                if (count_ == capacity) warmed_ = true;
+                counters_.peakDepth = std::max(counters_.peakDepth, rows_.size());
+                if (rows_.size() >= warmupRows) warmed_ = true;
             } else if (lane.generation != generation_) {
                 ++counters_.discarded;
             }
