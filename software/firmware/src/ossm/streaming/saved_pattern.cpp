@@ -27,16 +27,16 @@ bool loadRecord(SavedPatternLibrary &record) {
     if (opened == ESP_ERR_NVS_NOT_FOUND) return true; // New namespace.
     if (opened != ESP_OK) return false;
     bool readable = true;
-    record.load([&](const char *key, void *data, size_t size) {
+    const bool decoded = record.load([&](const char *key, void *data, size_t size) -> size_t {
         size_t actual = size;
         const auto error = nvs_get_blob(handle, key, data, &actual);
-        if (error == ESP_OK) return actual == size;
+        if (error == ESP_OK) return !data ? actual : (actual == size ? size : 0);
         if (error != ESP_ERR_NVS_NOT_FOUND && error != ESP_ERR_NVS_INVALID_LENGTH)
             readable = false;
         return false;
     });
     nvs_close(handle);
-    return readable;
+    return decoded && readable;
 }
 bool writeRecord(const char *key, const void *data, size_t size) {
     return runStoppedMotorStorage([&] {
@@ -50,9 +50,9 @@ void loadSavedPattern() {
     std::lock_guard<std::mutex> lock(savedLock);
     library.access(loadRecord, [](const SavedPatternLibrary &) { return true; });
 }
-bool getSavedPattern(SavedPattern &out, int slot) {
+bool getSavedPattern(SavedPattern &out, int slot, drawn_pattern::Modifiers *effects) {
     std::lock_guard<std::mutex> lock(savedLock);
-    return library.access(loadRecord, [&](const SavedPatternLibrary &record) { return record.get(out, slot); });
+    return library.access(loadRecord, [&](const SavedPatternLibrary &record) { return record.get(out, slot, effects); });
 }
 bool hasSavedPattern() {
     std::lock_guard<std::mutex> lock(savedLock);
@@ -66,7 +66,7 @@ void storePatternInMenu(const SavePattern &event) {
     if (!stopped()) return;
     std::lock_guard<std::mutex> lock(savedLock);
     event.written = library.access(loadRecord, [&](SavedPatternLibrary &record) {
-        return record.save(event.slot, event.name, event.nameLength, event.value, writeRecord);
+        return record.save(event.slot, event.name, event.nameLength, event.value, writeRecord, event.modifiers);
     });
 }
 void selectPatternInMenu(const SelectPattern &event) {
@@ -85,8 +85,9 @@ void toggleWiredPattern() {
     const auto revision = getMotorSafetyStatus().controlRevision;
     if (drawnPatternStartStatus(revision) != PatternStart::Accepted) return;
     SavedPattern value;
-    if (getSavedPattern(value)) {
-        startDrawnPattern(value.samples, value.length, value.periodMs, revision, true, value.format());
+    std::unique_ptr<drawn_pattern::Modifiers> effects(new (std::nothrow) drawn_pattern::Modifiers);
+    if (effects && getSavedPattern(value, selectedPatternSlot, effects.get())) {
+        startDrawnPattern(value.samples, value.length, value.periodMs, revision, true, value.format(), *effects);
     }
 }
 }  // namespace streaming

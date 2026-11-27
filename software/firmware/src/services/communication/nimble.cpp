@@ -51,14 +51,15 @@ void noteBleMotionCommand(uint16_t connHandle, const std::string& command) {
 }
 
 streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
-                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format) {
+                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format,
+                                       const drawn_pattern::Modifiers &modifiers) {
     std::lock_guard<std::mutex> guard(motionOwnerLock);
     // A request already in the server task may race a disconnect.
     if (!pServer || connection == motion_link::kNoConnection ||
         ble_gap_conn_find(connection, nullptr) != 0)
         return streaming::PatternStart::NotReady;
     const auto result = streaming::startDrawnPattern(samples, length, periodMs,
-                                  getMotorSafetyStatus().controlRevision, false, format);
+                                  getMotorSafetyStatus().controlRevision, false, format, modifiers);
     if (result == streaming::PatternStart::Accepted) {
         motionOwner.onMotionCommand(connection);
         lostConnectionTime = 0;
@@ -71,6 +72,15 @@ bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource) {
     if (!pServer || connection == motion_link::kNoConnection ||
         ble_gap_conn_find(connection, nullptr) != 0) return false;
     if (!streaming::applyLeasedBleSpeed(motionOwner, connection, value, selectBleSource)) return false;
+    lostConnectionTime = 0;
+    return true;
+}
+
+bool setLeasedBleSensation(uint16_t connection, uint8_t value) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    if (!pServer || connection == motion_link::kNoConnection ||
+        ble_gap_conn_find(connection, nullptr) != 0) return false;
+    if (!streaming::applyLeasedBleSensation(motionOwner, connection, value)) return false;
     lostConnectionTime = 0;
     return true;
 }

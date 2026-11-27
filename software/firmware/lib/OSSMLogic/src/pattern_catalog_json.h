@@ -41,6 +41,7 @@ inline bool writePatternCatalog(JsonDocument &result, JsonObjectConst request,
         slot["slot"] = i;
         slot["name"] = catalog.slots[i].name;
         slot["periodMs"] = catalog.slots[i].periodMs;
+        if (catalog.slots[i].modifierCount) slot["modifierCount"] = catalog.slots[i].modifierCount;
     }
     return true;
 }

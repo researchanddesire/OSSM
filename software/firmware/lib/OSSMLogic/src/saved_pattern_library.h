@@ -6,6 +6,7 @@
 #include <memory>
 #include <new>
 #include "drawn_waveform.h"
+#include "drawn_modifiers.h"
 
 namespace streaming {
 
@@ -80,6 +81,7 @@ struct PatternStorageState {
 struct PatternSlotInfo {
     uint32_t periodMs = 0;
     char name[maxPatternNameBytes + 1] = {};
+    uint16_t modifierCount = 0;
 };
 struct PatternCatalog {
     uint8_t selected = 0;
@@ -98,7 +100,56 @@ class SavedPatternLibrary {
     };
     static_assert(sizeof(Record) == 1192);
     Record record_;
-    static constexpr const char *key = "libraryV3";
+    using Modifier = drawn_pattern::Modifier;
+    using Modifiers = drawn_pattern::Modifiers;
+    uint16_t counts_[patternSlotCount]{};
+    std::unique_ptr<Modifier[]> modifiers_[patternSlotCount];
+    static constexpr size_t headerSize = sizeof(Record) + sizeof(counts_);
+    static constexpr size_t maxSize = headerSize + patternSlotCount * Modifiers::capacity * sizeof(Modifier);
+
+    size_t packedSize() const {
+        size_t size = headerSize;
+        for (const auto count : counts_) size += count * sizeof(Modifier);
+        return size;
+    }
+
+    template <typename Write> bool persist(Write write) const {
+        if (record_.version == 3) return write("libraryV3", &record_, sizeof(record_));
+        const size_t size = packedSize();
+        std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]);
+        if (!bytes) return false;
+        std::memcpy(bytes.get(), &record_, sizeof(record_));
+        std::memcpy(bytes.get() + sizeof(record_), counts_, sizeof(counts_));
+        size_t offset = headerSize;
+        for (unsigned i = 0; i < patternSlotCount; ++i) {
+            const size_t length = counts_[i] * sizeof(Modifier);
+            if (length) std::memcpy(bytes.get() + offset, modifiers_[i].get(), length);
+            offset += length;
+        }
+        return write("libraryV4", bytes.get(), size);
+    }
+
+    template <typename Read> bool loadExtended(Read read, size_t size) {
+        if (size < headerSize || size > maxSize) return false;
+        std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]);
+        if (!bytes || !read("libraryV4", bytes.get(), size)) return false;
+        std::memcpy(&record_, bytes.get(), sizeof(record_));
+        std::memcpy(counts_, bytes.get() + sizeof(record_), sizeof(counts_));
+        if (!validRecord(4) || packedSize() != size) return false;
+        size_t offset = headerSize;
+        for (unsigned i = 0; i < patternSlotCount; ++i) {
+            const auto count = counts_[i];
+            if (!count) continue;
+            if (!occupied(i) || count > Modifiers::capacity) return false;
+            modifiers_[i].reset(new (std::nothrow) Modifier[count]);
+            if (!modifiers_[i]) return false;
+            const size_t length = count * sizeof(Modifier);
+            std::memcpy(modifiers_[i].get(), bytes.get() + offset, length);
+            if (!Modifiers::valid(modifiers_[i].get(), count)) return false;
+            offset += length;
+        }
+        return true;
+    }
 
     bool occupied(int index) const {
         return index >= 0 && index < patternSlotCount && record_.slots[index].value.length;
@@ -115,13 +166,17 @@ class SavedPatternLibrary {
     }
 
 public:
-    // Both callbacks return true only when exactly size bytes were transferred.
-    // The caller supplies the temporary record storage.
-    template <typename Read> void load(Read read) {
-        if (read(key, &record_, sizeof(record_)) && validRecord(3)) return;
+    // A null destination queries the blob length. Actual reads must match exactly.
+    // If an extended record exists, an invalid or unreadable blob blocks edits to it.
+    template <typename Read> bool load(Read read) {
+        std::memset(counts_, 0, sizeof(counts_));
+        for (auto &items : modifiers_) items.reset();
+        const size_t extended = read("libraryV4", nullptr, 0);
+        if (extended) return loadExtended(read, extended);
+        if (read("libraryV3", &record_, sizeof(record_)) && validRecord(3)) return true;
         if (read("libraryV2", &record_, sizeof(record_)) && validRecord(2)) {
             record_.version = 3; // Persist only after a successful, deliberate change.
-            return;
+            return true;
         }
         record_.version = 3;
         record_.selected = 0;
@@ -133,12 +188,17 @@ public:
         } else {
             legacy.value.length = 0;
         }
+        return true;
     }
     bool any() const { return occupied(record_.selected); }
-    bool get(SavedPattern &out, int index = selectedPatternSlot) const {
+    bool get(SavedPattern &out, int index = selectedPatternSlot, Modifiers *effects = nullptr) const {
         if (index == selectedPatternSlot) index = record_.selected;
         if (!occupied(index)) return false;
         out = record_.slots[index].value;
+        if (effects) {
+            effects->count = counts_[index];
+            if (effects->count) std::memcpy(effects->entries, modifiers_[index].get(), effects->count * sizeof(Modifier));
+        }
         return true;
     }
     PatternCatalog catalog() const {
@@ -147,14 +207,16 @@ public:
         for (uint8_t i = 0; i < patternSlotCount; ++i) {
             if (!occupied(i)) continue;
             result.slots[i].periodMs = record_.slots[i].value.periodMs;
+            result.slots[i].modifierCount = counts_[i];
             std::memcpy(result.slots[i].name, record_.slots[i].name, sizeof(result.slots[i].name));
         }
         return result;
     }
     template <typename Write>
-    bool save(int index, const char *name, size_t nameLength, const SavedPattern &value, Write write) {
+    bool save(int index, const char *name, size_t nameLength, const SavedPattern &value, Write write,
+              const Modifiers &effects = drawn_pattern::noModifiers()) {
         if (index == selectedPatternSlot) index = record_.selected;
-        if (index < 0 || index >= patternSlotCount || !validSavedPattern(value)) return false;
+        if (index < 0 || index >= patternSlotCount || !validSavedPattern(value) || !effects.valid()) return false;
         auto &slot = record_.slots[index];
         if (!name) {
             if (nameLength) return false;
@@ -162,11 +224,27 @@ public:
             nameLength = std::strlen(name);
         }
         if (!validPatternName(name, nameLength)) return false;
-        if (slot.value.version == value.version && slot.value.length == value.length &&
+        const size_t effectBytes = effects.count * sizeof(Modifier);
+        const bool sameEffects = counts_[index] == effects.count &&
+            (!effectBytes || std::memcmp(modifiers_[index].get(), effects.entries, effectBytes) == 0);
+        if (sameEffects && slot.value.version == value.version && slot.value.length == value.length &&
             slot.value.periodMs == value.periodMs &&
             std::memcmp(slot.value.samples, value.samples, value.length) == 0 &&
             std::strlen(slot.name) == nameLength && std::memcmp(slot.name, name, nameLength) == 0)
             return true;
+        std::unique_ptr<Modifier[]> replacement;
+        if (effects.count && !sameEffects) {
+            replacement.reset(new (std::nothrow) Modifier[effects.count]);
+            if (!replacement) return false;
+            std::memcpy(replacement.get(), effects.entries, effectBytes);
+        }
+        const auto oldVersion = record_.version;
+        const auto oldCount = counts_[index];
+        if (!sameEffects) {
+            modifiers_[index].swap(replacement);
+            counts_[index] = effects.count;
+        }
+        if (effects.count) record_.version = 4;
         const auto previous = slot;
         const auto previousSelected = record_.selected;
         if (!any()) record_.selected = index;
@@ -175,7 +253,10 @@ public:
             std::memset(slot.name, 0, sizeof(slot.name));
             std::memcpy(slot.name, name, nameLength);
         }
-        if (write(key, &record_, sizeof(record_))) return true;
+        if (persist(write)) return true;
+        if (!sameEffects) modifiers_[index].swap(replacement);
+        counts_[index] = oldCount;
+        record_.version = oldVersion;
         slot = previous;
         record_.selected = previousSelected;
         return false;
@@ -185,7 +266,7 @@ public:
         if (record_.selected == static_cast<uint32_t>(index)) return true;
         const auto previous = record_.selected;
         record_.selected = index;
-        if (write(key, &record_, sizeof(record_))) return true;
+        if (persist(write)) return true;
         record_.selected = previous;
         return false;
     }

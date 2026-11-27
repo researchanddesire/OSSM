@@ -72,9 +72,11 @@ extern NimBLEServer* pServer;
 void noteBleMotionCommand(uint16_t connHandle, const std::string& command);
 
 streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
-                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format);
+                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format,
+                                       const drawn_pattern::Modifiers &modifiers);
 
 bool renewBlePattern(uint16_t connection);
+bool setLeasedBleSensation(uint16_t connection, uint8_t value);
 bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource);
 
 void nimbleLoop(void* pvParameters);

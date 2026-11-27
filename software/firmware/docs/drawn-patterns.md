@@ -69,3 +69,30 @@ flag marks a known upper bound on the remaining queue delay. Serial-path
 shaft arrival requires independent measurement. The first flag identifies
 the first rate in a new Play. Read the records after Stop to measure live
 adjustments without issuing USB commands during playback.
+
+## Experimental sensation modifiers
+
+A drawing can contain vibration ranges and pause points. Their locations are fractions of the drawing's original cycle, so starting playback at the first minimum keeps every marker attached to its drawn position.
+
+- A vibration range adds a 6 Hz oscillation. It fades in and out inside the marked interval. Sensation controls its amplitude. Full strength uses up to 1% of the configured stroke or 1 mm, whichever is smaller. Available speed, acceleration, jerk and the width of the range can reduce the physical amplitude further.
+- A pause point holds the drawn position for a fraction of its configured duration. For a two-second pause, 0%, 50% and 100% sensation request zero, one and two seconds of hold. Braking and resuming take additional time. Strength is sampled as the player commits to the approach. Returning Sensation to zero releases a hold. Each point is eligible on the next pass.
+- At zero strength the drawing plays through. For marked drawings the firmware uses the base acceleration associated with the normal 50% setting at every strength. Travel, speed and backend limits still apply. The reported base period excludes time spent approaching, holding and leaving a pause.
+- A vibration range may touch another range. A pause must have its own point, including at the loop seam. A range lies within a single cycle. Place one range on either side of the seam to mark both ends.
+
+A supporting device reports `modifierVersion: 1` and `maxModifiers: 128` in pattern status. On the same control lease, `setting.write` at `motion.sensation` accepts an integer from 0 through 100 while a marked pattern is playing. Physical controls can also set Sensation. A saved slot with markers reports its `modifierCount` in the pattern catalog.
+
+### Transferring markers
+
+Send `pattern.modifiers` with a nonzero random unsigned 32-bit `key`, zero-based record `offset`, and `data`. Encode each record in twelve lowercase hexadecimal characters, four per unsigned field in this order.
+
+| Field | Vibration | Pause |
+| --- | --- | --- |
+| Start | 0–999 thousandths of the cycle | 0–999 thousandths of the cycle |
+| End | Greater than start, up to 1000 | Same as start |
+| Hold | 0 | Maximum hold in milliseconds, 1–10000 |
+
+Sort by start. Send at most 32 whole records per request, reducing chunk size as needed for the BLE packet budget. Start at offset zero. The reply's `count` acknowledges the number of records received. A retry of an identical chunk returns the current count. A gap, overlap, invalid field or conflicting retry fails.
+
+Commit on the same connection and lease with `pattern.playModified` or `pattern.saveModified`. Supply the usual sample/period and optional save destination, plus `modifierKey` and the exact `modifierCount`. A commit consumes the upload. For a new attempt after a failed commit, start a fresh transfer. Stop and lease release discard uncommitted markers. A live upload alone cannot move the shaft or change a saved slot.
+
+On the first successful save with markers, the waveform, markers, names and selected slot are written together to `libraryV4`. Prior library records stay intact for downgrade. Existing drawings and saves on earlier firmware continue using the original commands. After upgrading, both Dashboard slot playback and the wired controller replay the saved markers.

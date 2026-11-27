@@ -4,6 +4,7 @@
 #include <vector>
 #include "saved_pattern_library.h"
 #include "pattern_catalog_json.h"
+#include "pattern_modifier_upload.h"
 
 using namespace streaming;
 namespace {
@@ -12,11 +13,13 @@ bool failWrite;
 int writes;
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
 
-bool readRecord(const char *key, void *out, size_t size) {
+size_t readRecord(const char *key, void *out, size_t size) {
     const auto it = flash.find(key);
-    if (it == flash.end() || it->second.size() != size) return false;
+    if (it == flash.end()) return 0;
+    if (!out) return it->second.size();
+    if (it->second.size() != size) return 0;
     std::memcpy(out, it->second.data(), size);
-    return true;
+    return size;
 }
 bool writeRecord(const char *key, const void *ptr, size_t size) {
     ++writes;
@@ -370,8 +373,110 @@ void test_index_uses_storage_only_for_explicit_requests_and_failed_io_preserves_
     TEST_ASSERT_EQUAL_UINT(3, reads);
 }
 
+void test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries() {
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    auto args = doc.to<JsonObject>();
+    args["key"] = 7;
+    args["offset"] = 0;
+    args["data"] = "006400c80000"; // 10–20% vibration
+    TEST_ASSERT_EQUAL_UINT(1, upload.append(3, 44, args));
+    TEST_ASSERT_EQUAL_UINT(1, upload.append(3, 44, args));
+    args["offset"] = 1;
+    args["data"] = "0096009603e8"; // pause inside vibration
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(3, 44, args));
+    args["data"] = "00c800c803e8"; // pause on vibration boundary
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(3, 44, args));
+    args["data"] = "00c8012c00000190019003e8";
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(3, 45, args));
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(4, 44, args));
+    TEST_ASSERT_EQUAL_UINT(3, upload.append(3, 44, args));
+    TEST_ASSERT_EQUAL_UINT(3, upload.append(3, 44, args));
+    args["modifierKey"] = 7;
+    args["modifierCount"] = 2;
+    TEST_ASSERT_FALSE(bool(upload.take(3, 44, args)));
+    args["modifierCount"] = 3;
+    TEST_ASSERT_FALSE(bool(upload.take(3, 45, args)));
+    const auto complete = upload.take(3, 44, args);
+    TEST_ASSERT_TRUE(bool(complete));
+    TEST_ASSERT_EQUAL_UINT(1000, complete->entries[2].holdMs);
+    TEST_ASSERT_FALSE(bool(upload.take(3, 44, args)));
+}
+
+void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input() {
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    auto args = doc.to<JsonObject>();
+    args["key"] = 99;
+    char hex[13];
+    for (unsigned offset = 0; offset < 128; offset += 32) {
+        std::string data;
+        for (unsigned i = offset; i < offset + 32; ++i) {
+            snprintf(hex, sizeof(hex), "%04x%04x0001", i, i);
+            data += hex;
+        }
+        args["offset"] = offset;
+        args["data"] = data;
+        TEST_ASSERT_EQUAL_UINT(offset + 32, upload.append(1, 12, args));
+    }
+    args["offset"] = 128;
+    args["data"] = "008000800001";
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
+    args["offset"] = 0;
+    args["key"] = 10;
+    for (const auto bad : {"", "000000000000", "00g000080000", "000100000005",
+                           "000000000002000203e80000", "03e803e80001",
+                           "006400642711", "000000010001", "0000002a0000002900290001"}) {
+        args["data"] = bad;
+        TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
+    }
+    args["modifierKey"] = 99;
+    args["modifierCount"] = 128;
+    TEST_ASSERT_TRUE(bool(upload.take(1, 12, args)));
+}
+
+void test_modified_slots_round_trip_and_keep_original_on_failure() {
+    using drawn_pattern::Modifiers;
+    SavedPatternLibrary library;
+    const auto waveform = curve(3000);
+    TEST_ASSERT_TRUE(library.save(0, "Base", 4, waveform, writeRecord));
+    const auto legacy = flash.at("libraryV3");
+    Modifiers effects;
+    effects.count = 2;
+    effects.entries[0] = {250, 500, 0};
+    effects.entries[1] = {750, 750, 2000};
+    TEST_ASSERT_TRUE(library.save(1, "With effects", 12, waveform, writeRecord, effects));
+    TEST_ASSERT_TRUE(library.select(1, writeRecord));
+    TEST_ASSERT_EQUAL_UINT(2, library.catalog().slots[1].modifierCount);
+    TEST_ASSERT_TRUE(legacy == flash.at("libraryV3"));
+    TEST_ASSERT_EQUAL_UINT(1192 + 8 + 12, flash.at("libraryV4").size());
+    SavedPatternLibrary restored;
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    SavedPattern saved;
+    Modifiers retrieved;
+    TEST_ASSERT_TRUE(restored.get(saved, selectedPatternSlot, &retrieved));
+    TEST_ASSERT_EQUAL_MEMORY(effects.entries, retrieved.entries, 2*sizeof(drawn_pattern::Modifier));
+    const int committed = writes;
+    TEST_ASSERT_TRUE(restored.save(1, nullptr, 0, waveform, writeRecord, effects));
+    TEST_ASSERT_EQUAL_INT(committed, writes);
+    failWrite = true;
+    TEST_ASSERT_FALSE(restored.save(1, nullptr, 0, waveform, writeRecord));
+    TEST_ASSERT_EQUAL_UINT(2, restored.catalog().slots[1].modifierCount);
+    failWrite = false;
+    TEST_ASSERT_TRUE(restored.save(1, nullptr, 0, waveform, writeRecord));
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    TEST_ASSERT_TRUE(restored.get(saved, 1, &retrieved));
+    TEST_ASSERT_EQUAL_UINT(0, retrieved.count);
+    TEST_ASSERT_EQUAL_UINT(0, restored.catalog().slots[0].modifierCount);
+    flash["libraryV4"].pop_back();
+    TEST_ASSERT_FALSE(restored.load(readRecord)); // A partial V4 never silently revives stale V3.
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries);
+    RUN_TEST(test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input);
+    RUN_TEST(test_modified_slots_round_trip_and_keep_original_on_failure);
     RUN_TEST(test_legacy_blob_loads_without_writing_or_starting_and_survives_upgrade);
     RUN_TEST(test_first_slot_default_named_select_and_v1_aliases_survive_reboot);
     RUN_TEST(test_failed_or_repeated_transactions_preserve_selection_and_slot);
