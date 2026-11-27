@@ -162,7 +162,9 @@ public:
             serialSelected() != serial) return {Frame::Rejected, "guard"};
         if (!serial) {
             if (primingPulse_) {
-                if (pulse_->isRunning()) return {Frame::Retry, "pulse_priming"};
+                const bool running = pulse_->isRunning();
+                const auto wait = primeWait_.poll(millis(), running, pulse_->getCurrentPosition());
+                if (wait.state != Frame::Accepted) return wait;
                 primingPulse_ = false;
             }
             if (pulse_->isRampGeneratorActive()) return {Frame::Rejected, "pulse_ramp_active"};
@@ -178,6 +180,8 @@ public:
                 }
                 const auto result = static_cast<int8_t>(pulse_->moveTo(logical));
                 if (result != 0) return {Frame::Rejected, "pulse_prime", result};
+                primeWait_.start(logical, millis(), pulse_->getSpeedInTicks(),
+                                 TICKS_PER_S / 1000, pulse_->getAcceleration());
                 needsPulseRamp_ = false;
                 primingPulse_ = true;
                 return {Frame::Retry, "pulse_priming"};
@@ -504,6 +508,7 @@ private:
     bool taskReady_ = false;
     bool directionHigh_ = false;
     drawn_pattern::PulseQueue pulseQueue_;
+    drawn_pattern::PulsePrimeWait primeWait_;
     std::atomic_bool primingPulse_{false}, needsPulseRamp_{true};
     uint32_t lastPauseAt_ = 0;
     bool serialPatternFrame_ = false;

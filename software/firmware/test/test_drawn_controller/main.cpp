@@ -203,6 +203,49 @@ void test_no_phase_catchup_after_backpressure_or_a_scheduling_gap() {
     TEST_ASSERT_EQUAL_UINT(2, frames.size());
 }
 
+void test_verified_prime_tail_freezes_phase_and_preserves_raw_starvation_deadline() {
+    motor.speed = 2;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    feedback = {io::Frame::Retry, "pulse_priming", 0, drawn_pattern::FrameTiming::PrimeTail};
+    tick(500);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(frames.empty());
+    feedback = {io::Frame::Accepted};
+    tick();
+    TEST_ASSERT_EQUAL_INT(motor.to, frames.front());
+    feedback = {io::Frame::Retry, "pulse_full"};
+    tick(199);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    tick();
+    TEST_ASSERT_EQUAL_STRING("pulse_full", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_UINT32(200, drawnPatternStatus().lastStop.frameGapMs);
+}
+
+void test_prime_tail_still_obeys_stop_zero_guard_lease_owner_and_service_loss() {
+    motor.speed = 2;
+    feedback = {io::Frame::Retry, "pulse_priming", 0, drawn_pattern::FrameTiming::PrimeTail};
+    auto begin = [] {
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+        tick(260);
+        TEST_ASSERT_TRUE(drawnPatternActive());
+    };
+    begin(); cancelDrawnPattern();
+    TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
+    begin(); motor.speed = 0; tick();
+    TEST_ASSERT_EQUAL_STRING("limits_zero", drawnPatternStatus().lastStop.reason);
+    motor.speed = 2;
+    begin(); motor.ready = false; tick();
+    TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+    motor.ready = true;
+    begin(); tick(drawn_pattern::leaseMs - 260);
+    TEST_ASSERT_EQUAL_STRING("lease_expired", drawnPatternStatus().lastStop.reason);
+    begin(); setDrawnPatternReady(revision, false, "mode_exit");
+    TEST_ASSERT_EQUAL_STRING("mode_exit", drawnPatternStatus().lastStop.reason);
+    setDrawnPatternReady(revision, true);
+    begin(); clockMs += 200; tick();
+    TEST_ASSERT_EQUAL_STRING("scheduler_gap", drawnPatternStatus().lastStop.reason);
+}
+
 void test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end() {
     motor.serial = true;
     motor.from = -1997;  // deepest native target
@@ -412,6 +455,8 @@ int main() {
     RUN_TEST(test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate);
     RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately);
     RUN_TEST(test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits);
+    RUN_TEST(test_verified_prime_tail_freezes_phase_and_preserves_raw_starvation_deadline);
+    RUN_TEST(test_prime_tail_still_obeys_stop_zero_guard_lease_owner_and_service_loss);
     RUN_TEST(test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end);
     RUN_TEST(test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start);
     RUN_TEST(test_zero_speed_arms_but_expiry_never_restarts);

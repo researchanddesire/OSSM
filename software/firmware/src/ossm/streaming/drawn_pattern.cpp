@@ -17,7 +17,7 @@ Stage stage = Stage::Idle;
 bool ready = false, local = false, serial = false;
 uint64_t owner = 0;
 PatternStop lastStop;
-uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, effectivePeriod = 0;
+uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, lastProgressAt = 0, effectivePeriod = 0;
 int32_t lower = 0, upper = 0, entry = 0;
 double phase = 0;
 drawn_pattern::PhaseClock clock;
@@ -128,9 +128,9 @@ void service(uint32_t now) {
             return stopLocked("entry_position", now);
         }
         stage = Stage::Playing;
-        lastFrameAt = now;
+        lastProgressAt = lastFrameAt = now;
     }
-    if (now - lastFrameAt > 200) return stopLocked("scheduler_gap", now); // stop after starvation; never burst to catch up
+    if (now - lastProgressAt > drawn_pattern::frameStarvationMs) return stopLocked("scheduler_gap", now); // stop after starvation; never burst to catch up
     const uint32_t frameMs = serial ? 20 : drawn_pattern::pulseFrameMs;
     if (serial && now - lastFrameAt < frameMs) return;
     const double dt = frameMs / 1000.0;
@@ -153,14 +153,16 @@ void service(uint32_t now) {
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
-            if (now - lastFrameAt >= 200) stopLocked(result.reason, now, result.driverResult);
+            if (result.timing == drawn_pattern::FrameTiming::PrimeTail) lastProgressAt = now;
+            if (now - lastProgressAt >= drawn_pattern::frameStarvationMs)
+                stopLocked(result.reason, now, result.driverResult);
             return;
         }
         if (lastAppliedPeriod != effectivePeriod) recordRateGoal(pattern_motor::now(),result.timing);
         crossingCached = false;
         clock = nextClock;
         phase = next - std::floor(next);
-        lastFrameAt = now;
+        lastProgressAt = lastFrameAt = now;
     }
 }
 } // namespace

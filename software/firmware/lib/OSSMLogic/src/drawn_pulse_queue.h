@@ -7,12 +7,45 @@
 
 namespace drawn_pattern {
 enum class Frame { Accepted, Retry, Rejected };
-enum class FrameTiming : uint8_t { Unknown, EntryHold, Prefill, Started, Running };
+enum class FrameTiming : uint8_t { Unknown, EntryHold, Prefill, Started, Running, PrimeTail };
 struct FrameResult {
     Frame state;
     const char *reason = nullptr;
     int8_t driverResult = 0;
     FrameTiming timing = FrameTiming::Unknown;
+};
+
+constexpr uint32_t frameStarvationMs = 200;
+
+// FAS can emit the one-step re-prime immediately, then keep its finite
+// ramp busy with the remainder of that step interval. Only an observed
+// arrival at the issued target can extend the ordinary starvation budget.
+class PulsePrimeWait {
+    int32_t target_ = 0;
+    uint32_t startedAt_ = 0, deadlineMs_ = frameStarvationMs;
+public:
+    void start(int32_t target, uint32_t now, uint32_t speedTicks,
+               uint32_t ticksPerMs, uint32_t acceleration) {
+        target_ = target;
+        startedAt_ = now;
+        deadlineMs_ = frameStarvationMs;
+        if (speedTicks == 0 || ticksPerMs == 0 || acceleration == 0) return;
+        // The drawn backend sets an integer speed of at least 1 Hz and
+        // acceleration of at least 1 step/s². FAS's slowest acceleration
+        // interval is 1/sqrt(2*a). Use 1/sqrt(a) to cover timer rounding.
+        const uint32_t travelMs = speedTicks / ticksPerMs + (speedTicks % ticksPerMs != 0);
+        const auto accelerationMs = static_cast<uint32_t>(std::ceil(1000.0 / std::sqrt(acceleration)));
+        const auto tailMs = std::max(std::min<uint32_t>(travelMs, 1000), accelerationMs);
+        deadlineMs_ = std::max(frameStarvationMs, tailMs + 20); // finite-ramp publication and service
+    }
+    FrameResult poll(uint32_t now, bool running, int32_t position) const {
+        const auto elapsed = now - startedAt_;
+        if (!running && position == target_) return {Frame::Accepted};
+        if (elapsed >= deadlineMs_) return {Frame::Rejected, "prime_timeout"};
+        if (!running && elapsed >= 20) return {Frame::Rejected, "prime_position"};
+        const bool tail = running && position == target_;
+        return {Frame::Retry, "pulse_priming", 0, tail ? FrameTiming::PrimeTail : FrameTiming::Unknown};
+    }
 };
 
 constexpr unsigned pulseQueueFrames = 10;

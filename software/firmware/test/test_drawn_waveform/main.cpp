@@ -20,6 +20,26 @@ static std::string encode(const std::array<int, 16>& points) {
 const std::array<int, 16> asymmetric{0, 8, 27, 51, 90, 142, 228, 255,
                                      255, 196, 167, 93, 60, 60, 22, 3};
 
+void test_finite_prime_tail_uses_programmed_limits_and_verified_position() {
+    using namespace drawn_pattern;
+    PulsePrimeWait wait;
+    const uint32_t start = UINT32_MAX - 300;
+    wait.start(-1, start, 16000000, 16000, 50000); // 1 Hz, crosses millis rollover
+    TEST_ASSERT_EQUAL_INT(int(FrameTiming::Unknown), int(wait.poll(start + 2, true, 0).timing));
+    TEST_ASSERT_EQUAL_INT(int(FrameTiming::PrimeTail), int(wait.poll(start + 999, true, -1).timing));
+    TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(wait.poll(start + 1001, false, -1).state));
+    TEST_ASSERT_EQUAL_STRING("prime_timeout", wait.poll(start + 1020, true, -1).reason);
+
+    wait.start(1, 0, 80000, 16000, 50000); // 200 Hz, ordinary 200 ms deadline
+    TEST_ASSERT_EQUAL_INT(int(Frame::Retry), int(wait.poll(2, false, 0).state));
+    TEST_ASSERT_EQUAL_STRING("prime_position", wait.poll(20, false, 0).reason);
+    TEST_ASSERT_EQUAL_STRING("prime_timeout", wait.poll(200, true, 1).reason);
+
+    wait.start(1, 0, 80000, 16000, 1); // acceleration, rather than speed, constrains the step
+    TEST_ASSERT_EQUAL_INT(int(FrameTiming::PrimeTail), int(wait.poll(710, true, 1).timing));
+    TEST_ASSERT_EQUAL_STRING("prime_timeout", wait.poll(1020, true, 1).reason);
+}
+
 void test_wire_bounds_are_checked_before_motion() {
     Waveform curve;
     auto hex = encode(asymmetric);
@@ -371,6 +391,7 @@ int main() {
     RUN_TEST(test_authored_extension_maps_every_asymmetric_sample_to_the_native_motor_frame);
     RUN_TEST(test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead);
     RUN_TEST(test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_errors);
+    RUN_TEST(test_finite_prime_tail_uses_programmed_limits_and_verified_position);
     RUN_TEST(test_wire_bounds_are_checked_before_motion);
     RUN_TEST(test_passes_through_all_samples_no_overshoot_and_continuous_velocity);
     RUN_TEST(test_phase_starts_at_a_resting_extremum_and_loops_without_a_jump);
