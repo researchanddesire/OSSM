@@ -81,6 +81,16 @@ class PulseQueue {
 
 public:
     bool owned() const { return stage_.load() != Stage::Idle; }
+    enum class Entry { Raw, Busy, Stationary, FirstMove };
+    // A drained Running queue stays owned and must report its underrun,
+    // even if the next target equals the current physical count.
+    template <class Driver>
+    Entry entryState(Driver &driver, int32_t target, bool completedPrime = false) const {
+        if (owned()) return Entry::Raw;
+        if (driver.isQueueRunning() || !driver.isQueueEmpty()) return Entry::Busy;
+        if (completedPrime) return Entry::Raw;
+        return driver.getCurrentPosition() == target ? Entry::Stationary : Entry::FirstMove;
+    }
     bool filling() const { return stage_.load() == Stage::Filling; }
     int32_t initialPosition() const { return initialPosition_; }
     void reset() { stage_ = Stage::Idle; }

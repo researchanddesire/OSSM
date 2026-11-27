@@ -60,6 +60,16 @@ public:
         }
         return distance;
     }
+    // Crossing probes only need displacement. Within a single ramp segment
+    // use the same integral as advance() without changing the clock.
+    double distanceAt(double seconds) const {
+        if (index_ == size_) return rate_ * seconds;
+        const auto &s = segments_[index_];
+        if (seconds <= s.seconds)
+            return seconds * (rate_ + seconds * (.5 * acceleration_ + seconds * s.jerk / 6));
+        auto clock = *this;
+        return clock.advance(seconds);
+    }
     double secondsToGoal() const {
         double time = 0;
         for (unsigned i = index_; i < size_; ++i) time += segments_[i].seconds;

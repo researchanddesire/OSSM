@@ -68,7 +68,11 @@ producer accepting the first frame at that governed rate. The final
 flag marks a known upper bound on the remaining queue delay. Serial-path
 shaft arrival requires independent measurement. The first flag identifies
 the first rate in a new Play. Read the records after Stop to measure live
-adjustments without issuing USB commands during playback.
+adjustments without issuing USB commands during playback. A stationary
+software entry followed by timed STEP output also records the first accepted
+raw frame. This record can repeat the same rate and Sensation. Its frame
+index and observed queue-start delay bracket the new hardware timing origin.
+A required finite re-prime after a hard stop can already have emitted one step.
 
 ## Experimental sensation modifiers
 
@@ -100,3 +104,5 @@ Each of the 1,000 distinct start positions can carry a marker. The device alloca
 With the shaft stopped, USB `patternfeel <sequence>` reads the sensation associated with an accepted frame on the same sequence as `patterntime`. Zero requests the newest record. The fields following `RAD_PATTERN_FEEL` are sequence, uptime in milliseconds, requested strength in thousandths of a percent, current gain in millionths, target gain in millionths, carrier phase in billionths of a cycle, and accepted frame index since Play. The record captures changes in commanded timing or effect strength. Both readouts survive Stop.
 
 After Stop, USB `patternwork` returns the last playback’s accepted frame count, queue retry count, longest single-frame planning time, longest driver submission time, and longest wait for the motion mutex during a heartbeat renewal. The three elapsed-time maxima are in microseconds and include task preemption. The next accepted Play resets the counters.
+
+After Stop, USB `patterncost` reports the number of planned frames, plans whose target changes by at least one native step, total planning time in microseconds, plans over 2 ms, backend submission attempts, total submission time in microseconds, attempts over 2 ms, and the timing sequence of the initial software-to-raw handoff (zero if absent). Times include task preemption. A full queue retries a prepared frame. A change to its applicable motion settings causes a fresh plan. After a verified finite entry, initial stationary STEP/DIR frames run on the 2 ms software clock until the first changed target. An unexpected underrun once the raw queue owns movement still stops playback.

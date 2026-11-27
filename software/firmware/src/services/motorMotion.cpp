@@ -165,19 +165,23 @@ public:
                 const bool running = pulse_->isRunning();
                 const auto wait = primeWait_.poll(millis(), running, pulse_->getCurrentPosition());
                 if (wait.state != Frame::Accepted) return wait;
-                primingPulse_ = false;
+                // The prime already emitted a real step. Keep its completion
+                // pending until the first raw frame is successfully queued.
             }
             if (pulse_->isRampGeneratorActive()) return {Frame::Rejected, "pulse_ramp_active"};
+            using Entry = drawn_pattern::PulseQueue::Entry;
+            const auto entry = pulseQueue_.entryState(*pulse_, logical, primingPulse_);
+            if (entry == Entry::Busy) return {Frame::Rejected, "entry_busy"};
+            if (entry == Entry::Stationary) {
+                const auto now = millis();
+                if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs)
+                    return {Frame::Retry, "pulse_entry_hold"};
+                lastPauseAt_ = now;
+                return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::EntryHold};
+            }
             if (needsPulseRamp_) {
                 // A force stop inhibits raw writes until a finite ramp has
-                // actually run. Stay at the entry during initial timed holds.
-                if (logical == pulse_->getCurrentPosition()) {
-                    const auto now = millis();
-                    if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs)
-                        return {Frame::Retry, "pulse_entry_hold"};
-                    lastPauseAt_ = now;
-                    return {Frame::Accepted,nullptr,0,drawn_pattern::FrameTiming::EntryHold};
-                }
+                // actually run. Re-prime on the first changed target.
                 const auto result = static_cast<int8_t>(pulse_->moveTo(logical));
                 if (result != 0) return {Frame::Rejected, "pulse_prime", result};
                 primeWait_.start(logical, millis(), pulse_->getSpeedInTicks(),
@@ -186,9 +190,11 @@ public:
                 primingPulse_ = true;
                 return {Frame::Retry, "pulse_priming"};
             }
-            return pulseQueue_.submit<stepper_command_s>(*pulse_, logical,
+            const auto result = pulseQueue_.submit<stepper_command_s>(*pulse_, logical,
                 TICKS_PER_S / 1000 * drawn_pattern::pulseFrameMs, crossing, MIN_CMD_TICKS,
                 static_cast<int8_t>(MOVE_TIMED_EMPTY));
+            if (result.state == Frame::Accepted) primingPulse_ = false;
+            return result;
         }
 
         refresh();

@@ -153,6 +153,18 @@ void console(void*) {
                     Serial.println("RAD_PATTERN_WORK unavailable");
                 }
             }
+            else if (strcmp(command, "patterncost") == 0) {
+                streaming::PatternWork work;
+                if (streaming::stoppedPatternWork(work)) {
+                    Serial.printf("RAD_PATTERN_COST %lu %lu %llu %lu %lu %llu %lu %lu\n",
+                                  static_cast<unsigned long>(work.plans), static_cast<unsigned long>(work.movingPlans),
+                                  static_cast<unsigned long long>(work.planTotalUs), static_cast<unsigned long>(work.planOver2ms),
+                                  static_cast<unsigned long>(work.submissions), static_cast<unsigned long long>(work.submitTotalUs),
+                                  static_cast<unsigned long>(work.submitOver2ms), static_cast<unsigned long>(work.rawStartSequence));
+                } else {
+                    Serial.println("RAD_PATTERN_COST unavailable");
+                }
+            }
             else if (strcmp(command, "hat") == 0) announceHat();
 #if OSSM_HAT_SERIAL_BACKEND
             else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();

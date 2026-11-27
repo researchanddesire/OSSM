@@ -129,7 +129,8 @@ public:
 
 private:
     double prepareCell(double phase) const {
-        const double index = (phase - std::floor(phase)) * count_;
+        if (phase >= 1 || phase < 0) phase -= std::floor(phase);
+        const double index = phase * count_;
         const auto whole = static_cast<size_t>(index);
         const size_t cell = (start_ + whole) % count_;
         if (cachedIndex_ != cell) {

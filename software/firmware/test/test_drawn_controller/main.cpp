@@ -417,7 +417,7 @@ void test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits() {
     TEST_ASSERT_TRUE(wave.decode(smooth, sizeof(smooth)-1, 500));
     unsigned peaks = 0;
     int32_t previous = motor.to;
-    for (int percent : {15, 100, 35, 80}) {
+    for (int percent : {15, 100, 35, 80, 25, 100, 25}) {
         TEST_ASSERT_EQUAL_INT(int(motion_link::SpeedWrite::Applied),
                               int(writeSpeed(link, 8, "motion.speed", percent)));
         motor.speed = 200.0 * settings.speedBLE.value(); // 20kHz at 100%
@@ -676,6 +676,9 @@ void test_refill_turn_is_bounded_and_retains_work_only_after_stop() {
     TEST_ASSERT_TRUE(stoppedPatternWork(summary));
     TEST_ASSERT_EQUAL_UINT(6, summary.frames);
     TEST_ASSERT_EQUAL_UINT(4, summary.retries);
+    TEST_ASSERT_EQUAL_UINT(7, summary.plans);
+    TEST_ASSERT_EQUAL_UINT(10, summary.submissions);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(summary.plans, summary.movingPlans);
     TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     TEST_ASSERT_FALSE(stoppedPatternWork(summary));
@@ -685,8 +688,69 @@ void test_refill_turn_is_bounded_and_retains_work_only_after_stop() {
     TEST_ASSERT_EQUAL_UINT(0, summary.retries);
 }
 
+void test_raw_queue_acquisition_restamps_delayed_stationary_entry() {
+    using drawn_pattern::FrameTiming;
+    motor.speed = 500;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, FrameTiming::EntryHold};
+    tick(3);
+    PatternRateStamp entry, raw;
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, entry));
+    TEST_ASSERT_TRUE(entry.first && entry.leadKnown);
+    TEST_ASSERT_EQUAL_UINT16(0, entry.leadBoundMs);
+    const auto entryFrames = frames.size();
+    clockMs += 22;
+    feedback = {io::Frame::Accepted, nullptr, 0, FrameTiming::Prefill};
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, raw));
+    TEST_ASSERT_EQUAL_UINT32(entry.sequence + 1, raw.sequence);
+    TEST_ASSERT_EQUAL_UINT32(entryFrames, raw.frameIndex);
+    TEST_ASSERT_EQUAL_UINT32(entry.periodMs, raw.periodMs);
+    TEST_ASSERT_FALSE(raw.first || raw.leadKnown);
+    const auto submittedAt = raw.atMs;
+    clockMs += 4;
+    feedback = {io::Frame::Retry, "pulse_full", 0, FrameTiming::Started};
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, raw));
+    TEST_ASSERT_TRUE(raw.leadKnown);
+    TEST_ASSERT_EQUAL_UINT32(clockMs - submittedAt + 27, raw.leadBoundMs);
+    cancelDrawnPattern();
+    PatternWork summary;
+    TEST_ASSERT_TRUE(stoppedPatternWork(summary));
+    TEST_ASSERT_EQUAL_UINT32(raw.sequence, summary.rawStartSequence);
+}
+
+void test_retry_reuses_frame_but_replans_for_live_inputs_and_safety() {
+    motor.speed = 500;
+    motor.strength = .5;
+    drawn_pattern::Modifiers marked;
+    marked.entries[marked.count++] = {200, 625, 0};
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(samples, 32, 2000, revision,
+                               false, drawn_pattern::SampleFormat::Q8, marked)));
+    tick();
+    feedback = {io::Frame::Retry, "pulse_full"};
+    tick(8);
+    motor.strength = 1;
+    tick(2);
+    motor.speed = 1000;
+    tick(2);
+    feedback = {io::Frame::Accepted};
+    tick();
+    motor.speed = 0;
+    tick();
+    PatternWork summary;
+    TEST_ASSERT_TRUE(stoppedPatternWork(summary));
+    TEST_ASSERT_EQUAL_STRING("limits_zero", drawnPatternStatus().lastStop.reason);
+    TEST_ASSERT_EQUAL_UINT(3, summary.frames);
+    TEST_ASSERT_EQUAL_UINT(12, summary.retries);
+    TEST_ASSERT_EQUAL_UINT(15, summary.submissions);
+    TEST_ASSERT_EQUAL_UINT(5, summary.plans);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_raw_queue_acquisition_restamps_delayed_stationary_entry);
+    RUN_TEST(test_retry_reuses_frame_but_replans_for_live_inputs_and_safety);
     RUN_TEST(test_refill_turn_is_bounded_and_retains_work_only_after_stop);
     RUN_TEST(test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends);
     RUN_TEST(test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause);

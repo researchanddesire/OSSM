@@ -43,6 +43,9 @@ struct PatternStop {
 };
 struct PatternWork {
     uint32_t frames = 0, retries = 0;
+    uint32_t plans = 0, movingPlans = 0, planOver2ms = 0;
+    uint32_t submissions = 0, submitOver2ms = 0, rawStartSequence = 0;
+    uint64_t planTotalUs = 0, submitTotalUs = 0;
     uint32_t maxPlanUs = 0, maxSubmitUs = 0, maxRenewLockUs = 0;
 };
 bool stoppedPatternWork(PatternWork &out);

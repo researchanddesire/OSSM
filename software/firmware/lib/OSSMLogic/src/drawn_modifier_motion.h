@@ -144,10 +144,12 @@ namespace drawn_pattern {
             } else {
                 advanceWithPauses(dt, limits, index, strength, frame);
             }
-            const double turns = std::floor(phase);
-            phase -= turns;
-            target -= turns;
-            skipThrough = std::max(-2., skipThrough - turns);
+            if (phase >= 1 || phase < 0) {
+                const double turns = std::floor(phase);
+                phase -= turns;
+                target -= turns;
+                skipThrough = std::max(-2., skipThrough - turns);
+            }
         }
 
       private:

@@ -44,8 +44,20 @@ bool reserveVibration = false, reconfigureAfterFade = false;
 double lastStrength = -1;
 double lastSpeed = 0, lastAcceleration = 0;
 double clockAcceleration = 0, clockJerk = 0;
-uint16_t firstCrossing = 32768;
-bool crossingCached = false;
+struct PlannedFrame {
+    drawn_pattern::MarkedPhase phase;
+    drawn_pattern::VibrationClock vibration;
+    int32_t target = 0;
+    uint16_t crossing = 32768;
+    bool valid = false;
+};
+// The submitted state advances only after the backend accepts the frame.
+// Keep one prospective frame during playback so queue pressure does not
+// repeat the phase clock, polynomial and crossing work for the same input.
+std::unique_ptr<PlannedFrame> pending;
+int32_t committedTarget = 0;
+bool committedTargetValid = false;
+bool softwareEntry = false;
 
 constexpr unsigned rateHistorySize = 8;
 constexpr uint32_t pulseLeadBoundMs = drawn_pattern::pulseStopDrainMs + drawn_pattern::pulseFrameMs;
@@ -111,7 +123,8 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     if (stage == Stage::Playing || stage == Stage::Positioning) pattern_motor::stop(owner);
     stage = Stage::Idle;
     activeMarkers.reset();
-    for (auto &pending : awaitingStart) pending = false;
+    pending.reset();
+    for (auto &waiting : awaitingStart) waiting = false;
     effectivePeriod = 0;
 }
 
@@ -132,7 +145,7 @@ void service(uint32_t now) {
     const bool limitsChanged = caps.speed != lastSpeed || caps.acceleration != lastAcceleration;
     if (stage == Stage::Waiting || reserve != reserveVibration ||
         (reconfigureAfterFade && vibration.gain.atZero()) || limitsChanged) {
-        crossingCached = false;
+        pending->valid = committedTargetValid = false;
         const double span = static_cast<double>(caps.to) - caps.from;
         const double share = reserve ? drawn_pattern::VibrationBudget::baseShare : 1.;
         // Fade the old carrier before raising its base-phase ceiling. A lower
@@ -162,7 +175,7 @@ void service(uint32_t now) {
         lastAcceleration = caps.acceleration;
     }
     if (caps.strength != lastStrength) {
-        crossingCached = false;
+        pending->valid = committedTargetValid = false;
         lastStrength = caps.strength;
     }
     if (stage == Stage::Waiting) {
@@ -201,43 +214,67 @@ void service(uint32_t now) {
     // faster than it drains. Release the lock and CPU between refill batches.
     constexpr unsigned pulseFramesPerTurn = 3;
     for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
-        const uint32_t planStart = workMicros();
-        const bool withinNewEnvelope =
-            motionPhase.clock.secondsToGoal() == 0 && motionPhase.clock.rate() <= phaseLimits.rate + 1e-12;
-        const double amplitude = requestedVibration && vibrationBudget.matches(caps.speed, caps.acceleration) &&
-                                         (withinNewEnvelope || !vibration.gain.atZero())
-                                     ? caps.strength
-                                     : 0;
-        auto nextPhase = motionPhase;
-        auto nextVibration = vibration;
-        drawn_pattern::FrameBrake frameBrake;
-        if (markerIndex.holds) frameBrake.bounds = &activeMarkers->brakeBounds;
-        const auto advance = [&](auto &p, auto &v, double seconds) {
-            p.advance(seconds, phaseLimits, markerIndex, caps.strength, &frameBrake);
-            if (markerIndex.hasVibration) v.advance(seconds, amplitude);
-        };
-        const auto target = [&](const auto &p, const auto &v) {
-            if (v.gain.atZero()) return curve.nativeTarget(p.phase, lower, upper);
-            const double y = curve.position(p.phase);
-            return upper - static_cast<int32_t>(std::lround(
-                               (upper - lower) * y + v.offset(y, p.phase, markerIndex, vibrationBudget)));
-        };
-        advance(nextPhase, nextVibration, dt);
-        const int32_t logical = target(nextPhase, nextVibration);
-        if (!serial && !crossingCached) {
-            firstCrossing =
-                drawn_pattern::firstStepCrossing(target(motionPhase, vibration), logical, [&](double fraction) {
-                    auto p = motionPhase;
-                    auto v = vibration;
-                    advance(p, v, dt * fraction);
-                    return target(p, v);
-                });
-            crossingCached = true;
+        auto &frame = *pending;
+        if (!frame.valid) {
+            const uint32_t planStart = workMicros();
+            const bool withinNewEnvelope =
+                motionPhase.clock.secondsToGoal() == 0 && motionPhase.clock.rate() <= phaseLimits.rate + 1e-12;
+            const double amplitude = requestedVibration && vibrationBudget.matches(caps.speed, caps.acceleration) &&
+                                             (withinNewEnvelope || !vibration.gain.atZero())
+                                         ? caps.strength
+                                         : 0;
+            drawn_pattern::FrameBrake frameBrake;
+            if (markerIndex.holds) frameBrake.bounds = &activeMarkers->brakeBounds;
+            const auto advance = [&](auto &p, auto &v, double seconds) {
+                p.advance(seconds, phaseLimits, markerIndex, caps.strength, &frameBrake);
+                if (markerIndex.hasVibration) v.advance(seconds, amplitude);
+            };
+            const auto target = [&](const auto &p, const auto &v) {
+                if (v.gain.atZero()) return curve.nativeTarget(p.phase, lower, upper);
+                const double y = curve.position(p.phase);
+                return upper - static_cast<int32_t>(std::lround(
+                                   (upper - lower) * y + v.offset(y, p.phase, markerIndex, vibrationBudget)));
+            };
+            frame.phase = motionPhase;
+            frame.vibration = vibration;
+            advance(frame.phase, frame.vibration, dt);
+            frame.target = target(frame.phase, frame.vibration);
+            if (!committedTargetValid) {
+                committedTarget = target(motionPhase, vibration);
+                committedTargetValid = true;
+            }
+            frame.crossing = 32768;
+            if (frame.target != committedTarget) {
+                ++work.movingPlans;
+                if (!serial && !activeMarkers) {
+                    auto clock = motionPhase.clock;
+                    clock.setGoal(phaseLimits.rate, phaseLimits.acceleration, phaseLimits.jerk);
+                    frame.crossing = drawn_pattern::firstStepCrossing(committedTarget, frame.target, [&](double fraction) {
+                        return curve.nativeTarget(motionPhase.phase + clock.distanceAt(dt * fraction), lower, upper);
+                    });
+                } else if (!serial) {
+                    frame.crossing = drawn_pattern::firstStepCrossing(committedTarget, frame.target, [&](double fraction) {
+                        auto p = motionPhase;
+                        auto v = vibration;
+                        advance(p, v, dt * fraction);
+                        return target(p, v);
+                    });
+                }
+            }
+            frame.valid = true;
+            const uint32_t planUs = workMicros() - planStart;
+            ++work.plans;
+            work.planTotalUs += planUs;
+            if (planUs > 2000) ++work.planOver2ms;
+            work.maxPlanUs = std::max(work.maxPlanUs, planUs);
         }
         const uint32_t submitStart = workMicros();
-        work.maxPlanUs = std::max(work.maxPlanUs, submitStart - planStart);
-        const auto result = pattern_motor::submit(logical, owner, serial, firstCrossing);
-        work.maxSubmitUs = std::max(work.maxSubmitUs, workMicros() - submitStart);
+        const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing);
+        const uint32_t submitUs = workMicros() - submitStart;
+        ++work.submissions;
+        work.submitTotalUs += submitUs;
+        if (submitUs > 2000) ++work.submitOver2ms;
+        work.maxSubmitUs = std::max(work.maxSubmitUs, submitUs);
         if (result.timing == drawn_pattern::FrameTiming::Started)
             observeQueueStart(pattern_motor::now());
         if (result.state == pattern_motor::Frame::Rejected)
@@ -249,14 +286,21 @@ void service(uint32_t now) {
                 stopLocked(result.reason, now, result.driverResult);
             return;
         }
-        if (lastAppliedPeriod != effectivePeriod ||
+        const bool entryToRaw = softwareEntry &&
+            (result.timing == drawn_pattern::FrameTiming::Prefill ||
+             result.timing == drawn_pattern::FrameTiming::Started ||
+             result.timing == drawn_pattern::FrameTiming::Running);
+        if (entryToRaw || lastAppliedPeriod != effectivePeriod ||
             (activeMarkers &&
-             (lastStampedStrength != caps.strength || vibration.gain.goal() != nextVibration.gain.goal())))
-            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, nextVibration.gain.goal());
-        crossingCached = false;
+             (lastStampedStrength != caps.strength || vibration.gain.goal() != frame.vibration.gain.goal())))
+            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, frame.vibration.gain.goal());
+        if (entryToRaw) work.rawStartSequence = rateSequence;
+        softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
+        frame.valid = false;
+        committedTarget = frame.target;
         work.frames = ++acceptedFrames;
-        motionPhase = nextPhase;
-        vibration = nextVibration;
+        motionPhase = frame.phase;
+        vibration = frame.vibration;
         lastProgressAt = lastFrameAt = now;
         // Recompute the base budget before accepting the next frame, even
         // when this call could otherwise fill several more queue entries.
@@ -295,6 +339,8 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     pattern_motor::State caps;
     const auto status = startStatusLocked(revision, caps);
     if (status != PatternStart::Accepted) return status;
+    std::unique_ptr<PlannedFrame> firstFrame(new (std::nothrow) PlannedFrame);
+    if (!firstFrame) return PatternStart::Busy;
     curve = incoming;
     if (modifiers.count) {
         // The idle BLE/TLS paths retain no full playback-marker table.
@@ -306,6 +352,9 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
             return PatternStart::Busy;
         }
     }
+    pending = std::move(firstFrame);
+    softwareEntry = false;
+    committedTargetValid = false;
     vibration = {};
     vibrationBudget = {};
     reserveVibration = reconfigureAfterFade = false;

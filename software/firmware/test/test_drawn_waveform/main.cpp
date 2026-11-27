@@ -159,6 +159,8 @@ struct InterruptingQueue {
     unsigned moveTimedCalls = 0;
     int32_t tail = -896;
     unsigned queueEntries() const { return count; }
+    bool isQueueEmpty() const { return count == 0; }
+    int32_t getCurrentPosition() const { return -896; }
     int32_t getPositionAfterCommandsCompleted() const { return tail; }
     bool isQueueRunning() const { return running; }
     uint16_t getMaxSpeedInTicks() const { return 80; }
@@ -190,6 +192,45 @@ struct InterruptingQueue {
         return 0;
     }
 };
+}
+
+void test_stationary_entry_requires_untouched_empty_driver_and_matching_position() {
+    using namespace drawn_pattern;
+    using Entry = PulseQueue::Entry;
+    PulseQueue q;
+    InterruptingQueue driver;
+    TEST_ASSERT_EQUAL_INT(int(Entry::Stationary), int(q.entryState(driver, -896)));
+    TEST_ASSERT_EQUAL_INT(int(Entry::FirstMove), int(q.entryState(driver, -895)));
+    TEST_ASSERT_EQUAL_INT(int(Entry::Raw), int(q.entryState(driver, -896, true)));
+    driver.running = true;
+    TEST_ASSERT_EQUAL_INT(int(Entry::Busy), int(q.entryState(driver, -896)));
+    driver.running = false;
+    driver.count = 1;
+    TEST_ASSERT_EQUAL_INT(int(Entry::Busy), int(q.entryState(driver, -896)));
+    driver.count = 0;
+    q.submit<PulseCommand>(driver, -895, 32000, 32768, 3200, 7);
+    TEST_ASSERT_EQUAL_INT(int(Entry::Raw), int(q.entryState(driver, -896)));
+    for (unsigned i = 1; i < pulseQueueFrames; ++i)
+        q.submit<PulseCommand>(driver, -895, 32000, 32768, 3200, 7);
+    driver.count = 0;
+    driver.running = false;
+    TEST_ASSERT_EQUAL_INT(int(Entry::Raw), int(q.entryState(driver, -896)));
+    const auto result = q.submit<PulseCommand>(driver, -896, 32000, 32768, 3200, 7);
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", result.reason);
+}
+
+void test_crossing_clock_projection_matches_full_clock_during_retargets() {
+    drawn_pattern::PhaseClock clock;
+    for (const double goal : {.02, .66, .03, .9, .01}) {
+        clock.setGoal(goal, .6, 2.);
+        for (int i = 0; i < 1000; ++i) {
+            for (const double offset : {.0000005, .000625, .001003, .001999, .002}) {
+                auto trial = clock;
+                TEST_ASSERT_TRUE(trial.advance(offset) == clock.distanceAt(offset));
+            }
+            clock.advance(.002);
+        }
+    }
 }
 
 void test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead() {
@@ -648,6 +689,8 @@ void test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_stationary_entry_requires_untouched_empty_driver_and_matching_position);
+    RUN_TEST(test_crossing_clock_projection_matches_full_clock_during_retargets);
     RUN_TEST(test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks);
     RUN_TEST(test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength);
     RUN_TEST(test_live_sensation_changes_the_duration_of_the_current_pause);
