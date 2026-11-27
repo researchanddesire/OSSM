@@ -395,6 +395,84 @@ void test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_tic
     }
 }
 
+void test_crossing_prediction_only_changes_how_the_original_grid_is_searched() {
+    using namespace drawn_pattern;
+    for (unsigned boundary = 1; boundary <= crossingGrid; ++boundary) {
+        const unsigned expected = boundary - 1;
+        const auto beforeEdge = [boundary](unsigned index) { return index < boundary; };
+        for (unsigned guess : {0u, expected, expected / 2, crossingGrid - 1,
+                               std::min(crossingGrid - 1, expected + 8)}) {
+            TEST_ASSERT_EQUAL_UINT32(expected, predictedStepCrossing(guess, beforeEdge));
+        }
+        unsigned calls = 0;
+        const auto low = predictedStepCrossing(expected, [&](unsigned index) {
+            ++calls;
+            return beforeEdge(index);
+        });
+        TEST_ASSERT_EQUAL_UINT32(expected, low);
+        TEST_ASSERT_LESS_OR_EQUAL_UINT32(2, calls);
+        TEST_ASSERT_EQUAL_UINT16(((2 * expected + 1) * 65535u + 2048u) / 4096u,
+                                 encodeStepCrossing(low));
+    }
+}
+
+void test_plain_step_crossing_preserves_launch_changes_holds_reversals_and_seams() {
+    using namespace drawn_pattern;
+    Waveform curve;
+    const auto hex = encode(asymmetric);
+    TEST_ASSERT_TRUE(curve.decode(hex.data(), hex.size(), 2000));
+    constexpr double dt = .002;
+    constexpr int shallow = -71, deep = -3351;
+    unsigned moving = 0, stationary = 0, dense = 0, seams = 0;
+    PhaseClock clock;
+    double phase = .99;
+    for (double goal : {.006, 1.9, 0., 5.4, .024, 2.7}) {
+        clock.setGoal(goal, 13., 91.);
+        for (unsigned i = 0; i < 1700; ++i) {
+            const auto at = [&](double f) {
+                return curve.nativeTarget(phase + clock.distanceAt(dt * f), deep, shallow);
+            };
+            const int32_t from = at(0), to = at(1);
+            TEST_ASSERT_EQUAL_UINT16(firstStepCrossing(from, to, at),
+                                     curve.firstPlainStepCrossing(from, to, phase, clock, dt, deep, shallow));
+            if (from != to) ++moving;
+            else ++stationary;
+            if (std::abs(to - from) > 2) ++dense;
+            phase += clock.advance(dt);
+            if (phase >= 1) {
+                ++seams;
+                phase -= std::floor(phase);
+            }
+        }
+    }
+    TEST_ASSERT_GREATER_THAN_UINT32(1000, moving);
+    TEST_ASSERT_GREATER_THAN_UINT32(500, dense);
+    TEST_ASSERT_GREATER_THAN_UINT32(500, stationary);
+    TEST_ASSERT_GREATER_THAN_UINT32(10, seams);
+
+    // The full frame crosses several reversals. A different bisection order
+    // could choose a different crossing, so retain the reference order here.
+    clock.setGoal(1., 10., 100.);
+    clock.advance(clock.secondsToGoal() + 1.);
+    phase = .90;
+    const auto acrossSeam = [&](double fraction) {
+        return curve.nativeTarget(phase + clock.distanceAt(.8 * fraction), deep, shallow);
+    };
+    const int32_t start = acrossSeam(0), end = acrossSeam(1);
+    TEST_ASSERT_EQUAL_UINT16(firstStepCrossing(start, end, acrossSeam),
+                             curve.firstPlainStepCrossing(start, end, phase, clock, .8, deep, shallow));
+
+    // The arbitrary-position search is also used for active vibration. A
+    // moving carrier can first cross in the opposite direction to the net
+    // frame displacement. Lock down the reference binary decision order.
+    const auto carrierTurn = [](double fraction) {
+        return int32_t(std::lround(fraction - 8 * fraction * (1 - fraction)));
+    };
+    const unsigned firstChanged = unsigned(std::ceil(crossingGrid * (7. - std::sqrt(33.)) / 16.));
+    TEST_ASSERT_EQUAL_UINT16(encodeStepCrossing(firstChanged - 1),
+                             firstStepCrossing(carrierTurn(0), carrierTurn(1), carrierTurn));
+}
+
 void test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives() {
     Waveform curve;
     const auto hex = encode(asymmetric);
@@ -759,6 +837,8 @@ void test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_crossing_prediction_only_changes_how_the_original_grid_is_searched);
+    RUN_TEST(test_plain_step_crossing_preserves_launch_changes_holds_reversals_and_seams);
     RUN_TEST(test_raw_watermark_recovers_between_measured_size_service_gaps);
     RUN_TEST(test_speed_fraction_sets_true_peak_on_classic_rail_independent_of_source_duration);
     RUN_TEST(test_deliberate_raw_park_requires_positive_tail_and_verified_empty_anchor);

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include "drawn_phase_rate.h"
 #include "drawn_sample_format.h"
 
 namespace drawn_pattern {
@@ -93,6 +94,49 @@ public:
     int32_t nativeTarget(double phase, int32_t deepest, int32_t shallowest) const {
         const double span = static_cast<double>(shallowest) - deepest;
         return shallowest - static_cast<int32_t>(std::lround(span * position(phase)));
+    }
+
+    // Call only for the base waveform. Markers can reverse inside a cell.
+    uint16_t firstPlainStepCrossing(int32_t from, int32_t to, double phase, const PhaseClock &clock,
+                                    double dt, int32_t deepest, int32_t shallowest) const {
+        if (from == to) return 32768;
+        const auto phaseAt = [&](double fraction) { return phase + clock.distanceAt(dt * fraction); };
+        const auto original = [&] {
+            return firstStepCrossing(from, to, [&](double fraction) {
+                return nativeTarget(phaseAt(fraction), deepest, shallowest);
+            });
+        };
+        const double endPhase = phaseAt(1.);
+        if (!clock.forwardDuring(dt) || phase < 0 || endPhase < phase || endPhase >= 1 ||
+            static_cast<size_t>(phase * count_) != static_cast<size_t>(endPhase * count_)) return original();
+
+        // controlPoints() orders the Bezier controls within this one cell.
+        // Quantization in nativeTarget() rounds nonnegative extension before
+        // subtracting it from shallowest. At an exact half step the upper
+        // extension wins in both directions.
+        const double span = static_cast<double>(shallowest) - deepest;
+        const double start = span * position(phase);
+        const double end = span * position(endPhase);
+        const bool extending = to < from;
+        const double threshold = static_cast<double>(shallowest) - from + (extending ? .5 : -.5);
+        if (std::lround(start) != static_cast<int64_t>(shallowest) - from ||
+            std::lround(end) != static_cast<int64_t>(shallowest) - to) return original();
+
+        const double estimate = (threshold - start) / (end - start);
+        const auto guess = std::min(crossingGrid - 1, static_cast<unsigned>(estimate * crossingGrid));
+        // A rounded quintic can deviate by a few ulps near a stationary
+        // boundary. Keep the original bisection order for numerically
+        // ambiguous ties, including endpoints of the final grid bracket.
+        const double margin = span * 1.e-9;
+        if (std::abs(start - threshold) <= margin || std::abs(end - threshold) <= margin) return original();
+        bool nearTie = false;
+        const auto low = predictedStepCrossing(guess, [&](unsigned index) {
+            const double height = span * position(phaseAt(double(index) / crossingGrid));
+            const double distance = height - threshold;
+            if (std::abs(distance) <= margin) nearTie = true;
+            return extending ? distance < 0 : distance >= 0;
+        });
+        return nearTie ? original() : encodeStepCrossing(low);
     }
 
     struct Pace {
