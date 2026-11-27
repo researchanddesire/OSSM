@@ -19,6 +19,15 @@ bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
 void cancelDrawnPattern();
 void cancelRemoteDrawnPattern();
 bool drawnPatternActive();
+// Accepted rate goals on the monotonic device clock. The eight newest
+// records survive Stop. Sequence zero reads the newest record.
+struct PatternRateStamp {
+    uint32_t sequence, atMs, periodMs;
+    float phase, rateHz, phaseAcceleration;
+    uint16_t leadBoundMs;
+    bool first, serial, leadKnown;
+};
+bool drawnPatternRateStamp(uint32_t sequence, PatternRateStamp &out);
 struct PatternStop {
     const char *reason = nullptr;
     const char *stage = nullptr;

@@ -347,8 +347,67 @@ void test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits() {
     TEST_ASSERT_EQUAL_INT(0, stops);
 }
 
+void test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_time() {
+    using drawn_pattern::FrameTiming;
+    motor.speed=20;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),int(start()));
+    feedback={io::Frame::Accepted,nullptr,0,FrameTiming::Prefill};
+    tick(2);
+    PatternRateStamp first{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0,first));
+    TEST_ASSERT_TRUE(first.first);
+    TEST_ASSERT_FALSE(first.leadKnown);
+    TEST_ASSERT_FLOAT_WITHIN(.000001,0.,first.phase);
+    clockMs+=37;
+    feedback={io::Frame::Retry,"pulse_full",0,FrameTiming::Started};
+    tick();
+    PatternRateStamp revised{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(first.sequence,revised));
+    TEST_ASSERT_TRUE(revised.leadKnown);
+    TEST_ASSERT_EQUAL_UINT32(first.atMs,revised.atMs);
+    TEST_ASSERT_EQUAL_UINT32(clockMs-first.atMs+27,revised.leadBoundMs);
+    motor.speed=120;
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
+    TEST_ASSERT_EQUAL_UINT32(first.sequence,revised.sequence);
+    feedback={io::Frame::Accepted,nullptr,0,FrameTiming::Running};
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
+    TEST_ASSERT_EQUAL_UINT32(first.sequence+1,revised.sequence);
+    TEST_ASSERT_NOT_EQUAL(first.periodMs,revised.periodMs);
+    TEST_ASSERT_FALSE(revised.first);
+    TEST_ASSERT_TRUE(revised.leadKnown);
+    TEST_ASSERT_EQUAL_UINT16(27,revised.leadBoundMs);
+    const auto change=revised.sequence;
+    cancelDrawnPattern();
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(change,revised));
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(first.sequence,revised));
+    // A stop before hardware start cannot turn this Play's unknown queue
+    // latency into a known value when some later Play starts.
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),int(start()));
+    feedback={io::Frame::Accepted,nullptr,0,FrameTiming::Prefill};
+    tick(2);
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
+    const auto abandoned=revised.sequence;
+    TEST_ASSERT_TRUE(revised.first);
+    cancelDrawnPattern();
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),int(start()));
+    feedback={io::Frame::Accepted,nullptr,0,FrameTiming::Started};
+    tick(2);
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(abandoned,revised));
+    TEST_ASSERT_FALSE(revised.leadKnown);
+    // Eight retained events, including the latest, span multiple Plays.
+    for (int i=0;i<9;++i) { motor.speed=30+3*i; tick(); }
+    TEST_ASSERT_FALSE(drawnPatternRateStamp(first.sequence,revised));
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0,revised));
+    const auto latest=revised.sequence;
+    for (uint32_t seq=latest-7;seq<=latest;++seq)
+        TEST_ASSERT_TRUE(drawnPatternRateStamp(seq,revised));
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_time);
     RUN_TEST(test_accepted_entry_waits_for_backend_without_reissuing_move);
     RUN_TEST(test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate);
     RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately);

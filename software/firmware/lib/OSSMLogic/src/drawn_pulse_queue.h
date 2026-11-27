@@ -7,10 +7,12 @@
 
 namespace drawn_pattern {
 enum class Frame { Accepted, Retry, Rejected };
+enum class FrameTiming : uint8_t { Unknown, EntryHold, Prefill, Started, Running };
 struct FrameResult {
     Frame state;
     const char *reason = nullptr;
     int8_t driverResult = 0;
+    FrameTiming timing = FrameTiming::Unknown;
 };
 
 constexpr unsigned pulseQueueFrames = 10;
@@ -85,6 +87,7 @@ public:
             if (!running) {
                 const auto started=startQueue(driver);
                 if (started.state==Frame::Rejected) return started;
+                return {Frame::Retry, "pulse_full", 0, FrameTiming::Started};
             }
             return {Frame::Retry, "pulse_full"};
         }
@@ -125,7 +128,7 @@ public:
         } else if (driver.queueEntries() >= pulseQueueFrames || driver.ticksInQueue() >= queuedLimit) {
             return startQueue(driver);
         }
-        return {Frame::Accepted};
+        return {Frame::Accepted,nullptr,0,running ? FrameTiming::Running : FrameTiming::Prefill};
     }
 
 private:
@@ -134,7 +137,7 @@ private:
         const auto started=static_cast<int8_t>(driver.addQueueEntry(nullptr,true));
         if (started) return {Frame::Rejected,"pulse_start",started};
         stage_=Stage::Running;
-        return {Frame::Accepted};
+        return {Frame::Accepted,nullptr,0,FrameTiming::Started};
     }
 };
 }

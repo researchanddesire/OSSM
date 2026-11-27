@@ -26,6 +26,40 @@ double clockAcceleration = 0, clockJerk = 0;
 uint16_t firstCrossing = 32768;
 bool crossingCached = false;
 
+constexpr unsigned rateHistorySize = 8;
+constexpr uint32_t pulseLeadBoundMs = drawn_pattern::pulseStopDrainMs + drawn_pattern::pulseFrameMs;
+PatternRateStamp rateHistory[rateHistorySize]{};
+bool awaitingStart[rateHistorySize]{};
+unsigned newestRateStamp = 0;
+uint32_t rateSequence = 0, lastAppliedPeriod = 0;
+
+void observeQueueStart(uint32_t now) {
+    for (unsigned i=0; i<rateHistorySize; ++i) {
+        if (!awaitingStart[i]) continue;
+        auto &stamp = rateHistory[i];
+        const uint32_t waiting = now-stamp.atMs;
+        if (waiting <= UINT16_MAX-pulseLeadBoundMs) {
+            stamp.leadBoundMs = static_cast<uint16_t>(waiting+pulseLeadBoundMs);
+            stamp.leadKnown = true;
+        }
+        awaitingStart[i] = false;
+    }
+}
+
+void recordRateGoal(uint32_t now, drawn_pattern::FrameTiming timing) {
+    using drawn_pattern::FrameTiming;
+    newestRateStamp = (newestRateStamp+1)%rateHistorySize;
+    if (++rateSequence==0) ++rateSequence;
+    const bool running = timing==FrameTiming::Started || timing==FrameTiming::Running;
+    auto &stamp = rateHistory[newestRateStamp];
+    stamp = {rateSequence, now, effectivePeriod, static_cast<float>(phase),
+             static_cast<float>(clock.rate()), static_cast<float>(clock.acceleration()),
+             static_cast<uint16_t>(running ? pulseLeadBoundMs : 0),
+             lastAppliedPeriod==0, serial, running || timing==FrameTiming::EntryHold};
+    awaitingStart[newestRateStamp] = timing==FrameTiming::Prefill;
+    lastAppliedPeriod = effectivePeriod;
+}
+
 // These values live behind lock. A task from an older streaming session
 // can neither submit a frame nor release a newer session's mailbox.
 const char *stageName() {
@@ -42,6 +76,7 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
                 stage == Stage::Playing ? now - lastFrameAt : 0};
     if (stage == Stage::Playing || stage == Stage::Positioning) pattern_motor::stop(owner);
     stage = Stage::Idle;
+    for (auto &pending : awaitingStart) pending = false;
     effectivePeriod = 0;
 }
 
@@ -113,12 +148,15 @@ void service(uint32_t now) {
             crossingCached = true;
         }
         const auto result = pattern_motor::submit(logical, owner, serial, firstCrossing);
+        if (result.timing == drawn_pattern::FrameTiming::Started)
+            observeQueueStart(pattern_motor::now());
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
             if (now - lastFrameAt >= 200) stopLocked(result.reason, now, result.driverResult);
             return;
         }
+        if (lastAppliedPeriod != effectivePeriod) recordRateGoal(pattern_motor::now(),result.timing);
         crossingCached = false;
         clock = nextClock;
         phase = next - std::floor(next);
@@ -160,6 +198,7 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     serial = caps.serial;
     lastStop = {};
     startedAt = renewedAt = pattern_motor::now();
+    lastAppliedPeriod = 0;
     stage = Stage::Waiting;
     return PatternStart::Accepted;
 }
@@ -199,6 +238,15 @@ void cancelRemoteDrawnPattern() {
 bool drawnPatternActive() {
     std::lock_guard<std::mutex> guard(lock);
     return stage != Stage::Idle;
+}
+bool drawnPatternRateStamp(uint32_t sequence, PatternRateStamp &out) {
+    std::lock_guard<std::mutex> guard(lock);
+    if (sequence==0) sequence=rateSequence;
+    if (sequence==0) return false;
+    for (const auto &stamp : rateHistory) {
+        if (stamp.sequence==sequence) { out=stamp; return true; }
+    }
+    return false;
 }
 PatternStatus drawnPatternStatus() {
     std::lock_guard<std::mutex> guard(lock);

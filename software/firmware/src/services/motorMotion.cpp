@@ -174,7 +174,7 @@ public:
                     if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs)
                         return {Frame::Retry, "pulse_entry_hold"};
                     lastPauseAt_ = now;
-                    return {Frame::Accepted};
+                    return {Frame::Accepted,nullptr,0,drawn_pattern::FrameTiming::EntryHold};
                 }
                 const auto result = static_cast<int8_t>(pulse_->moveTo(logical));
                 if (result != 0) return {Frame::Rejected, "pulse_prime", result};
