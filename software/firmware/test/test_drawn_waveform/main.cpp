@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <string>
 #include "drawn_waveform.h"
+#include "drawn_phase_rate.h"
 #include "drawn_pulse_queue.h"
 
 using drawn_pattern::Waveform;
@@ -211,8 +212,111 @@ void test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_err
     TEST_ASSERT_EQUAL_INT32(-894, driver.tail);
 }
 
+void test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives() {
+    Waveform curve;
+    const auto hex = encode(asymmetric);
+    TEST_ASSERT_TRUE(curve.decode(hex.data(),hex.size(),500));
+    const double epsilon = 1.e-8;
+    for (unsigned k=0;k<16;++k) {
+        const double f=k/16.;
+        const double jump=std::abs(curve.phaseDerivative(f-epsilon,2)-curve.phaseDerivative(f+epsilon,2));
+        TEST_ASSERT_TRUE(jump <= 2.01*epsilon*curve.maximumThird(1) + 1.e-7);
+        if (asymmetric[k]==asymmetric[(k+1)%16]) {
+            for (unsigned order=1;order<=3;++order)
+                TEST_ASSERT_FLOAT_WITHIN(1.e-7,0,curve.phaseDerivative(f+1./32,order));
+        }
+    }
+    for (unsigned i=0;i<8192;++i) {
+        const double f=i/8192.;
+        TEST_ASSERT_TRUE(std::abs(curve.phaseDerivative(f,1)) <= curve.maximumSlope(1)+1.e-8);
+        TEST_ASSERT_TRUE(std::abs(curve.phaseDerivative(f,2)) <= curve.maximumCurvature(1)+1.e-8);
+        TEST_ASSERT_TRUE(std::abs(curve.phaseDerivative(f,3)) <= curve.maximumThird(1)+1.e-7);
+    }
+}
+
+void test_high_precision_sine_tracks_the_authored_third_derivative() {
+    constexpr unsigned n=32;
+    constexpr double tau=6.283185307179586;
+    char q8[2*n+1]{},q16[4*n+1]{};
+    for (unsigned i=0;i<n;++i) {
+        const double y=(1-std::cos(tau*i/n))*.5;
+        std::snprintf(q8+2*i,3,"%02x",static_cast<unsigned>(std::lround(y*255)));
+        std::snprintf(q16+4*i,5,"%04x",static_cast<unsigned>(std::lround(y*65535)));
+    }
+    Waveform fine,coarse;
+    TEST_ASSERT_TRUE(fine.decode(q16,4*n,4000,true));
+    TEST_ASSERT_TRUE(coarse.decode(q8,2*n,4000));
+    TEST_ASSERT_FALSE(coarse.decode(q8,2*n-2,4000,true));
+    double errFine=0,errCoarse=0;
+    for (unsigned i=0;i<8192;++i) {
+        const double f=(i+.5)/8192;
+        const double authored=-.5*tau*tau*tau*std::sin(tau*f);
+        errFine+=std::pow(fine.phaseDerivative(f,3)-authored,2);
+        errCoarse+=std::pow(coarse.phaseDerivative(f,3)-authored,2);
+    }
+    TEST_ASSERT_LESS_THAN_FLOAT(8.,std::sqrt(errFine/8192));
+    TEST_ASSERT_TRUE(errFine < .01*errCoarse);
+}
+
+void test_retargetable_rate_uses_continuous_acceleration_and_bounded_jerk() {
+    drawn_pattern::PhaseClock timer;
+    constexpr double dt=.002, aLimit=1.25, jLimit=4.5;
+    double phase=0;
+    for (unsigned i=0;i<5000;++i) {
+        const double goal=i<80?.8:i<110?.1:i<160?.9:i<210?.02:i<310?.85:.4;
+        const double beforeRate=timer.rate(),beforeAcceleration=timer.acceleration();
+        timer.setGoal(goal,aLimit,jLimit);
+        TEST_ASSERT_FLOAT_WITHIN(1.e-12,beforeAcceleration,timer.acceleration());
+        const double step=timer.advance(dt);phase+=step;
+        TEST_ASSERT_TRUE(step>=0 && step<=.9*dt+1.e-12);
+        TEST_ASSERT_TRUE(timer.rate()>=0 && timer.rate()<=.9+1.e-12);
+        TEST_ASSERT_TRUE(std::abs(timer.acceleration())<=aLimit+1.e-10);
+        TEST_ASSERT_TRUE(std::abs(timer.acceleration()-beforeAcceleration)<=jLimit*dt+1.e-10);
+        TEST_ASSERT_TRUE(std::abs(timer.rate()-beforeRate)<=aLimit*dt+1.e-10);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(1.e-9,.4,timer.rate());
+    TEST_ASSERT_FLOAT_WITHIN(1.e-9,0,timer.acceleration());
+    TEST_ASSERT_GREATER_THAN_FLOAT(3.,phase);
+    // A rate of one is reached from rest after two seconds, with one cycle
+    // elapsed. The triangular acceleration has slope +1 then -1.
+    drawn_pattern::PhaseClock triangle;
+    triangle.setGoal(1,1,1);
+    TEST_ASSERT_FLOAT_WITHIN(1.e-10,1./6,triangle.advance(1));
+    TEST_ASSERT_FLOAT_WITHIN(1.e-10,.5,triangle.rate());
+    TEST_ASSERT_FLOAT_WITHIN(1.e-10,5./6,triangle.advance(1));
+    TEST_ASSERT_FLOAT_WITHIN(1.e-10,1,triangle.rate());
+    TEST_ASSERT_FLOAT_WITHIN(1.e-10,0,triangle.acceleration());
+}
+
+void test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets() {
+    Waveform curve;
+    const auto hex = encode(asymmetric);
+    TEST_ASSERT_TRUE(curve.decode(hex.data(),hex.size(),500));
+    drawn_pattern::PhaseClock clock;
+    constexpr double span=1800, acceleration=100000, dt=.0005;
+    const auto limits=curve.rateLimits(span,acceleration);
+    double phase=0, previousAcceleration=0;
+    for (unsigned frame=0;frame<60000;++frame) {
+        const double speed=(frame/3100)%3==0?650.:((frame/3100)%3==1?20000.:1400.);
+        clock.setGoal(1000./curve.safePeriodMs(span,speed,acceleration/2),
+                      limits.acceleration,limits.jerk);
+        phase+=clock.advance(dt);
+        const double r=clock.rate(), a=clock.acceleration();
+        const double positionAcceleration=span*(curve.phaseDerivative(phase,2)*r*r+
+                                               curve.phaseDerivative(phase,1)*a);
+        TEST_ASSERT_TRUE(std::abs(positionAcceleration)<=acceleration);
+        TEST_ASSERT_TRUE(std::abs(positionAcceleration-previousAcceleration)<=
+                         dt*curve.jerkBudget(acceleration)+1e-7);
+        previousAcceleration=positionAcceleration;
+    }
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets);
+    RUN_TEST(test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives);
+    RUN_TEST(test_high_precision_sine_tracks_the_authored_third_derivative);
+    RUN_TEST(test_retargetable_rate_uses_continuous_acceleration_and_bounded_jerk);
     RUN_TEST(test_authored_extension_maps_every_asymmetric_sample_to_the_native_motor_frame);
     RUN_TEST(test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead);
     RUN_TEST(test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_errors);

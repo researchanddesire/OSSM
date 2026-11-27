@@ -1,4 +1,5 @@
 #include "drawn_waveform.h"
+#include "drawn_phase_rate.h"
 #include "drawn_pattern.h"
 
 #include <mutex>
@@ -18,7 +19,10 @@ uint64_t owner = 0;
 PatternStop lastStop;
 uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, effectivePeriod = 0;
 int32_t lower = 0, upper = 0, entry = 0;
-double phase = 0, cyclesPerSecond = 0;
+double phase = 0;
+drawn_pattern::PhaseClock clock;
+double lastSpeed = 0, lastAcceleration = 0;
+double clockAcceleration = 0, clockJerk = 0;
 
 // These values live behind lock. A task from an older streaming session
 // can neither submit a frame nor release a newer session's mailbox.
@@ -50,15 +54,25 @@ void service(uint32_t now) {
     }
     if (stage != Stage::Waiting && (lower != caps.from || upper != caps.to))
         return stopLocked("window_changed", now);
-    const uint32_t period = curve.safePeriodMs(caps.to - caps.from, caps.speed, caps.acceleration / 2);
-    if (!period) return stopLocked("period_limit", now);
-    effectivePeriod = period;
+    if (stage == Stage::Waiting || caps.speed != lastSpeed || caps.acceleration != lastAcceleration) {
+        const double span = static_cast<double>(caps.to) - caps.from;
+        const double halfAcceleration = caps.acceleration / 2;
+        const uint32_t period = curve.safePeriodMs(span, caps.speed, halfAcceleration);
+        if (!period) return stopLocked("period_limit", now);
+        effectivePeriod = period;
+        const auto limits = curve.rateLimits(span, caps.acceleration);
+        clockAcceleration = limits.acceleration;
+        clockJerk = limits.jerk;
+        lastSpeed = caps.speed;
+        lastAcceleration = caps.acceleration;
+    }
     if (stage == Stage::Waiting) {
         if (caps.moving || caps.queued) return stopLocked("entry_busy", now);
         lower = caps.from;
         upper = caps.to;
         entry = curve.nativeTarget(0, lower, upper);
-        phase = cyclesPerSecond = 0;
+        phase = 0;
+        clock = {};
         if (!pattern_motor::position(owner, entry, caps, true)) return stopLocked("entry_command", now);
         stage = Stage::Positioning;
         lastFrameAt = now;
@@ -82,14 +96,10 @@ void service(uint32_t now) {
     const uint32_t frameMs = serial ? 20 : drawn_pattern::pulseFrameMs;
     if (serial && now - lastFrameAt < frameMs) return;
     const double dt = frameMs / 1000.0;
-    const double goal = 1000.0 / period;
-    // Half the acceleration budget is reserved for changing phase rate,
-    // including starting at rest and live speed changes.
-    const double rateDelta = caps.acceleration * 0.5 * dt /
-                             std::max(1.0, curve.maximumSlope(upper - lower));
+    clock.setGoal(1000. / effectivePeriod, clockAcceleration, clockJerk);
     for (unsigned i = 0; i < (serial ? 1u : drawn_pattern::pulseQueueFrames); ++i) {
-        const double rate = cyclesPerSecond + std::clamp(goal - cyclesPerSecond, -rateDelta, rateDelta);
-        const double next = phase + 0.5 * (rate + cyclesPerSecond) * dt;
+        auto nextClock = clock;
+        const double next = phase + nextClock.advance(dt);
         const int32_t logical = curve.nativeTarget(next, lower, upper);
         const auto result = pattern_motor::submit(logical, owner, serial);
         if (result.state == pattern_motor::Frame::Rejected)
@@ -98,7 +108,7 @@ void service(uint32_t now) {
             if (now - lastFrameAt >= 200) stopLocked(result.reason, now, result.driverResult);
             return;
         }
-        cyclesPerSecond = rate;
+        clock = nextClock;
         phase = next - std::floor(next);
         lastFrameAt = now;
     }
@@ -126,9 +136,9 @@ PatternStart drawnPatternStartStatus(uint64_t revision) {
 }
 
 PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs,
-                               uint64_t revision, bool localControl) {
+                               uint64_t revision, bool localControl, bool highPrecision) {
     drawn_pattern::Waveform incoming;
-    if (!incoming.decode(hex, length, periodMs)) return PatternStart::Invalid;
+    if (!incoming.decode(hex, length, periodMs, highPrecision)) return PatternStart::Invalid;
     std::lock_guard<std::mutex> guard(lock);
     pattern_motor::State caps;
     const auto status = startStatusLocked(revision, caps);
