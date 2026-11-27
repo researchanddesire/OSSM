@@ -85,10 +85,13 @@ struct PatternSlotInfo {
 };
 struct PatternCatalog {
     uint8_t selected = 0;
+    bool selectedAvailable = false;
     PatternSlotInfo slots[patternSlotCount]{};
 };
 
 class SavedPatternLibrary {
+    using Encoded = drawn_pattern::StoredModifiers;
+    using Modifiers = drawn_pattern::Modifiers;
     struct Slot {
         SavedPattern value;
         char name[maxPatternNameBytes + 1]{};
@@ -99,109 +102,146 @@ class SavedPatternLibrary {
         Slot slots[patternSlotCount]{};
     };
     static_assert(sizeof(Record) == 1192);
-    Record record_;
-    using Encoded = drawn_pattern::StoredModifiers;
-    using Modifiers = drawn_pattern::Modifiers;
+    struct SlotHeader {
+        uint32_t magic;
+        uint16_t count;
+        uint16_t initial;
+        Slot slot;
+    };
+    static_assert(sizeof(SlotHeader) == 304);
+    static constexpr uint32_t slotMagic = 0x534c3400;
+    static constexpr uint32_t selectionMagic = 0x53453400;
+    static constexpr int allSlots = -2;
+    static constexpr const char *key(unsigned i) {
+        return i == 0 ? "slot4_0" : i == 1 ? "slot4_1" : i == 2 ? "slot4_2" : "slot4_3";
+    }
+
+    Record record_{};
+    bool extended_ = false;
+    bool selectionKnown_ = true;
+    int initial_ = -1;
+    uint8_t damaged_ = 0;
     uint16_t counts_[patternSlotCount]{};
-    std::unique_ptr<uint8_t[]> modifiers_[patternSlotCount];
-    static constexpr size_t headerSize = sizeof(Record) + sizeof(counts_);
-    static constexpr size_t maxSize = headerSize + patternSlotCount * Modifiers::capacity * sizeof(uint16_t);
-
-    size_t packedSize() const {
-        size_t size = headerSize;
-        for (const auto count : counts_) size += Encoded::bytes(count);
-        return size;
-    }
-
-    template <typename Write> bool persist(Write write) const {
-        if (record_.version == 3) return write("libraryV3", &record_, sizeof(record_));
-        const size_t size = packedSize();
-        std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]);
-        if (!bytes) return false;
-        std::memcpy(bytes.get(), &record_, sizeof(record_));
-        std::memcpy(bytes.get() + sizeof(record_), counts_, sizeof(counts_));
-        size_t offset = headerSize;
-        for (unsigned i = 0; i < patternSlotCount; ++i) {
-            const size_t length = Encoded::bytes(counts_[i]);
-            if (length) std::memcpy(bytes.get() + offset, modifiers_[i].get(), length);
-            offset += length;
-        }
-        return write("libraryV4", bytes.get(), size);
-    }
-
-    template <typename Read> bool loadExtended(Read read, size_t size) {
-        if (size < headerSize || size > maxSize) return false;
-        std::unique_ptr<uint8_t[]> bytes(new (std::nothrow) uint8_t[size]);
-        if (!bytes || !read("libraryV4", bytes.get(), size)) return false;
-        std::memcpy(&record_, bytes.get(), sizeof(record_));
-        std::memcpy(counts_, bytes.get() + sizeof(record_), sizeof(counts_));
-        if (!validRecord(4) || packedSize() != size) return false;
-        size_t offset = headerSize;
-        for (unsigned i = 0; i < patternSlotCount; ++i) {
-            const auto count = counts_[i];
-            if (!count) continue;
-            if (!occupied(i) || count > Modifiers::capacity) return false;
-            const size_t length = Encoded::bytes(count);
-            if (!Encoded::decode(bytes.get() + offset, count)) return false;
-            modifiers_[i].reset(new (std::nothrow) uint8_t[length]);
-            if (!modifiers_[i]) return false;
-            std::memcpy(modifiers_[i].get(), bytes.get() + offset, length);
-            offset += length;
-        }
-        return true;
-    }
+    std::unique_ptr<uint8_t[]> blobs_[patternSlotCount];
 
     bool occupied(int index) const {
         return index >= 0 && index < patternSlotCount && record_.slots[index].value.length;
+    }
+    static bool validSlot(const Slot &slot) {
+        return validPatternName(slot.name, strnlen(slot.name, sizeof(slot.name))) &&
+               validSavedPattern(slot.value);
     }
     bool validRecord(uint32_t version) const {
         if (record_.version != version || !occupied(record_.selected)) return false;
         for (const auto &slot : record_.slots) {
             if (!slot.value.length) continue;
-            const size_t length = strnlen(slot.name, sizeof(slot.name));
-            if (version == 2 && slot.value.version != 1) return false;
-            if (!validPatternName(slot.name, length) || !validSavedPattern(slot.value)) return false;
+            if ((version == 2 && slot.value.version != 1) || !validSlot(slot)) return false;
         }
         return true;
     }
+    const uint8_t *encoded(int slot) const {
+        return blobs_[slot] ? blobs_[slot].get() + sizeof(SlotHeader) : nullptr;
+    }
 
-public:
-    // A null destination queries the blob length. Actual reads must match exactly.
-    // If an extended record exists, an invalid or unreadable blob blocks edits to it.
-    template <typename Read> bool load(Read read) {
-        std::memset(counts_, 0, sizeof(counts_));
-        for (auto &items : modifiers_) items.reset();
-        const size_t extended = read("libraryV4", nullptr, 0);
-        if (extended) return loadExtended(read, extended);
-        if (read("libraryV3", &record_, sizeof(record_)) && validRecord(3)) return true;
+    template <typename Read>
+    void loadLegacy(Read read) {
+        if (read("libraryV3", &record_, sizeof(record_)) && validRecord(3)) return;
         if (read("libraryV2", &record_, sizeof(record_)) && validRecord(2)) {
-            record_.version = 3; // Persist only after a successful, deliberate change.
-            return true;
+            record_.version = 3;
+            return;
         }
         record_.version = 3;
         record_.selected = 0;
         for (auto &slot : record_.slots) slot = Slot{};
         auto &legacy = record_.slots[0];
-        if (read("curveV1", &legacy.value, sizeof(legacy.value)) &&
-            legacy.value.version == 1 && validSavedPattern(legacy.value)) {
+        if (read("curveV1", &legacy.value, sizeof(legacy.value)) && legacy.value.version == 1 &&
+            validSavedPattern(legacy.value))
             std::strcpy(legacy.name, "Saved pattern");
-        } else {
+        else
             legacy.value.length = 0;
+    }
+
+   public:
+    // Boot and selection need only names/counts. A playback or edit retains
+    // the requested slot's compact bytes; unrelated slots are verified one at a time.
+    static constexpr int catalogOnly = -3;
+    template <typename Read>
+    bool load(Read read, int retain = allSlots) {
+        extended_ = false;
+        selectionKnown_ = true;
+        initial_ = -1;
+        damaged_ = 0;
+        for (auto &blob : blobs_) blob.reset();
+        std::memset(counts_, 0, sizeof(counts_));
+        loadLegacy(read);
+        const bool legacySelected = any();
+        uint32_t choice = 0;
+        const size_t selectionSize = read("selected4", nullptr, 0);
+        if (selectionSize == sizeof(choice) && !read("selected4", &choice, sizeof(choice))) return false;
+        const bool explicitSelection = selectionSize == sizeof(choice) && (choice & ~3u) == selectionMagic;
+        extended_ = selectionSize != 0;
+        bool ambiguousInitial = false;
+        if (explicitSelection) record_.selected = choice & 3u;
+        for (unsigned i = 0; i < patternSlotCount; ++i) {
+            const size_t size = read(key(i), nullptr, 0);
+            if (!size) continue;
+            extended_ = true;
+            // A present but corrupt override must never revive an old waveform
+            // from the fallback snapshot. Independently addressed siblings survive.
+            record_.slots[i].value.length = 0;
+            damaged_ |= uint8_t(1u << i);
+            if (size < sizeof(SlotHeader) ||
+                size > sizeof(SlotHeader) + Encoded::bytes(Modifiers::capacity))
+                continue;
+            std::unique_ptr<uint8_t[]> data(new (std::nothrow) uint8_t[size]);
+            if (!data || !read(key(i), data.get(), size)) return false;
+            SlotHeader header;
+            std::memcpy(&header, data.get(), sizeof(header));
+            if (header.magic != (slotMagic | i) || header.count > Modifiers::capacity ||
+                header.initial > 1 || size != sizeof(header) + Encoded::bytes(header.count) ||
+                !validSlot(header.slot) || !Encoded::decode(data.get() + sizeof(header), header.count))
+                continue;
+            if (header.initial) {
+                if (initial_ >= 0) ambiguousInitial = true;
+                initial_ = i;
+                if (!explicitSelection) {
+                    if (retain == selectedPatternSlot && record_.selected != i)
+                        blobs_[record_.selected].reset();
+                    record_.selected = i;
+                }
+            }
+            damaged_ &= uint8_t(~(1u << i));
+            record_.slots[i] = header.slot;
+            counts_[i] = header.count;
+            if (header.count && (retain == allSlots || retain == int(i) ||
+                                 (retain == selectedPatternSlot && record_.selected == i)))
+                blobs_[i] = std::move(data);
         }
+        // A dangling explicit selector means its selected slot is unavailable,
+        // while a user can still explicitly select an intact slot.
+        selectionKnown_ = explicitSelection || (!selectionSize && !ambiguousInitial &&
+                                                (!extended_ || legacySelected || initial_ >= 0));
         return true;
     }
-    bool any() const { return occupied(record_.selected); }
+
+    bool any() const { return selectionKnown_ && occupied(record_.selected); }
     bool get(SavedPattern &out, int index = selectedPatternSlot, Modifiers *effects = nullptr) const {
-        if (index == selectedPatternSlot) index = record_.selected;
+        if (index == selectedPatternSlot) {
+            if (!selectionKnown_) return false;
+            index = record_.selected;
+        }
         if (!occupied(index)) return false;
-        if (effects && !Encoded::decode(modifiers_[index].get(), counts_[index], effects)) return false;
+        if (effects && ((counts_[index] && !encoded(index)) ||
+                        !Encoded::decode(encoded(index), counts_[index], effects)))
+            return false;
         out = record_.slots[index].value;
         return true;
     }
     PatternCatalog catalog() const {
         PatternCatalog result{};
         result.selected = record_.selected;
-        for (uint8_t i = 0; i < patternSlotCount; ++i) {
+        result.selectedAvailable = any();
+        for (unsigned i = 0; i < patternSlotCount; ++i) {
             if (!occupied(i)) continue;
             result.slots[i].periodMs = record_.slots[i].value.periodMs;
             result.slots[i].modifierCount = counts_[i];
@@ -209,11 +249,18 @@ public:
         }
         return result;
     }
+
     template <typename Write>
     bool save(int index, const char *name, size_t nameLength, const SavedPattern &value, Write write,
               const Modifiers &effects = drawn_pattern::noModifiers()) {
-        if (index == selectedPatternSlot) index = record_.selected;
-        if (index < 0 || index >= patternSlotCount || !validSavedPattern(value) || !effects.valid()) return false;
+        const bool namedRepair = index != selectedPatternSlot && name != nullptr;
+        if (index == selectedPatternSlot) {
+            if (!selectionKnown_) return false;
+            index = record_.selected;
+        }
+        if (index < 0 || index >= patternSlotCount || ((damaged_ & (1u << index)) && !namedRepair) ||
+            !validSavedPattern(value) || !effects.valid())
+            return false;
         auto &slot = record_.slots[index];
         if (!name) {
             if (nameLength) return false;
@@ -221,49 +268,63 @@ public:
             nameLength = std::strlen(name);
         }
         if (!validPatternName(name, nameLength)) return false;
-        const size_t effectBytes = Encoded::bytes(effects.count);
-        const bool sameEffects = counts_[index] == effects.count &&
-            Encoded::matches(modifiers_[index].get(), effects);
-        if (sameEffects && slot.value.version == value.version && slot.value.length == value.length &&
-            slot.value.periodMs == value.periodMs &&
-            std::memcmp(slot.value.samples, value.samples, value.length) == 0 &&
-            std::strlen(slot.name) == nameLength && std::memcmp(slot.name, name, nameLength) == 0)
+        if (effects.count == counts_[index] && (!effects.count || encoded(index)) &&
+            Encoded::matches(encoded(index), effects) && slot.value.version == value.version &&
+            slot.value.length == value.length && slot.value.periodMs == value.periodMs &&
+            !std::memcmp(slot.value.samples, value.samples, value.length) &&
+            std::strlen(slot.name) == nameLength && !std::memcmp(slot.name, name, nameLength))
             return true;
-        std::unique_ptr<uint8_t[]> replacement;
-        if (effects.count && !sameEffects) {
-            replacement.reset(new (std::nothrow) uint8_t[effectBytes]);
-            if (!replacement) return false;
-            Encoded::encode(replacement.get(), effects);
+
+        Slot replacement{};
+        replacement.value = value;
+        std::memcpy(replacement.name, name, nameLength);
+        if (!extended_ && !effects.count) {
+            const Slot previous = slot;
+            const auto selected = record_.selected;
+            if (!any()) record_.selected = index;
+            slot = replacement;
+            if (write("libraryV3", &record_, sizeof(record_))) return true;
+            slot = previous;
+            record_.selected = selected;
+            return false;
         }
-        const auto oldVersion = record_.version;
-        const auto oldCount = counts_[index];
-        if (!sameEffects) {
-            modifiers_[index].swap(replacement);
-            counts_[index] = effects.count;
+
+        const bool first = !extended_ && !any();
+        const size_t size = sizeof(SlotHeader) + Encoded::bytes(effects.count);
+        std::unique_ptr<uint8_t[]> blob(new (std::nothrow) uint8_t[size]);
+        if (!blob) return false;
+        const SlotHeader header{slotMagic | uint32_t(index), effects.count,
+                                uint16_t(first || initial_ == index), replacement};
+        std::memcpy(blob.get(), &header, sizeof(header));
+        Encoded::encode(blob.get() + sizeof(header), effects);
+        if (!write(key(index), blob.get(), size)) return false;
+        // First selection is part of the first slot itself: power loss leaves
+        // either the entire prior state or the new slot with its true default.
+        if (first) {
+            initial_ = index;
+            record_.selected = index;
         }
-        if (effects.count) record_.version = 4;
-        const auto previous = slot;
-        const auto previousSelected = record_.selected;
-        if (!any()) record_.selected = index;
-        slot.value = value;
-        if (name != slot.name) {
-            std::memset(slot.name, 0, sizeof(slot.name));
-            std::memcpy(slot.name, name, nameLength);
-        }
-        if (persist(write)) return true;
-        if (!sameEffects) modifiers_[index].swap(replacement);
-        counts_[index] = oldCount;
-        record_.version = oldVersion;
-        slot = previous;
-        record_.selected = previousSelected;
-        return false;
+        damaged_ &= uint8_t(~(1u << index));
+        extended_ = true;
+        counts_[index] = effects.count;
+        blobs_[index] = std::move(blob);
+        slot = replacement;
+        return true;
     }
+
     template <typename Write> bool select(int index, Write write) {
         if (!occupied(index)) return false;
-        if (record_.selected == static_cast<uint32_t>(index)) return true;
+        if (selectionKnown_ && record_.selected == uint32_t(index)) return true;
+        if (extended_) {
+            const uint32_t choice = selectionMagic | uint32_t(index);
+            if (!write("selected4", &choice, sizeof(choice))) return false;
+            record_.selected = index;
+            selectionKnown_ = true;
+            return true;
+        }
         const auto previous = record_.selected;
         record_.selected = index;
-        if (persist(write)) return true;
+        if (write("libraryV3", &record_, sizeof(record_))) return true;
         record_.selected = previous;
         return false;
     }
@@ -274,7 +335,7 @@ class SavedPatternCache {
     PatternCatalog catalog_{};
 public:
     const PatternCatalog &catalog() const { return catalog_; }
-    bool any() const { return catalog_.slots[catalog_.selected].periodMs != 0; }
+    bool any() const { return catalog_.selectedAvailable; }
 
     template <typename Load, typename Action>
     bool access(Load load, Action action) {

@@ -21,20 +21,21 @@ bool stopped() {
 }
 // Missing/invalid records retain the existing empty/legacy fallback. An I/O
 // failure aborts the transaction, so a partial read cannot replace valid NVS.
-bool loadRecord(SavedPatternLibrary &record) {
+bool loadRecord(SavedPatternLibrary &record, int retain) {
     nvs_handle_t handle;
     const auto opened = nvs_open(storageNamespace, NVS_READONLY, &handle);
     if (opened == ESP_ERR_NVS_NOT_FOUND) return true; // New namespace.
     if (opened != ESP_OK) return false;
     bool readable = true;
-    const bool decoded = record.load([&](const char *key, void *data, size_t size) -> size_t {
-        size_t actual = size;
-        const auto error = nvs_get_blob(handle, key, data, &actual);
-        if (error == ESP_OK) return !data ? actual : (actual == size ? size : 0);
-        if (error != ESP_ERR_NVS_NOT_FOUND && error != ESP_ERR_NVS_INVALID_LENGTH)
-            readable = false;
-        return false;
-    });
+    const bool decoded = record.load(
+        [&](const char *key, void *data, size_t size) -> size_t {
+            size_t actual = size;
+            const auto error = nvs_get_blob(handle, key, data, &actual);
+            if (error == ESP_OK) return !data ? actual : (actual == size ? size : 0);
+            if (error != ESP_ERR_NVS_NOT_FOUND && error != ESP_ERR_NVS_INVALID_LENGTH) readable = false;
+            return false;
+        },
+        retain);
     nvs_close(handle);
     return decoded && readable;
 }
@@ -48,11 +49,13 @@ bool writeRecord(const char *key, const void *data, size_t size) {
 
 void loadSavedPattern() {
     std::lock_guard<std::mutex> lock(savedLock);
-    library.access(loadRecord, [](const SavedPatternLibrary &) { return true; });
+    library.access([](auto &record) { return loadRecord(record, SavedPatternLibrary::catalogOnly); },
+                   [](const SavedPatternLibrary &) { return true; });
 }
 bool getSavedPattern(SavedPattern &out, int slot, drawn_pattern::Modifiers *effects) {
     std::lock_guard<std::mutex> lock(savedLock);
-    return library.access(loadRecord, [&](const SavedPatternLibrary &record) { return record.get(out, slot, effects); });
+    return library.access([&](auto &record) { return loadRecord(record, slot); },
+                          [&](const auto &record) { return record.get(out, slot, effects); });
 }
 bool hasSavedPattern() {
     std::lock_guard<std::mutex> lock(savedLock);
@@ -65,16 +68,18 @@ PatternCatalog getPatternCatalog() {
 void storePatternInMenu(const SavePattern &event) {
     if (!stopped()) return;
     std::lock_guard<std::mutex> lock(savedLock);
-    event.written = library.access(loadRecord, [&](SavedPatternLibrary &record) {
-        return record.save(event.slot, event.name, event.nameLength, event.value, writeRecord, event.modifiers);
-    });
+    event.written = library.access([&](auto &record) { return loadRecord(record, event.slot); },
+                                   [&](SavedPatternLibrary &record) {
+                                       return record.save(event.slot, event.name, event.nameLength,
+                                                          event.value, writeRecord, event.modifiers);
+                                   });
 }
 void selectPatternInMenu(const SelectPattern &event) {
     if (!stopped()) return;
     std::lock_guard<std::mutex> lock(savedLock);
-    event.written = library.access(loadRecord, [&](SavedPatternLibrary &record) {
-        return record.select(event.slot, writeRecord);
-    });
+    event.written =
+        library.access([](auto &record) { return loadRecord(record, SavedPatternLibrary::catalogOnly); },
+                       [&](SavedPatternLibrary &record) { return record.select(event.slot, writeRecord); });
 }
 
 void toggleWiredPattern() {

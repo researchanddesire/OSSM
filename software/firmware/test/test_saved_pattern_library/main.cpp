@@ -462,7 +462,8 @@ void test_modified_slots_round_trip_and_keep_original_on_failure() {
     TEST_ASSERT_TRUE(library.select(1, writeRecord));
     TEST_ASSERT_EQUAL_UINT(2, library.catalog().slots[1].modifierCount);
     TEST_ASSERT_TRUE(legacy == flash.at("libraryV3"));
-    TEST_ASSERT_EQUAL_UINT(1192 + 8 + 12, flash.at("libraryV4").size());
+    TEST_ASSERT_EQUAL_UINT(304 + 12, flash.at("slot4_1").size());
+    TEST_ASSERT_EQUAL_UINT(4, flash.at("selected4").size());
     SavedPatternLibrary restored;
     TEST_ASSERT_TRUE(restored.load(readRecord));
     SavedPattern saved;
@@ -481,11 +482,22 @@ void test_modified_slots_round_trip_and_keep_original_on_failure() {
     TEST_ASSERT_TRUE(restored.get(saved, 1, &retrieved));
     TEST_ASSERT_EQUAL_UINT(0, retrieved.count);
     TEST_ASSERT_EQUAL_UINT(0, restored.catalog().slots[0].modifierCount);
-    flash["libraryV4"].pop_back();
-    TEST_ASSERT_FALSE(restored.load(readRecord)); // A partial V4 never silently revives stale V3.
+    flash["slot4_1"].pop_back();
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    TEST_ASSERT_FALSE(restored.get(saved, 1, &retrieved));
+    TEST_ASSERT_FALSE(restored.get(saved, selectedPatternSlot, &retrieved));
+    TEST_ASSERT_TRUE(restored.get(saved, 0, &retrieved));
+    TEST_ASSERT_FALSE(restored.save(1, nullptr, 0, waveform, writeRecord));
+    TEST_ASSERT_FALSE(restored.save(selectedPatternSlot, nullptr, 0, waveform, writeRecord));
+    const auto neighbor = flash.at("libraryV3");
+    TEST_ASSERT_TRUE(restored.save(1, "Repaired", 8, waveform, writeRecord));
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    TEST_ASSERT_TRUE(restored.get(saved, selectedPatternSlot, &retrieved));
+    TEST_ASSERT_EQUAL_STRING("Repaired", restored.catalog().slots[1].name);
+    TEST_ASSERT_TRUE(neighbor == flash.at("libraryV3"));
 }
 
-void test_all_four_slots_can_store_a_marker_at_every_tick_in_one_compact_record() {
+void test_all_four_slots_store_and_update_every_tick_independently() {
     drawn_pattern::Modifiers all;
     TEST_ASSERT_TRUE(all.reserve(1000));
     all.count = 1000;
@@ -499,7 +511,12 @@ void test_all_four_slots_can_store_a_marker_at_every_tick_in_one_compact_record(
         }
         TEST_ASSERT_TRUE(library.save(slot, "Full grid", 9, waveform, writeRecord, all));
     }
-    TEST_ASSERT_EQUAL_UINT(1192 + 8 + 4*2000, flash.at("libraryV4").size());
+    for (const auto *key : {"slot4_0", "slot4_1", "slot4_2", "slot4_3"})
+        TEST_ASSERT_EQUAL_UINT(2304, flash.at(key).size());
+    const auto beforeSelect = flash;
+    TEST_ASSERT_TRUE(library.select(3, writeRecord));
+    for (const auto &item : beforeSelect) TEST_ASSERT_TRUE(item.second == flash.at(item.first));
+    TEST_ASSERT_EQUAL_UINT(4, flash.at("selected4").size());
     SavedPatternLibrary reboot;
     TEST_ASSERT_TRUE(reboot.load(readRecord));
     SavedPattern restored;
@@ -514,13 +531,95 @@ void test_all_four_slots_can_store_a_marker_at_every_tick_in_one_compact_record(
         }
     }
     // Keep the size and count syntactically plausible but remove one cell.
-    flash["libraryV4"][1200] = flash["libraryV4"][1201] = 0;
-    TEST_ASSERT_FALSE(reboot.load(readRecord));
+    flash["slot4_0"][304] = flash["slot4_0"][305] = 0;
+    TEST_ASSERT_TRUE(reboot.load(readRecord));
+    TEST_ASSERT_FALSE(reboot.get(restored, 0, &read));
+    TEST_ASSERT_TRUE(reboot.get(restored, 3, &read));
+    TEST_ASSERT_EQUAL_UINT(1000, read.count);
+}
+
+void test_first_modified_save_and_selection_are_single_atomic_writes() {
+    drawn_pattern::Modifiers effects;
+    effects.count = 1;
+    effects.entries[0] = {200, 200, 300};
+    SavedPatternLibrary lib;
+    const auto s = curve(2100);
+    failWrite = true;
+    TEST_ASSERT_FALSE(lib.save(3, "First", 5, s, writeRecord, effects));
+    TEST_ASSERT_TRUE(flash.empty());
+    TEST_ASSERT_FALSE(lib.any());
+    failWrite = false;
+    TEST_ASSERT_TRUE(lib.save(3, "First", 5, s, writeRecord, effects));
+    TEST_ASSERT_EQUAL_UINT(1, flash.size());
+    TEST_ASSERT_EQUAL_UINT(1, flash.count("slot4_3"));
+    TEST_ASSERT_TRUE(lib.save(0, "Second", 6, s, writeRecord, effects));
+    SavedPatternLibrary reboot;
+    TEST_ASSERT_TRUE(reboot.load(readRecord, selectedPatternSlot));
+    TEST_ASSERT_EQUAL_UINT(3, reboot.catalog().selected);
+    SavedPattern value;
+    drawn_pattern::Modifiers restored;
+    TEST_ASSERT_TRUE(reboot.get(value, selectedPatternSlot, &restored));
+    TEST_ASSERT_EQUAL_UINT(1, restored.count);
+    TEST_ASSERT_FALSE(reboot.get(value, 0, &restored));  // Only the selected payload was retained.
+    const auto before = flash;
+    failWrite = true;
+    TEST_ASSERT_FALSE(reboot.select(0, writeRecord));
+    TEST_ASSERT_TRUE(before == flash);
+    failWrite = false;
+    TEST_ASSERT_TRUE(reboot.select(0, writeRecord));
+    TEST_ASSERT_TRUE(reboot.load(readRecord, 0));
+    TEST_ASSERT_TRUE(reboot.get(value, 0, &restored));
+    TEST_ASSERT_EQUAL_UINT(0, reboot.catalog().selected);
+}
+
+void test_corrupt_implicit_first_slot_cannot_redirect_wired_recall_to_its_neighbor() {
+    drawn_pattern::Modifiers effects;
+    effects.count = 1;
+    effects.entries[0] = {200, 300, 0};
+    SavedPatternLibrary lib;
+    auto value = curve(3500);
+    TEST_ASSERT_TRUE(lib.save(3, "Original", 8, value, writeRecord, effects));
+    TEST_ASSERT_TRUE(lib.save(0, "Neighbor", 8, value, writeRecord, effects));
+    flash["slot4_3"][0] ^= 0xff;
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_FALSE(lib.any());
+    TEST_ASSERT_FALSE(lib.catalog().selectedAvailable);
+    TEST_ASSERT_FALSE(lib.get(value, selectedPatternSlot));
+    TEST_ASSERT_TRUE(lib.get(value, 0));
+    TEST_ASSERT_TRUE(lib.select(0, writeRecord));
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_TRUE(lib.any());
+    TEST_ASSERT_TRUE(lib.get(value, selectedPatternSlot));
+}
+
+void test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_reselection() {
+    drawn_pattern::Modifiers effects;
+    effects.count = 1;
+    effects.entries[0] = {400, 400, 99};
+    SavedPatternLibrary lib;
+    const auto value = curve(3000);
+    TEST_ASSERT_TRUE(lib.save(2, "Earlier", 7, value, writeRecord));
+    TEST_ASSERT_TRUE(lib.save(0, "Marked", 6, value, writeRecord, effects));
+    TEST_ASSERT_TRUE(lib.select(0, writeRecord));
+    flash["selected4"] = {0x7f, 0};
+    const auto slot = flash.at("slot4_0");
+    SavedPattern read;
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_FALSE(lib.get(read));
+    TEST_ASSERT_TRUE(lib.get(read, 2));
+    TEST_ASSERT_TRUE(lib.select(2, writeRecord));
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_TRUE(lib.get(read));
+    TEST_ASSERT_EQUAL_UINT(2, lib.catalog().selected);
+    TEST_ASSERT_TRUE(slot == flash.at("slot4_0"));
 }
 
 int main() {
     UNITY_BEGIN();
-    RUN_TEST(test_all_four_slots_can_store_a_marker_at_every_tick_in_one_compact_record);
+    RUN_TEST(test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_reselection);
+    RUN_TEST(test_first_modified_save_and_selection_are_single_atomic_writes);
+    RUN_TEST(test_corrupt_implicit_first_slot_cannot_redirect_wired_recall_to_its_neighbor);
+    RUN_TEST(test_all_four_slots_store_and_update_every_tick_independently);
     RUN_TEST(test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries);
     RUN_TEST(test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input);
     RUN_TEST(test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply);
