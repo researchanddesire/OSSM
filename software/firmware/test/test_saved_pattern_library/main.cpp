@@ -435,6 +435,19 @@ void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input(
     TEST_ASSERT_TRUE(bool(upload.take(1, 12, args)));
 }
 
+void test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply() {
+    JsonDocument reply;
+    addModifierCapabilities(reply);
+    TEST_ASSERT_EQUAL_UINT(1, reply["modifierVersion"].as<unsigned>());
+    TEST_ASSERT_EQUAL_UINT(128, reply["maxModifiers"].as<unsigned>());
+    reply["lastStop"]["reason"] = "scheduler_gap";
+    reply["diagnostic"] = std::string(279,'x');
+    addModifierCapabilities(reply);
+    TEST_ASSERT_TRUE(reply["maxModifiers"].isUnbound());
+    TEST_ASSERT_EQUAL_STRING("scheduler_gap", reply["lastStop"]["reason"].as<const char*>());
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(347, measureJson(reply));
+}
+
 void test_modified_slots_round_trip_and_keep_original_on_failure() {
     using drawn_pattern::Modifiers;
     SavedPatternLibrary library;
@@ -476,6 +489,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries);
     RUN_TEST(test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input);
+    RUN_TEST(test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply);
     RUN_TEST(test_modified_slots_round_trip_and_keep_original_on_failure);
     RUN_TEST(test_legacy_blob_loads_without_writing_or_starting_and_survives_upgrade);
     RUN_TEST(test_first_slot_default_named_select_and_v1_aliases_survive_reboot);

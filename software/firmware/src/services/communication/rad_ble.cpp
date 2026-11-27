@@ -270,8 +270,6 @@ radble::Result patternStatus() {
     status["maxSparseSamples"] = drawn_pattern::sparseSamples;
     status["libraryVersion"] = 1;
     status["libraryPageSize"] = 1;
-    status["modifierVersion"] = 1;
-    status["maxModifiers"] = drawn_pattern::Modifiers::capacity;
     status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
     const auto playback = streaming::drawnPatternStatus();
     status["active"] = playback.active;
@@ -286,6 +284,7 @@ radble::Result patternStatus() {
         stop["frameGapMs"] = playback.lastStop.frameGapMs;
     }
     status["stored"] = streaming::hasSavedPattern();
+    streaming::addModifierCapabilities(status);
     String output;
     serializeJson(status, output);
     return radble::Result::success(output);
@@ -394,6 +393,13 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     const String path = request["path"] | "";
     const JsonObjectConst args = request["args"].as<JsonObjectConst>();
 
+    if (operation == "sensor.read" && path == "pattern.modifiers") {
+        JsonDocument capabilities;
+        streaming::addModifierCapabilities(capabilities);
+        String output;
+        serializeJson(capabilities, output);
+        return radble::Result::success(output);
+    }
     if (operation == "sensor.read" && path == "pattern.library") return patternLibrary(request);
     if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
     if (operation.startsWith("pattern.")) {

@@ -5,6 +5,17 @@
 
 namespace streaming {
 
+// The largest named OSSM state is 27 bytes. The correlated envelope with a
+// ten-digit request ID and both state names uses 162 of the 509 wire bytes.
+inline void addModifierCapabilities(JsonDocument &result) {
+    result["modifierVersion"] = 1;
+    result["maxModifiers"] = drawn_pattern::Modifiers::capacity;
+    if (result["lastStop"].is<JsonObjectConst>() && measureJson(result) > 347) {
+        result.remove("modifierVersion");
+        result.remove("maxModifiers");
+    }
+}
+
 // Use exclusive fields so firmware lacking a format can never play its bytes at
 // a different resolution. An explicit null still counts as a supplied field.
 inline bool readPatternSamples(JsonObjectConst args, SavedPattern &out) {

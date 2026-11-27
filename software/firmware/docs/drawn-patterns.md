@@ -79,7 +79,7 @@ A drawing can contain vibration ranges and pause points. Their locations are fra
 - At zero strength the drawing plays through. For marked drawings the firmware uses the base acceleration associated with the normal 50% setting at every strength. Travel, speed and backend limits still apply. The reported base period excludes time spent approaching, holding and leaving a pause.
 - A vibration range may touch another range. A pause must have its own point, including at the loop seam. A range lies within a single cycle. Place one range on either side of the seam to mark both ends.
 
-A supporting device reports `modifierVersion: 1` and `maxModifiers: 128` in pattern status. On the same control lease, `setting.write` at `motion.sensation` accepts an integer from 0 through 100 while a marked pattern is playing. Physical controls can also set Sensation. A saved slot with markers reports its `modifierCount` in the pattern catalog.
+A supporting device reports `modifierVersion: 1` and `maxModifiers: 128` in pattern status. Long stop diagnostics can fill the BLE reply. If those fields are missing, read the same capabilities with `sensor.read` at `pattern.modifiers`. On the same control lease, `setting.write` at `motion.sensation` accepts an integer from 0 through 100 while a marked pattern is playing. Physical controls can also set Sensation. A saved slot with markers reports its `modifierCount` in the pattern catalog.
 
 ### Transferring markers
 
