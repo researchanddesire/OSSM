@@ -89,6 +89,21 @@ Moving-plan times count wall time, including preemption, for newly planned
 frames whose target changed. Divide the total by the moving-frame count in
 `patterncost` to obtain the mean.
 
+On STEP/DIR, a separate task calculates up to twelve 2 ms frames in RAM.
+The feeder checks current controls, ownership and safety before submitting
+them to the bounded peripheral queue. A live edit discards future software
+frames and starts planning again at the last accepted phase. Serial motion
+continues to submit one acknowledged 20 ms target at a time. Play reports
+busy when the planner or its workspace cannot be allocated.
+
+After Stop, `patternplanner` reports
+`RAD_PATTERN_PLANNER prepared discarded emptyTurns maxPrepared plannerStackFreeBytes`.
+The first two counters describe software frames published and discarded on
+changes of control. Empty turns count feeder visits with no available frame
+after initial warmup. Maximum depth is measured in software frames. The last
+field is the worker's minimum unused stack in bytes as last sampled. Zero
+indicates no reading. Both the worker and its ring are released after Stop.
+
 ## Experimental sensation modifiers
 
 A drawing can contain vibration ranges and pause points. Their locations are fractions of the drawing's original cycle, so starting playback at the first minimum keeps every marker attached to its drawn position.

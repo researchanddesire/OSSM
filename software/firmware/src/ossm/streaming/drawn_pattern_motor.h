@@ -26,6 +26,13 @@ uint32_t now();
 bool current(uint64_t revision);
 bool position(uint64_t revision, int32_t target, const State &limits, bool starting);
 FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing);
+#ifdef ARDUINO
+bool pulseClockRunning();
+#else
+// The host backend sets this observation when replaying a peripheral stop.
+inline bool observedPulseRunning = true;
+inline bool pulseClockRunning() { return observedPulseRunning; }
+#endif
 bool pauseEntry(uint64_t revision);
 using drawn_pattern::Park;
 Park park(uint64_t revision, int32_t target, bool draining);

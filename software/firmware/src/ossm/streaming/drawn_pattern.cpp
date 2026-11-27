@@ -2,6 +2,7 @@
 #include "drawn_modifier_motion.h"
 #include "drawn_phase_rate.h"
 #include "drawn_pattern.h"
+#include "drawn_frame_planner.h"
 
 #include <chrono>
 #include <cstring>
@@ -38,12 +39,12 @@ uint32_t lastServiceEnd = 0;
 bool haveServiceEnd = false;
 uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, lastProgressAt = 0, effectivePeriod = 0;
 int32_t lower = 0, upper = 0, entry = 0;
-struct Marking {
-    drawn_pattern::Modifiers authored;
-    drawn_pattern::MarkerIndex index;
-    drawn_pattern::PauseBrakeBounds brakeBounds;
-};
-std::unique_ptr<Marking> activeMarkers;
+using frame_plan::Marking;
+using frame_plan::RawFramePlanner;
+std::unique_ptr<Marking> serialMarkers;
+Marking *activeMarkers = nullptr;
+RawFramePlanner *rawPlanner = nullptr;
+bool rawClockStarted = false;
 const drawn_pattern::MarkerIndex unmarked{};
 
 drawn_pattern::MarkedPhase motionPhase;
@@ -53,17 +54,13 @@ bool reserveVibration = false, reconfigureAfterFade = false;
 double lastStrength = -1;
 double lastSpeed = 0, lastAcceleration = 0;
 double clockAcceleration = 0, clockJerk = 0;
-struct PlannedFrame {
-    drawn_pattern::MarkedPhase phase;
-    drawn_pattern::VibrationClock vibration;
-    int32_t target = 0;
-    uint16_t crossing = 32768;
-    bool valid = false;
-};
-// The submitted state advances only after the backend accepts the frame.
-// Keep one prospective frame during playback so queue pressure does not
-// repeat the phase clock, polynomial and crossing work for the same input.
-std::unique_ptr<PlannedFrame> pending;
+// Serial accepts one ACK-gated 20 ms sample. STEP/DIR uses the private
+// planner ring; only the feeder ever submits one of its completed rows.
+std::unique_ptr<frame_plan::Frame> pending;
+void invalidateFrames(bool warmup = false) {
+    if (rawPlanner) rawPlanner->invalidate(warmup);
+    if (pending) pending->valid = false;
+}
 int32_t committedTarget = 0;
 bool committedTargetValid = false;
 bool softwareEntry = false;
@@ -135,7 +132,18 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
                 stage == Stage::Playing ? now - lastFrameAt : 0};
     if (stage != Stage::Waiting) pattern_motor::stop(owner);
     stage = Stage::Idle;
-    activeMarkers.reset();
+    activeMarkers = nullptr;
+    serialMarkers.reset();
+    if (rawPlanner) {
+        frame_plan::RawFramePlanner::Counters counts;
+        rawPlanner->close(counts);
+        work.prepared = counts.produced;
+        work.discarded = counts.discarded;
+        work.emptyTurns = counts.emptyTurns;
+        work.maxPrepared = counts.peakDepth;
+        work.plannerStackFree = counts.stackFree;
+        rawPlanner = nullptr;
+    }
     pending.reset();
     for (auto &waiting : awaitingStart) waiting = false;
     effectivePeriod = 0;
@@ -197,7 +205,8 @@ void service(uint32_t now, bool &lowAfterBatch) {
         }
         stage = Stage::Paused;
         speedStatus.state = "paused";
-        pending->valid = false;
+        invalidateFrames(true);
+        rawClockStarted = false;
         if (!zero) {
             stage = Stage::Playing;
             softwareEntry = !serial;
@@ -208,13 +217,14 @@ void service(uint32_t now, bool &lowAfterBatch) {
     const bool requestedVibration = !zero && markerIndex.hasVibration && caps.strength > 0;
     const bool reserve = requestedVibration || !vibration.gain.atZero();
     const bool limitsChanged = caps.speed != lastSpeed || caps.acceleration != lastAcceleration;
-    if (zero && limitsChanged) {
-        pending->valid = false;
+    if (zero && lastSpeed != 0) {
+        invalidateFrames();
         lastSpeed = 0;
     }
     if (!zero && (stage == Stage::Waiting || reserve != reserveVibration ||
         (reconfigureAfterFade && vibration.gain.atZero()) || limitsChanged)) {
-        pending->valid = committedTargetValid = false;
+        invalidateFrames();
+        committedTargetValid = false;
         const double span = static_cast<double>(caps.to) - caps.from;
         const double share = reserve ? drawn_pattern::VibrationBudget::baseShare : 1.;
         // A changing vibration budget fades out at its old safe amplitude.
@@ -248,7 +258,8 @@ void service(uint32_t now, bool &lowAfterBatch) {
         stationaryFrames = 0;
     }
     if (caps.strength != lastStrength) {
-        pending->valid = committedTargetValid = false;
+        invalidateFrames();
+        committedTargetValid = false;
         lastStrength = caps.strength;
     }
     if (stage == Stage::Waiting) {
@@ -286,65 +297,46 @@ void service(uint32_t now, bool &lowAfterBatch) {
     if (now - lastProgressAt > drawn_pattern::frameStarvationMs) return stopLocked("scheduler_gap", now); // stop after starvation; never burst to catch up
     const uint32_t frameMs = serial ? 20 : drawn_pattern::pulseFrameMs;
     if (serial && now - lastFrameAt < frameMs) return;
-    const double dt = frameMs / 1000.0;
-    const drawn_pattern::PhaseLimits phaseLimits{goalRate, clockAcceleration, clockJerk};
-    // Three 2 ms frames per turn rebuild the existing bounded hardware queue
-    // faster than it drains. Release the lock and CPU between refill batches.
+    const auto inputs = [&]() {
+        frame_plan::Inputs in;
+        in.limits = {goalRate, clockAcceleration, clockJerk};
+        in.budget = vibrationBudget;
+        if (markerIndex.holds) in.brake = activeMarkers->brakeBounds;
+        in.strength = caps.strength;
+        in.dt = frameMs / 1000.;
+        in.lower = lower;
+        in.upper = upper;
+        in.zero = zero;
+        in.serial = serial;
+        in.vibrationEnabled = requestedVibration && vibrationBudget.matches(caps.speed, caps.acceleration);
+        return in;
+    };
+    const auto cursor = [&]() {
+        return frame_plan::Cursor{motionPhase, vibration, committedTarget, committedTargetValid};
+    };
+    if (rawPlanner && !rawPlanner->configured()) rawPlanner->configure(inputs(), cursor());
+
     constexpr unsigned pulseFramesPerTurn = 3;
     for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
-        auto &frame = *pending;
+        auto *next = rawPlanner ? rawPlanner->front() : pending.get();
+        if (!next) {
+            // A new goal can temporarily empty the software ring. Never
+            // restart a peripheral which actually ran out of timed pulses.
+            if (rawClockStarted && !pattern_motor::pulseClockRunning())
+                stopLocked("pulse_underrun", pattern_motor::now());
+            return;
+        }
+        auto &frame = *next;
         if (!frame.valid) {
-            const uint32_t planStart = patternServiceMicros();
-            const bool withinNewEnvelope =
-                motionPhase.clock.secondsToGoal() == 0 && motionPhase.clock.rate() <= phaseLimits.rate + 1e-12;
-            const double amplitude = requestedVibration && vibrationBudget.matches(caps.speed, caps.acceleration) &&
-                                             (withinNewEnvelope || !vibration.gain.atZero())
-                                         ? caps.strength
-                                         : 0;
-            drawn_pattern::FrameBrake frameBrake;
-            if (markerIndex.holds) frameBrake.bounds = &activeMarkers->brakeBounds;
-            const auto advance = [&](auto &p, auto &v, double seconds) {
-                if (zero) p.brakeForUser(seconds, phaseLimits);
-                else p.advance(seconds, phaseLimits, markerIndex, caps.strength, &frameBrake);
-                if (markerIndex.hasVibration) v.advance(seconds, amplitude);
-            };
-            const auto target = [&](const auto &p, const auto &v) {
-                if (v.gain.atZero()) return curve.nativeTarget(p.phase, lower, upper);
-                const double y = curve.position(p.phase);
-                return upper - static_cast<int32_t>(std::lround(
-                                   (upper - lower) * y + v.offset(y, p.phase, markerIndex, vibrationBudget)));
-            };
-            frame.phase = motionPhase;
-            frame.vibration = vibration;
-            advance(frame.phase, frame.vibration, dt);
-            frame.target = target(frame.phase, frame.vibration);
-            if (!committedTargetValid) {
-                committedTarget = target(motionPhase, vibration);
-                committedTargetValid = true;
-            }
-            frame.crossing = 32768;
-            const bool moving = frame.target != committedTarget;
-            if (moving) {
-                if (!serial && !activeMarkers) {
-                    auto clock = motionPhase.clock;
-                    clock.setGoal(phaseLimits.rate, phaseLimits.acceleration, phaseLimits.jerk);
-                    frame.crossing = drawn_pattern::firstStepCrossing(committedTarget, frame.target, [&](double fraction) {
-                        return curve.nativeTarget(motionPhase.phase + clock.distanceAt(dt * fraction), lower, upper);
-                    });
-                } else if (!serial) {
-                    frame.crossing = drawn_pattern::firstStepCrossing(committedTarget, frame.target, [&](double fraction) {
-                        auto p = motionPhase;
-                        auto v = vibration;
-                        advance(p, v, dt * fraction);
-                        return target(p, v);
-                    });
-                }
-            }
-            frame.valid = true;
-            const uint32_t planUs = patternServiceMicros() - planStart;
+            const auto in = inputs();
+            frame_plan::calculate(in, cursor(), frame, curve, activeMarkers ? &activeMarkers->index : nullptr);
+        }
+        if (!frame.offered) {
+            frame.offered = true;
+            const auto planUs = frame.planUs;
             ++work.plans;
             work.planTotalUs += planUs;
-            if (moving) {
+            if (frame.from != frame.target) {
                 ++work.movingPlans;
                 work.movingPlanTotalUs += planUs;
                 work.maxMovingPlanUs = std::max(work.maxMovingPlanUs, planUs);
@@ -388,14 +380,18 @@ void service(uint32_t now, bool &lowAfterBatch) {
             recordRateGoal(pattern_motor::now(), result.timing, caps.strength, frame.vibration.gain.goal(), entryToRaw);
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
-        frame.valid = false;
+        if (result.timing == drawn_pattern::FrameTiming::Started ||
+            result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
         const bool settled = zero && frame.phase.clock.secondsToGoal() == 0 &&
-            frame.phase.clock.rate() == 0 && frame.vibration.gain.atZero() && committedTarget == frame.target;
+            frame.phase.clock.rate() == 0 && frame.vibration.gain.atZero() && frame.from == frame.target;
         stationaryFrames = settled ? stationaryFrames + 1 : 0;
         committedTarget = frame.target;
         work.frames = ++acceptedFrames;
         motionPhase = frame.phase;
         vibration = frame.vibration;
+        committedTargetValid = true;
+        if (rawPlanner) rawPlanner->pop();
+        else frame.valid = false;
         lastProgressAt = lastFrameAt = now;
         if (stationaryFrames >= 2) {
             // One frame is held in software lookahead. Two accepted identical
@@ -405,6 +401,8 @@ void service(uint32_t now, bool &lowAfterBatch) {
             if (parked != pattern_motor::Park::Fill) {
                 stage = parked == pattern_motor::Park::Parked ? Stage::Paused : Stage::Draining;
                 speedStatus.state = stage == Stage::Paused ? "paused" : "pausing";
+                invalidateFrames(true);
+                rawClockStarted = false;
                 drainAt = now;
                 return;
             }
@@ -448,20 +446,30 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     pattern_motor::State caps;
     const auto status = startStatusLocked(revision, caps);
     if (status != PatternStart::Accepted) return status;
-    std::unique_ptr<PlannedFrame> firstFrame(new (std::nothrow) PlannedFrame);
-    if (!firstFrame) return PatternStart::Busy;
-    curve = incoming;
+    std::unique_ptr<Marking> marks;
     if (modifiers.count) {
-        // The idle BLE/TLS paths retain no full playback-marker table.
-        activeMarkers.reset(new (std::nothrow) Marking);
-        if (!activeMarkers) return PatternStart::Busy;
-        if (!activeMarkers->authored.assign(modifiers) ||
-            !activeMarkers->index.reset(activeMarkers->authored, curve.authoredStart())) {
-            activeMarkers.reset();
+        marks.reset(new (std::nothrow) Marking);
+        if (!marks || !marks->authored.assign(modifiers) ||
+            !marks->index.reset(marks->authored, incoming.authoredStart())) return PatternStart::Busy;
+    }
+    if (caps.serial) {
+        pending.reset(new (std::nothrow) frame_plan::Frame);
+        if (!pending) return PatternStart::Busy;
+        serialMarkers = std::move(marks);
+        activeMarkers = serialMarkers.get();
+    } else {
+        auto *planner = new (std::nothrow) RawFramePlanner(incoming, std::move(marks));
+        if (!planner) return PatternStart::Busy;
+        if (!planner->start()) {
+            RawFramePlanner::Counters unused;
+            planner->close(unused);
             return PatternStart::Busy;
         }
+        rawPlanner = planner;
+        activeMarkers = planner->marking.get();
     }
-    pending = std::move(firstFrame);
+    rawClockStarted = false;
+    curve = incoming;
     speedStatus = {};
     speedStatus.state = "waiting";
     speedStatus.speedPct = caps.fraction * 100.;

@@ -84,6 +84,10 @@ FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t cros
     result.commandGateUs = gateUs;
     return result;
 }
+bool pulseClockRunning() {
+    auto *pulse = getMotorPulseStepper();
+    return pulse && pulse->isQueueRunning();
+}
 bool pauseEntry(uint64_t revision) {
     return runMotorPatternCommand(revision, [&] {
         stepper->stopMoveForOwner(revision, motorSafetyEventCurrent);

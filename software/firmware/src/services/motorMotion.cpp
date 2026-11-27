@@ -42,12 +42,11 @@ public:
         return false;
 #else
         if (serial_.load()) return true;
-        const auto hat = getOssmHatStatus();
         // A receive-only HAT shares its bus with another master and can never
         // send a target, so motion stays on STEP/DIR (shared_bus_logic.h).
         // The request that reveals the other master is always decoded before
         // its reply can mark the HAT detected.
-        if (!hat.detected || hat.passive) return false;
+        if (!ossmHatCanSelectSerial()) return false;
         bool expected = false;
         if (serial_.compare_exchange_strong(expected, true)) {
             // A HAT that owned its bus never falls back to pulses, including

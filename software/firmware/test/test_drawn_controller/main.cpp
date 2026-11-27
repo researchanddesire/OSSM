@@ -102,6 +102,9 @@ void setUp() {
     entrySubmissions = 0;
     entryUpdates = 0;
     finiteReads = legacyQueueReads = 0;
+    frame_plan::RawFramePlanner::pumpInline = true;
+    frame_plan::RawFramePlanner::workerAvailable = true;
+    io::observedPulseRunning = true;
     timedPulses = false;
     nextPulseAt = 0;
     settings = {};
@@ -110,6 +113,94 @@ void setUp() {
     setDrawnPatternReady(revision, true);
 }
 void tearDown() { setDrawnPatternReady(revision, false); }
+
+void test_worker_allocation_failure_leaves_motor_and_serial_available() {
+    using Planner = frame_plan::RawFramePlanner;
+    Planner::workerAvailable = false;
+    motor.speed = 250;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(start()));
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
+    TEST_ASSERT_EQUAL_UINT(0, stops);
+    motor.serial = true;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(25);
+    TEST_ASSERT_FALSE(frames.empty());
+    cancelDrawnPattern();
+    Planner::workerAvailable = true;
+    motor.serial = false;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+}
+
+void test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop() {
+    using Planner = frame_plan::RawFramePlanner;
+    Planner::pumpInline = false;
+    motor.speed = 500;
+    motor.strength = .5;
+    drawn_pattern::Modifiers marked;
+    marked.entries[marked.count++] = {150, 420, 0};
+    marked.entries[marked.count++] = {530, 530, 30000};
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(samples, 32, 2000, revision,
+                              false, drawn_pattern::SampleFormat::Q8, marked)));
+    tick(2);
+    auto *old = rawPlanner;
+    old->retainForTest(); // the active worker's reference
+    const auto result = old->prepare([&] {
+        cancelDrawnPattern();
+        TEST_ASSERT_EQUAL_STRING("stop", drawnPatternStatus().lastStop.reason);
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+        tick(2);
+    });
+    TEST_ASSERT_EQUAL_INT(int(Planner::Action::Exit), int(result));
+    old->releaseForTest();
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(frames.empty());
+    for (unsigned i = 0; i < Planner::capacity; ++i) rawPlanner->prepare([] {});
+    tick();
+    TEST_ASSERT_EQUAL_UINT(3, frames.size());
+}
+
+void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes() {
+    using Planner = frame_plan::RawFramePlanner;
+    Planner::pumpInline = false;
+    motor.speed = 200;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(2);
+    auto produce = [] { return rawPlanner->prepare([] {}); };
+    for (unsigned i = 1; i < Planner::capacity; ++i) produce();
+    tick();
+    TEST_ASSERT_TRUE(frames.empty()); // finite entry done; software rows cannot start the clock yet
+    produce();
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 14000};
+    for (unsigned batch = 0; batch < 4; ++batch) tick();
+    TEST_ASSERT_EQUAL_UINT(Planner::capacity, frames.size());
+    // On a new positive setting and then zero, even an almost-completed
+    // calculation from the prior setting cannot extend the submitted path.
+    for (unsigned edit = 1; edit <= 64; ++edit) {
+        const auto before = frames.size();
+        const auto phase = motionPhase.phase;
+        rawPlanner->prepare([&] {
+            motor.speed = edit == 64 ? 0 : 200 + 20 * edit;
+            tick();
+            TEST_ASSERT_EQUAL_UINT(before, frames.size());
+            TEST_ASSERT_EQUAL_DOUBLE(phase, motionPhase.phase);
+        });
+        tick();
+        TEST_ASSERT_EQUAL_UINT(before, frames.size()); // prior calculation was discarded
+        TEST_ASSERT_EQUAL_INT(int(Planner::Action::Produced), int(produce()));
+        tick();
+        TEST_ASSERT_EQUAL_UINT(before + 1, frames.size()); // first freshly planned frame, without rewarming
+        TEST_ASSERT_EQUAL_DOUBLE(edit == 64 ? 0 : drawnPatternStatus().speed.phaseRateHz, stampedGoal);
+    }
+    io::observedPulseRunning = false;
+    tick();
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
+    PatternWork stats;
+    TEST_ASSERT_TRUE(stoppedPatternWork(stats));
+    TEST_ASSERT_EQUAL_UINT(Planner::capacity, stats.maxPrepared);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.discarded);
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.emptyTurns);
+}
 
 void test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns() {
     motor.speed = 240;
@@ -979,6 +1070,9 @@ void test_paused_remote_lease_and_finite_entry_remain_guarded() {
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_worker_allocation_failure_leaves_motor_and_serial_available);
+    RUN_TEST(test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop);
+    RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);
     RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);
     RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);
     RUN_TEST(test_stopped_service_cost_retains_failing_turn_and_longest_interval);

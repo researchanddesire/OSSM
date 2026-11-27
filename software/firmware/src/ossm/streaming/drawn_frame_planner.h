@@ -1,0 +1,296 @@
+#pragma once
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include "drawn_modifier_motion.h"
+#include "drawn_waveform.h"
+
+#ifdef ARDUINO
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#endif
+
+namespace streaming {
+uint32_t patternServiceMicros();
+
+namespace frame_plan {
+
+struct Marking {
+    drawn_pattern::Modifiers authored;
+    drawn_pattern::MarkerIndex index;
+    drawn_pattern::PauseBrakeBounds brakeBounds;
+};
+
+struct Cursor {
+    drawn_pattern::MarkedPhase phase;
+    drawn_pattern::VibrationClock vibration;
+    int32_t target = 0;
+    bool targetKnown = false;
+};
+
+struct Frame : Cursor {
+    int32_t from = 0;
+    uint32_t planUs = 0;
+    uint16_t crossing = 32768;
+    bool valid = false;
+    bool offered = false;
+};
+
+struct Inputs {
+    drawn_pattern::PhaseLimits limits{};
+    drawn_pattern::PauseBrakeBounds brake;
+    drawn_pattern::VibrationBudget budget;
+    double strength = 0, dt = 0;
+    int32_t lower = 0, upper = 0;
+    bool zero = false, serial = false, vibrationEnabled = false;
+};
+
+inline void calculate(const Inputs &in, const Cursor &begin, Frame &frame,
+                      const drawn_pattern::Waveform &curve, const drawn_pattern::MarkerIndex *markers) {
+    static const drawn_pattern::MarkerIndex empty;
+    const auto &index = markers ? *markers : empty;
+    const uint32_t start = patternServiceMicros();
+    const auto &phase = begin.phase;
+    const auto &vibration = begin.vibration;
+    const bool withinEnvelope = phase.clock.secondsToGoal() == 0 &&
+                                phase.clock.rate() <= in.limits.rate + 1e-12;
+    const double amplitude = in.vibrationEnabled && (withinEnvelope || !vibration.gain.atZero())
+                                 ? in.strength : 0;
+    drawn_pattern::FrameBrake brake;
+    if (index.holds) brake.bounds = &in.brake;
+    const auto advance = [&](auto &p, auto &v, double seconds) {
+        if (in.zero) p.brakeForUser(seconds, in.limits);
+        else p.advance(seconds, in.limits, index, in.strength, &brake);
+        if (index.hasVibration) v.advance(seconds, amplitude);
+    };
+    const auto target = [&](const auto &p, const auto &v) {
+        if (v.gain.atZero()) return curve.nativeTarget(p.phase, in.lower, in.upper);
+        const double y = curve.position(p.phase);
+        return in.upper - static_cast<int32_t>(std::lround(
+            (in.upper - in.lower) * y + v.offset(y, p.phase, index, in.budget)));
+    };
+
+    frame.phase = phase;
+    frame.vibration = vibration;
+    advance(frame.phase, frame.vibration, in.dt);
+    frame.target = target(frame.phase, frame.vibration);
+    frame.targetKnown = true;
+    frame.from = begin.targetKnown ? begin.target : target(phase, vibration);
+    frame.crossing = 32768;
+    if (!in.serial && frame.from != frame.target) {
+        if (!markers) {
+            auto clock = phase.clock;
+            clock.setGoal(in.limits.rate, in.limits.acceleration, in.limits.jerk);
+            frame.crossing = curve.firstPlainStepCrossing(frame.from, frame.target, phase.phase,
+                                                          clock, in.dt, in.lower, in.upper);
+        } else {
+            frame.crossing = drawn_pattern::firstStepCrossing(frame.from, frame.target, [&](double fraction) {
+                auto p = phase;
+                auto v = vibration;
+                advance(p, v, in.dt * fraction);
+                return target(p, v);
+            });
+        }
+    }
+    frame.valid = true;
+    frame.offered = false;
+    frame.planUs = patternServiceMicros() - start;
+}
+
+// The feeder may run on the opposite core immediately after the planner
+// starts publishing. Keep these bounded copies preemption-safe on ESP32;
+// no driver, allocation, notification or curve evaluation holds this lock.
+#ifdef ARDUINO
+class RingMutex {
+public:
+    void lock() { portENTER_CRITICAL(&mux_); }
+    void unlock() { portEXIT_CRITICAL(&mux_); }
+private:
+    portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+};
+#else
+using RingMutex = std::mutex;
+#endif
+
+// The planner can only publish RAM. The feeder retains exclusive ownership
+// of the motor and of accepted cursor state. A generation change discards
+// completed rows AND any calculation currently outside the short ring lock.
+class RawFramePlanner {
+public:
+    static constexpr unsigned capacity = 12;
+    static constexpr unsigned stackBytes = 4096;
+    const std::unique_ptr<Marking> marking;
+    struct Counters {
+        uint32_t produced = 0, discarded = 0, emptyTurns = 0, peakDepth = 0;
+        uint32_t stackFree = 0;
+    };
+
+    RawFramePlanner(const drawn_pattern::Waveform &source, std::unique_ptr<Marking> markers)
+        : marking(std::move(markers)), model_(source) {}
+
+    bool start() {
+#ifdef ARDUINO
+        ++references_;
+        if (xTaskCreatePinnedToCore(workerMain, "drawnPlan", stackBytes, this, 8, &worker_, 0) != pdPASS) {
+            --references_;
+            return false;
+        }
+#else
+        if (!workerAvailable) return false;
+#endif
+        return true;
+    }
+
+    // Called exactly once by the feeder, including after task creation fails.
+    void close(Counters &out) {
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            closed_ = true;
+            out = counters_;
+        }
+        release();
+    }
+
+    // All configuration/consume calls are serialized by the controller.
+    bool configured() const { return configured_; }
+    void configure(const Inputs &in, const Cursor &accepted) {
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            inputs_ = in;
+            tail_ = accepted;
+            configured_ = true;
+        }
+        wake();
+    }
+
+    void invalidate(bool warmup = false) {
+        std::lock_guard<RingMutex> guard(mux_);
+        ++generation_;
+        counters_.discarded += count_;
+        head_ = count_ = 0;
+        configured_ = false;
+        if (warmup) warmed_ = false;
+    }
+
+    enum class Action { Produced, Wait, Exit };
+
+    // A single planner calls prepare. The callback lets a host test suspend
+    // it at the exact point where an on-device control update can race it.
+    template<class AfterSnapshot>
+    Action prepare(AfterSnapshot afterSnapshot) {
+        uint32_t generation;
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            if (closed_) return Action::Exit;
+            if (!configured_ || count_ == capacity) return Action::Wait;
+            generation = generation_;
+            planningStart_ = tail_;
+            if (planningGeneration_ != generation_) {
+                planningGeneration_ = generation_;
+                planningInputs_ = inputs_;
+            }
+        }
+        afterSnapshot();
+        calculate(planningInputs_, planningStart_, scratch_, model_, marking ? &marking->index : nullptr);
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            if (closed_) return Action::Exit;
+            if (generation == generation_) {
+                rows_[(head_ + count_) % capacity] = scratch_;
+                tail_ = scratch_;
+                ++count_;
+                ++counters_.produced;
+                counters_.peakDepth = std::max(counters_.peakDepth, count_);
+                if (count_ == capacity) warmed_ = true;
+            } else {
+                ++counters_.discarded;
+            }
+        }
+        return Action::Produced;
+    }
+
+    // Only this consumer can release a row. The producer never writes into
+    // the front slot, even while the motor is retrying its previous submit.
+    Frame *front() {
+#ifndef ARDUINO
+        if (pumpInline) while (prepare([] {}) == Action::Produced) {}
+#endif
+        std::lock_guard<RingMutex> guard(mux_);
+        if (count_ && warmed_) return &rows_[head_];
+        if (warmed_) ++counters_.emptyTurns;
+        return nullptr;
+    }
+
+    void pop() {
+        bool refill;
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            head_ = (head_ + 1) % capacity;
+            refill = --count_ == capacity - 2;
+        }
+        if (refill) wake();
+    }
+
+#ifndef ARDUINO
+    // The deterministic host runner advances the same production planner on
+    // demand. Threaded tests use the worker's prepare/release lifetime.
+    inline static bool pumpInline = true, workerAvailable = true;
+    void retainForTest() { ++references_; }
+    void releaseForTest() { release(); }
+#endif
+
+private:
+    RingMutex mux_;
+    std::atomic<unsigned> references_{1};
+    drawn_pattern::Waveform model_; // Its polynomial cache is private to this worker.
+    Inputs inputs_, planningInputs_;
+    Cursor tail_, planningStart_;
+    Frame rows_[capacity], scratch_;
+    Counters counters_;
+    unsigned head_ = 0, count_ = 0;
+    uint32_t generation_ = 0, planningGeneration_ = UINT32_MAX;
+    bool configured_ = false, warmed_ = false, closed_ = false;
+#ifdef ARDUINO
+    TaskHandle_t worker_ = nullptr;
+    static void workerMain(void *opaque) {
+        auto *self = static_cast<RawFramePlanner *>(opaque);
+        unsigned batch = 0;
+        TickType_t measuredAt = xTaskGetTickCount() - pdMS_TO_TICKS(1000);
+        for (;;) {
+            const auto action = self->prepare([] {});
+            if (action == Action::Exit) break;
+            if (action == Action::Wait) {
+                const auto now = xTaskGetTickCount();
+                if (now - measuredAt >= pdMS_TO_TICKS(1000)) {
+                    const auto free = uxTaskGetStackHighWaterMark(nullptr);
+                    std::lock_guard<RingMutex> guard(self->mux_);
+                    self->counters_.stackFree = free;
+                    measuredAt = now;
+                }
+                // A finite wait also retires a worker closed while asleep.
+                // Its handle is never notified after it was asked to exit.
+                ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
+                batch = 0;
+            } else if (++batch == 6) {
+                // Lower-priority networking and idle work still get a tick,
+                // even with continuous control edits or CPU-heavy curves.
+                vTaskDelay(1);
+                batch = 0;
+            }
+        }
+        self->release();
+        vTaskDelete(nullptr);
+    }
+#endif
+    void wake() {
+#ifdef ARDUINO
+        if (worker_) xTaskNotifyGive(worker_);
+#endif
+    }
+    void release() {
+        if (--references_ == 0) delete this;
+    }
+};
+}
+}

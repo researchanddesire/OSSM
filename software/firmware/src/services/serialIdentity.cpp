@@ -168,6 +168,17 @@ void announcePatternFeel(uint32_t sequence) {
                   static_cast<unsigned long long>(work.movingPlanTotalUs), unsigned(work.maxMovingPlanUs));
 }
 
+[[gnu::noinline]] void announcePatternPlanner() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_PLANNER unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_PLANNER %u %u %u %u %u\n", unsigned(work.prepared),
+                  unsigned(work.discarded), unsigned(work.emptyTurns), unsigned(work.maxPrepared),
+                  unsigned(work.plannerStackFree));
+}
+
 [[gnu::noinline]] void announcePatternSchedule(uint32_t argument) {
     streaming::PatternWork work;
     if (argument > 1 || !streaming::stoppedPatternWork(work)) {
@@ -224,6 +235,7 @@ void console(void*) {
             else if (strcmp(command, "patternwork") == 0) announcePatternWork();
             else if (serialIdentity::unsignedArgument(command, "patternsched", argument))
                 announcePatternSchedule(argument);
+            else if (strcmp(command, "patternplanner") == 0) announcePatternPlanner();
             else if (strcmp(command, "patternbuffer") == 0) announcePatternBuffer();
             else if (strcmp(command, "patterncost") == 0) announcePatternCost();
             else if (strcmp(command, "identitystack") == 0) {
