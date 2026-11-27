@@ -23,6 +23,8 @@ double phase = 0;
 drawn_pattern::PhaseClock clock;
 double lastSpeed = 0, lastAcceleration = 0;
 double clockAcceleration = 0, clockJerk = 0;
+uint16_t firstCrossing = 32768;
+bool crossingCached = false;
 
 // These values live behind lock. A task from an older streaming session
 // can neither submit a frame nor release a newer session's mailbox.
@@ -55,6 +57,7 @@ void service(uint32_t now) {
     if (stage != Stage::Waiting && (lower != caps.from || upper != caps.to))
         return stopLocked("window_changed", now);
     if (stage == Stage::Waiting || caps.speed != lastSpeed || caps.acceleration != lastAcceleration) {
+        crossingCached = false;
         const double span = static_cast<double>(caps.to) - caps.from;
         const double halfAcceleration = caps.acceleration / 2;
         const uint32_t period = curve.safePeriodMs(span, caps.speed, halfAcceleration);
@@ -101,13 +104,22 @@ void service(uint32_t now) {
         auto nextClock = clock;
         const double next = phase + nextClock.advance(dt);
         const int32_t logical = curve.nativeTarget(next, lower, upper);
-        const auto result = pattern_motor::submit(logical, owner, serial);
+        if (!serial && !crossingCached) {
+            firstCrossing = drawn_pattern::firstStepCrossing(
+                curve.nativeTarget(phase, lower, upper), logical, [&](double fraction) {
+                    auto partial = clock;
+                    return curve.nativeTarget(phase+partial.advance(dt*fraction), lower, upper);
+                });
+            crossingCached = true;
+        }
+        const auto result = pattern_motor::submit(logical, owner, serial, firstCrossing);
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
             if (now - lastFrameAt >= 200) stopLocked(result.reason, now, result.driverResult);
             return;
         }
+        crossingCached = false;
         clock = nextClock;
         phase = next - std::floor(next);
         lastFrameAt = now;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace drawn_pattern {
 
@@ -71,4 +72,18 @@ private:
         if (seconds > 0) segments_[size_++]={seconds,jerk};
     }
 };
+// Locate the first change of the integer STEP position within the frame.
+// The serializer groups subsequent same-direction edges until the next
+// frame's first crossing. Eleven bisections resolve a 2 ms frame to 1 µs.
+template <class PositionAt>
+uint16_t firstStepCrossing(int32_t from, int32_t to, const PositionAt &positionAt) {
+    if (from==to) return 32768;
+    unsigned lo=0, hi=2048;
+    while (hi-lo>1) {
+        const auto middle=(lo+hi)/2;
+        if (positionAt(middle/2048.)==from) lo=middle;
+        else hi=middle;
+    }
+    return static_cast<uint16_t>(((lo+hi)*65535u+2048u)/4096u);
+}
 } // namespace drawn_pattern

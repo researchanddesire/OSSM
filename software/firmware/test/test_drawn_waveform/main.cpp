@@ -111,26 +111,19 @@ void test_step_frames_track_multiple_periods_without_waypoint_stops_or_drift() {
     Waveform curve;
     const auto shape = encode(asymmetric);
     TEST_ASSERT_TRUE(curve.decode(shape.data(), shape.size(), 4000));
-    drawn_pattern::PulseFrame frame{};
-    int32_t actual = -2200;
-    uint64_t elapsedTicks = 0;
-    int32_t beforeMiddle = actual;
-    for (size_t n = 1; n <= 6000; ++n) {
-        const auto target = -2200 + static_cast<int32_t>(std::lround(2000 * curve.position(n / 2000.0)));
-        TEST_ASSERT_TRUE(drawn_pattern::pulseFrame(actual, target, 32000, frame.increasing, frame));
-        actual += frame.increasing ? frame.steps : -int(frame.steps);
-        elapsedTicks += uint32_t(frame.ticks) * std::max<int>(1, frame.steps);
-        TEST_ASSERT_EQUAL_INT32(target, actual);
-        if (n == 498) beforeMiddle = actual;
-        if (n == 502) TEST_ASSERT_GREATER_THAN_INT32(8, actual - beforeMiddle);
+    int32_t previous=curve.nativeTarget(0,-2200,-200);
+    const auto initial=previous;
+    int32_t beforeMiddle=0;
+    int64_t traveled=0;
+    for (size_t n=1;n<=6000;++n) {
+        const auto target=curve.nativeTarget(n/2000.,-2200,-200);
+        traveled+=int64_t(target)-previous;
+        if (n==498) beforeMiddle=target;
+        if (n==502) TEST_ASSERT_GREATER_THAN_INT32(8,beforeMiddle-target);
+        if (n%2000==0) TEST_ASSERT_EQUAL_INT32(initial,target);
+        previous=target;
     }
-    TEST_ASSERT_EQUAL_INT32(-2200, actual);
-    TEST_ASSERT_TRUE(std::abs(static_cast<int64_t>(elapsedTicks) - 192000000) < 16000);
-    TEST_ASSERT_TRUE(drawn_pattern::pulseFrame(actual, actual, 32000, true, frame));
-    TEST_ASSERT_EQUAL_UINT8(0, frame.steps);
-    TEST_ASSERT_TRUE(frame.increasing);
-    TEST_ASSERT_EQUAL_UINT16(32000, frame.ticks);
-    TEST_ASSERT_FALSE(drawn_pattern::pulseFrame(INT32_MIN, INT32_MAX, 32000, false, frame));
+    TEST_ASSERT_EQUAL_INT32(0,traveled);
 }
 
 namespace {
@@ -139,14 +132,29 @@ struct InterruptingQueue {
     unsigned count = 0, starts = 0;
     bool running = false, discarded = false, drainOnAppend = false;
     int8_t startResult = 0;
+    PulseCommand last{};
+    bool retireImmediately = false;
+    unsigned moveTimedCalls = 0;
     int32_t tail = -896;
     unsigned queueEntries() const { return count; }
     int32_t getPositionAfterCommandsCompleted() const { return tail; }
     bool isQueueRunning() const { return running; }
+    uint16_t getMaxSpeedInTicks() const { return 80; }
+    uint32_t ticksInQueue() const { return 0; }
+    int moveTimed(int16_t steps,uint32_t duration,uint32_t *actual,bool start) {
+        ++moveTimedCalls;
+        const bool wasEmpty=count==0;
+        const auto n=static_cast<uint8_t>(std::abs(steps));
+        PulseCommand cmd{static_cast<uint16_t>(duration/n),n,steps>0};
+        *actual=cmd.ticks*n;
+        const auto code=addQueueEntry(&cmd,start);
+        return code ? code : (wasEmpty?7:0);
+    }
     int addQueueEntry(const PulseCommand *command, bool start) {
         if (command && !discarded) {
             if (drainOnAppend) { count = 0; running = false; }
-            ++count;
+            last=*command;
+            if (!retireImmediately || !running) ++count;
             tail += command->count_up ? command->steps : -int(command->steps);
         }
         if (start) {
@@ -167,22 +175,22 @@ void test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahea
     PulseQueue q;
     InterruptingQueue driver;
     for (unsigned i = 0; i < pulseQueueFrames; ++i) {
-        const auto result = q.submit<PulseCommand>(driver, -896, 32000);
+        const auto result = q.submit<PulseCommand>(driver, -896, 32000, 32768, 3200, 7);
         TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(result.state));
         TEST_ASSERT_EQUAL_UINT(i + 1 == pulseQueueFrames, driver.starts);
     }
     TEST_ASSERT_TRUE(driver.running);
     TEST_ASSERT_FALSE(q.filling());
-    TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(q.submit<PulseCommand>(driver, -895, 32000).state));
-    TEST_ASSERT_EQUAL_INT(int(Frame::Retry), int(q.submit<PulseCommand>(driver, -894, 32000).state));
+    TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(q.submit<PulseCommand>(driver, -895, 32000, 32768, 3200, 7).state));
+    TEST_ASSERT_EQUAL_INT(int(Frame::Retry), int(q.submit<PulseCommand>(driver, -894, 32000, 32768, 3200, 7).state));
     TEST_ASSERT_EQUAL_UINT(pulseQueueFrames, driver.count);
     driver.count = 1;
     driver.drainOnAppend = true;
-    const auto underrun = q.submit<PulseCommand>(driver, -894, 32000);
+    const auto underrun = q.submit<PulseCommand>(driver, -894, 32000, 32768, 3200, 7);
     TEST_ASSERT_EQUAL_STRING("pulse_underrun", underrun.reason);
     TEST_ASSERT_EQUAL_UINT(1, driver.starts);
     TEST_ASSERT_FALSE(driver.running);
-    TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(q.submit<PulseCommand>(driver, -894, 32000).state));
+    TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(q.submit<PulseCommand>(driver, -894, 32000, 32768, 3200, 7).state));
     TEST_ASSERT_EQUAL_UINT(1, driver.starts);
 }
 
@@ -191,7 +199,7 @@ void test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_err
     PulseQueue q;
     InterruptingQueue driver;
     driver.discarded = true;
-    const auto discarded = q.submit<PulseCommand>(driver, -896, 32000);
+    const auto discarded = q.submit<PulseCommand>(driver, -896, 32000, 32768, 3200, 7);
     TEST_ASSERT_EQUAL_STRING("pulse_discarded", discarded.reason);
     TEST_ASSERT_EQUAL_INT32(-896, q.initialPosition());
     TEST_ASSERT_TRUE(q.filling());
@@ -201,15 +209,57 @@ void test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_err
     driver.discarded = false;
     driver.startResult = -2;
     for (unsigned i = 1; i < pulseQueueFrames; ++i)
-        TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(q.submit<PulseCommand>(driver, -895, 32000).state));
-    const auto refused = q.submit<PulseCommand>(driver, -894, 32000);
+        TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(q.submit<PulseCommand>(driver, -895, 32000, 32768, 3200, 7).state));
+    const auto refused = q.submit<PulseCommand>(driver, -894, 32000, 32768, 3200, 7);
     TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(refused.state));
     TEST_ASSERT_EQUAL_STRING("pulse_start", refused.reason);
     TEST_ASSERT_EQUAL_INT(-2, refused.driverResult);
     TEST_ASSERT_TRUE(q.filling());
     TEST_ASSERT_FALSE(driver.running);
     TEST_ASSERT_EQUAL_INT32(-896, q.initialPosition());
-    TEST_ASSERT_EQUAL_INT32(-894, driver.tail);
+    TEST_ASSERT_EQUAL_INT32(-895, driver.tail); // Most recent sampled group remains software-only.
+}
+
+void test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate() {
+    using namespace drawn_pattern;
+    constexpr int frameTicks=32000;
+    for (const int sign : {-1,1}) {
+        InterruptingQueue driver;
+        driver.tail=0;
+        driver.retireImmediately=true;
+        PulseQueue q;
+        // Twenty-three hundred steps/s: 4.6 steps per frame, with crossings
+        // between period boundaries. The first 2ms is a true stationary hold.
+        const double speed=4.6;
+        uint64_t elapsed=0;
+        double maxError=0;
+        int pulses=0;
+        for (unsigned i=0;i<405;++i) {
+            const auto position=[&](double u) {
+                return sign*static_cast<int32_t>(std::lround(speed*std::clamp(double(i)+u-1.,0.,400.)));
+            };
+            const int32_t from=position(0), next=position(1);
+            const uint16_t crossing=firstStepCrossing(from,next,position);
+            const auto f=q.submit<PulseCommand>(driver,next,frameTicks,crossing,3200,7);
+            TEST_ASSERT_EQUAL_INT(int(Frame::Accepted),int(f.state));
+            const auto cmd=driver.last;
+            for (unsigned k=0;k<cmd.steps;++k) {
+                const double measured=elapsed+k*cmd.ticks;
+                const double ideal=frameTicks*(1+(pulses+.5)/speed);
+                // The final group is followed by a hold; its inner pulses
+                // may have unequal physical and analytical intervals.
+                if (pulses<1836) maxError=std::max(maxError,std::abs(measured-ideal));
+                TEST_ASSERT_EQUAL(sign,cmd.count_up?1:-1);
+                ++pulses;
+            }
+            if (cmd.steps==0 && pulses>0) TEST_ASSERT_EQUAL(sign,cmd.count_up?1:-1);
+            elapsed+=uint32_t(cmd.ticks)*std::max(1,int(cmd.steps));
+        }
+        TEST_ASSERT_EQUAL_UINT(1840,pulses);
+        TEST_ASSERT_EQUAL_INT32(sign*1840,driver.tail);
+        TEST_ASSERT_GREATER_THAN_UINT(300,driver.moveTimedCalls);
+        TEST_ASSERT_LESS_THAN_FLOAT(30.,maxError); // <2 microseconds including integer ticks
+    }
 }
 
 void test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives() {
@@ -313,6 +363,7 @@ void test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets(
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);
     RUN_TEST(test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets);
     RUN_TEST(test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives);
     RUN_TEST(test_high_precision_sine_tracks_the_authored_third_derivative);

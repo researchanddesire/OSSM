@@ -42,7 +42,7 @@ bool position(uint64_t ticket, int32_t target, const State &, bool starting) {
     if (!deferEntry) motor.position = target;
     return true;
 }
-FrameResult submit(int32_t target, uint64_t ticket, bool) {
+FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing) {
     if (!read(ticket).ready) return {Frame::Rejected, "guard"};
     if (timedPulses && clockMs < nextPulseAt) return {Frame::Retry, "pulse_full"};
     if (feedback.state == Frame::Accepted) {

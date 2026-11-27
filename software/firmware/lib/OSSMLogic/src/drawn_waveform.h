@@ -196,20 +196,8 @@ private:
     mutable double polynomial_[6]{};
 };
 
-// A STEP/DIR frame carries a bounded count spread over its entire interval.
-// An empty frame is a timed hold. Rounding absolute positions prevents drift.
+// The continuous phase clock advances on this interval, independently of the
+// sub-frame time at which the STEP peripheral emits an electrical edge.
 constexpr uint32_t pulseFrameMs = 2;
-struct PulseFrame { uint16_t ticks = 0; uint8_t steps = 0; bool increasing = false; };
-inline bool pulseFrame(int32_t from, int32_t to, uint32_t ticksPerFrame, bool lastDirection,
-                       PulseFrame &frame) {
-    const int64_t delta = static_cast<int64_t>(to) - from;
-    const uint64_t count = std::abs(delta);
-    if (count > 255 || ticksPerFrame == 0 || ticksPerFrame > UINT16_MAX) return false;
-    const uint32_t ticks = count ? (ticksPerFrame + count / 2) / count : ticksPerFrame;
-    if (ticks == 0) return false;
-    frame = {static_cast<uint16_t>(ticks), static_cast<uint8_t>(count),
-             delta == 0 ? lastDirection : delta > 0};
-    return true;
-}
 
 } // namespace drawn_pattern

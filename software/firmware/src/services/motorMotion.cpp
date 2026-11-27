@@ -156,7 +156,7 @@ public:
         }
         return 0;
     }
-    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial) {
+    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial, uint16_t crossing) {
         using drawn_pattern::Frame;
         if (!motorSafetyEventCurrent(owner) || !motorSafetyCanEnableOutputs() ||
             serialSelected() != serial) return {Frame::Rejected, "guard"};
@@ -183,7 +183,8 @@ public:
                 return {Frame::Retry, "pulse_priming"};
             }
             return pulseQueue_.submit<stepper_command_s>(*pulse_, logical,
-                TICKS_PER_S / 1000 * drawn_pattern::pulseFrameMs);
+                TICKS_PER_S / 1000 * drawn_pattern::pulseFrameMs, crossing, MIN_CMD_TICKS,
+                static_cast<int8_t>(MOVE_TIMED_EMPTY));
         }
 
         refresh();
@@ -544,8 +545,8 @@ MotorMotionStatus getMotorMotionStatus() { return axis.status(); }
 FastAccelStepper *getMotorPulseStepper() { return pulseEngine; }
 
 
-drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial) {
-    return axis.patternFrame(target, revision, serial);
+drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing) {
+    return axis.patternFrame(target, revision, serial, crossing);
 }
 void stopPatternMotion(uint64_t owner) {
     bool drain = false;
