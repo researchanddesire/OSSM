@@ -116,12 +116,54 @@ void test_bounded_names_slots_and_corrupt_flash() {
     TEST_ASSERT_FALSE(lib.save(1, "OK", 2, curve(0), writeRecord));
     TEST_ASSERT_FALSE(lib.select(0, writeRecord));
     TEST_ASSERT_EQUAL_INT(1, writes);
-    flash["libraryV2"][0] ^= 0xff;
+    flash["libraryV3"][0] ^= 0xff;
     lib.load(readRecord);
     TEST_ASSERT_FALSE(lib.any());
     flash["curveV1"] = {0,1,2};
     lib.load(readRecord);
     TEST_ASSERT_FALSE(lib.any());
+}
+
+void test_q16_upgrade_preserves_all_prior_slot_bytes_and_selected_name() {
+    SavedPatternLibrary old;
+    auto original = curve(7251);
+    TEST_ASSERT_TRUE(old.save(2, "Donor", 5, original, writeRecord));
+    TEST_ASSERT_TRUE(old.save(0, "Second", 6, curve(4000), writeRecord));
+    // Historical libraryV2 layout differs only in the enclosing version word.
+    auto previous = flash.at("libraryV3");
+    uint32_t oldVersion = 2;
+    std::memcpy(previous.data(), &oldVersion, sizeof(oldVersion));
+    flash.clear();
+    flash["libraryV2"] = previous;
+    const int before = writes;
+    SavedPatternLibrary upgraded;
+    upgraded.load(readRecord);
+    SavedPattern loaded;
+    TEST_ASSERT_TRUE(upgraded.get(loaded));
+    TEST_ASSERT_EQUAL_MEMORY(&original, &loaded, sizeof(loaded));
+    TEST_ASSERT_EQUAL_INT(2, upgraded.catalog().selected);
+    TEST_ASSERT_EQUAL_INT(before, writes);
+
+    const std::string hex = std::string(64, '1');
+    SavedPattern ordinary, precise;
+    TEST_ASSERT_TRUE(makeSavedPattern(ordinary, hex.data(), hex.size(), 2000));
+    TEST_ASSERT_TRUE(makeSavedPattern(precise, hex.data(), hex.size(), 2000, true));
+    TEST_ASSERT_FALSE(ordinary.highPrecision());
+    TEST_ASSERT_TRUE(precise.highPrecision());
+    TEST_ASSERT_TRUE(upgraded.save(1, "Wave", 4, ordinary, writeRecord));
+    const int beforePrecision = writes;
+    TEST_ASSERT_TRUE(upgraded.save(1, "Wave", 4, precise, writeRecord));
+    TEST_ASSERT_EQUAL_INT(beforePrecision + 1, writes); // Same hex, different positions.
+    TEST_ASSERT_TRUE(upgraded.select(1, writeRecord));
+    TEST_ASSERT_TRUE(flash.at("libraryV2") == previous);
+    SavedPatternLibrary rebooted;
+    rebooted.load(readRecord);
+    TEST_ASSERT_TRUE(rebooted.get(loaded));
+    TEST_ASSERT_EQUAL_MEMORY(&precise, &loaded, sizeof(loaded));
+    TEST_ASSERT_EQUAL_STRING("Second", rebooted.catalog().slots[0].name);
+    TEST_ASSERT_EQUAL_STRING("Donor", rebooted.catalog().slots[2].name);
+    TEST_ASSERT_FALSE(makeSavedPattern(loaded, hex.data(), 62, 2000, true));
+    TEST_ASSERT_FALSE(makeSavedPattern(loaded, hex.data(), 32, 2000, true));
 }
 
 void test_storage_requires_stationary_current_feedback_when_available() {
@@ -254,6 +296,7 @@ int main() {
     RUN_TEST(test_first_slot_default_named_select_and_v1_aliases_survive_reboot);
     RUN_TEST(test_failed_or_repeated_transactions_preserve_selection_and_slot);
     RUN_TEST(test_bounded_names_slots_and_corrupt_flash);
+    RUN_TEST(test_q16_upgrade_preserves_all_prior_slot_bytes_and_selected_name);
     RUN_TEST(test_storage_requires_stationary_current_feedback_when_available);
     RUN_TEST(test_catalog_optional_slot_preserves_full_and_empty_entries);
     RUN_TEST(test_catalog_rejects_invalid_page_without_returning_other_entries);

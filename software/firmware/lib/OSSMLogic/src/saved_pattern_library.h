@@ -13,24 +13,26 @@ constexpr uint8_t patternSlotCount = 4;
 constexpr int selectedPatternSlot = -1;
 constexpr size_t maxPatternNameBytes = 24;
 
-// On-flash ABI of the original curveV1 record. Keep this layout readable.
+// Preserve the 268-byte curveV1 layout. Version 1 is Q8, version 2 is big-endian Q16.
 struct SavedPattern {
     uint32_t version = 1;
     uint32_t periodMs = 0;
     uint32_t length = 0;
     char samples[drawn_pattern::maxSamples * 2] = {};
+    bool highPrecision() const { return version == 2; }
 };
 static_assert(sizeof(SavedPattern) == 268);
 
 inline bool validSavedPattern(const SavedPattern &value) {
     drawn_pattern::Waveform curve;
-    return value.version == 1 && value.length <= sizeof(value.samples) &&
-           curve.decode(value.samples, value.length, value.periodMs);
+    return (value.version == 1 || value.version == 2) && value.length <= sizeof(value.samples) &&
+           curve.decode(value.samples, value.length, value.periodMs, value.highPrecision());
 }
 
 inline bool makeSavedPattern(SavedPattern &out, const char *samples, size_t length,
-                             uint32_t periodMs) {
+                             uint32_t periodMs, bool highPrecision = false) {
     if (!samples || length > sizeof(out.samples)) return false;
+    out.version = highPrecision ? 2 : 1;
     out.periodMs = periodMs;
     out.length = length;
     std::memcpy(out.samples, samples, length);
@@ -90,22 +92,23 @@ class SavedPatternLibrary {
         char name[maxPatternNameBytes + 1]{};
     };
     struct Record {
-        uint32_t version = 2;
+        uint32_t version = 3;
         uint32_t selected = 0;
         Slot slots[patternSlotCount]{};
     };
     static_assert(sizeof(Record) == 1192);
     Record record_;
-    static constexpr const char *key = "libraryV2";
+    static constexpr const char *key = "libraryV3";
 
     bool occupied(int index) const {
         return index >= 0 && index < patternSlotCount && record_.slots[index].value.length;
     }
-    bool validRecord() const {
-        if (record_.version != 2 || !occupied(record_.selected)) return false;
+    bool validRecord(uint32_t version) const {
+        if (record_.version != version || !occupied(record_.selected)) return false;
         for (const auto &slot : record_.slots) {
             if (!slot.value.length) continue;
             const size_t length = strnlen(slot.name, sizeof(slot.name));
+            if (version == 2 && slot.value.version != 1) return false;
             if (!validPatternName(slot.name, length) || !validSavedPattern(slot.value)) return false;
         }
         return true;
@@ -115,12 +118,17 @@ public:
     // Both callbacks return true only when exactly size bytes were transferred.
     // The caller supplies the temporary record storage.
     template <typename Read> void load(Read read) {
-        if (read(key, &record_, sizeof(record_)) && validRecord()) return;
-        record_.version = 2;
+        if (read(key, &record_, sizeof(record_)) && validRecord(3)) return;
+        if (read("libraryV2", &record_, sizeof(record_)) && validRecord(2)) {
+            record_.version = 3; // Persist only after a successful, deliberate change.
+            return;
+        }
+        record_.version = 3;
         record_.selected = 0;
         for (auto &slot : record_.slots) slot = Slot{};
         auto &legacy = record_.slots[0];
-        if (read("curveV1", &legacy.value, sizeof(legacy.value)) && validSavedPattern(legacy.value)) {
+        if (read("curveV1", &legacy.value, sizeof(legacy.value)) &&
+            legacy.value.version == 1 && validSavedPattern(legacy.value)) {
             std::strcpy(legacy.name, "Saved pattern");
         } else {
             legacy.value.length = 0;
@@ -154,7 +162,8 @@ public:
             nameLength = std::strlen(name);
         }
         if (!validPatternName(name, nameLength)) return false;
-        if (slot.value.length == value.length && slot.value.periodMs == value.periodMs &&
+        if (slot.value.version == value.version && slot.value.length == value.length &&
+            slot.value.periodMs == value.periodMs &&
             std::memcmp(slot.value.samples, value.samples, value.length) == 0 &&
             std::strlen(slot.name) == nameLength && std::memcmp(slot.name, name, nameLength) == 0)
             return true;

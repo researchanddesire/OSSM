@@ -86,7 +86,7 @@ void toggleWiredPattern() {
     if (drawnPatternStartStatus(revision) != PatternStart::Accepted) return;
     SavedPattern value;
     if (getSavedPattern(value)) {
-        startDrawnPattern(value.samples, value.length, value.periodMs, revision, true);
+        startDrawnPattern(value.samples, value.length, value.periodMs, revision, true, value.highPrecision());
     }
 }
 }  // namespace streaming
