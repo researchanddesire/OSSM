@@ -5,6 +5,7 @@
 
 #include "worker_start_retry.h"
 
+using worker_start_retry::Backoff;
 using worker_start_retry::Decision;
 using worker_start_retry::decide;
 using worker_start_retry::retryDelayMs;
@@ -32,12 +33,12 @@ struct Outcome {
     std::vector<uint32_t> delays;
 };
 
-// Drives the same decisions as the firmware's timer callback: each round is
-// one timer expiry, and a round that does not start the worker re-arms it.
+// Drives the same decisions as the firmware's timer callback: each entry is
+// one timer expiry, and an expiry that does not start the worker re-arms it.
 Outcome run(const std::vector<Round> &rounds) {
     Outcome outcome;
+    Backoff backoff(initialRetryMs, maxRetryMs);
     uint32_t now = firstDelayMs;
-    uint32_t waits = 0;
     for (const Round &round : rounds) {
         const Decision decision = decide(round.paired, round.foregroundTls);
         if (decision == Decision::NotNeeded) {
@@ -45,14 +46,15 @@ Outcome run(const std::vector<Round> &rounds) {
             return outcome;
         }
         if (decision == Decision::Create) {
-            outcome.attempts++;
+            outcome.attempts = backoff.beginAttempt();
             if (round.stackFits) {
+                backoff.started();
                 outcome.started = true;
                 outcome.startedAtMs = now;
                 return outcome;
             }
         }
-        const uint32_t delay = retryDelayMs(++waits, initialRetryMs, maxRetryMs);
+        const uint32_t delay = backoff.nextDelayMs();
         outcome.delays.push_back(delay);
         now += delay;
     }
@@ -138,6 +140,29 @@ void test_retries_never_give_up() {
     TEST_ASSERT_EQUAL_UINT32(maxRetryMs, outcome.delays.back());
 }
 
+void test_each_round_starts_its_attempts_and_back_off_afresh() {
+    Backoff backoff(initialRetryMs, maxRetryMs);
+    // Round 1: two failures, then the stack fits.
+    TEST_ASSERT_EQUAL_UINT32(1, backoff.beginAttempt());
+    TEST_ASSERT_EQUAL_UINT32(2000, backoff.nextDelayMs());
+    TEST_ASSERT_EQUAL_UINT32(2, backoff.beginAttempt());
+    TEST_ASSERT_EQUAL_UINT32(4000, backoff.nextDelayMs());
+    TEST_ASSERT_EQUAL_UINT32(3, backoff.beginAttempt());
+    backoff.started();
+    TEST_ASSERT_EQUAL_UINT32(0, backoff.attempts());
+    // Round 2, a poll interval later: numbering and back-off begin again.
+    TEST_ASSERT_EQUAL_UINT32(1, backoff.beginAttempt());
+    TEST_ASSERT_EQUAL_UINT32(2000, backoff.nextDelayMs());
+}
+
+void test_deferrals_count_toward_the_back_off() {
+    Backoff backoff(initialRetryMs, maxRetryMs);
+    TEST_ASSERT_EQUAL_UINT32(2000, backoff.nextDelayMs());  // deferred
+    TEST_ASSERT_EQUAL_UINT32(4000, backoff.nextDelayMs());  // deferred
+    TEST_ASSERT_EQUAL_UINT32(1, backoff.beginAttempt());    // first real attempt
+    TEST_ASSERT_EQUAL_UINT32(8000, backoff.nextDelayMs());  // it failed
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_unpaired_worker_is_created_when_no_foreground_tls_job_runs);
@@ -151,5 +176,7 @@ int main(int, char **) {
     RUN_TEST(test_deferral_backs_off_without_allocating);
     RUN_TEST(test_pairing_elsewhere_stops_the_retries);
     RUN_TEST(test_retries_never_give_up);
+    RUN_TEST(test_each_round_starts_its_attempts_and_back_off_afresh);
+    RUN_TEST(test_deferrals_count_toward_the_back_off);
     return UNITY_END();
 }
