@@ -130,6 +130,8 @@ void __attribute__((weak)) setup() {
                 vTaskDelay(pdMS_TO_TICKS(100));
             }
             initMQTT();
+            // Only schedules the pairing-status worker: a timer creates it
+            // once this task's stack is free, and retries if it cannot.
             pages::startPairingStatusCheck();
             vTaskDelete(nullptr);
         },

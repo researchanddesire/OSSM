@@ -3,10 +3,12 @@
 #include <NimBLEDevice.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 
 #include <ArduinoJson.h>
 
 #include "FirmwareProvenance.h"
+#include "worker_start_retry.h"
 
 #include "constants/Version.h"
 #include "ossm/Events.h"
@@ -36,6 +38,21 @@ using namespace sml;
 #ifndef OSSM_PAIRING_STATUS_INTERVAL_MS
 #define OSSM_PAIRING_STATUS_INTERVAL_MS 60000
 #endif
+
+// Starting that poll's worker: the first attempt waits this long after boot
+// asks for it, so the boot initializer has exited and its stack is free.
+// Failed or deferred attempts retry after this delay, doubling up to the poll
+// interval, until the worker starts or the device is paired another way.
+#ifndef OSSM_PAIRING_STATUS_START_DELAY_MS
+#define OSSM_PAIRING_STATUS_START_DELAY_MS 1000
+#endif
+#ifndef OSSM_PAIRING_STATUS_RETRY_MS
+#define OSSM_PAIRING_STATUS_RETRY_MS 2000
+#endif
+static_assert(OSSM_PAIRING_STATUS_START_DELAY_MS > 0 &&
+                  OSSM_PAIRING_STATUS_RETRY_MS > 0 &&
+                  OSSM_PAIRING_STATUS_RETRY_MS <= OSSM_PAIRING_STATUS_INTERVAL_MS,
+              "pairing-status worker start delays must be positive and capped");
 
 namespace pages {
 
@@ -254,12 +271,93 @@ static void pairingStatusTask(void *pvParameters) {
 
 bool isOssmPaired() { return paired; }
 
-void startPairingStatusCheck() {
-    if (xTaskCreatePinnedToCore(pairingStatusTask, "pairingStatusTask",
-                                20 * configMINIMAL_STACK_SIZE, nullptr, 1,
-                                nullptr, 0) != pdPASS) {
-        ESP_LOGE("PAIRING", "Could not create pairing status task");
+// The boot initializer asks for this worker while it still holds its own
+// 24 KB stack and MQTT is connecting, so the worker's stack may not fit yet.
+// Every start attempt runs from a one-shot esp_timer instead: its callbacks
+// run in the long-lived esp_timer task, which outlives the initializer and
+// can re-arm the timer after a failure. A foreground TLS job (pairing page,
+// update) has paused MQTT and needs the heap itself, so attempts wait for it.
+static constexpr uint32_t pairingStatusStackBytes = 20 * configMINIMAL_STACK_SIZE;
+static esp_timer_handle_t pairingStatusStartTimer = nullptr;
+static uint32_t pairingStatusStartAttempts = 0;  // task creations tried
+static uint32_t pairingStatusStartWaits = 0;     // failed or deferred rounds
+
+static void schedulePairingStatusStart(uint32_t delayMs) {
+    if (pairingStatusStartTimer == nullptr ||
+        esp_timer_start_once(pairingStatusStartTimer,
+                             static_cast<uint64_t>(delayMs) * 1000) != ESP_OK) {
+        ESP_LOGE("PAIRING", "Pairing status worker: could not schedule attempt %u",
+                 (unsigned)(pairingStatusStartAttempts + 1));
     }
+}
+
+static uint32_t nextPairingStatusStartDelayMs() {
+    return worker_start_retry::retryDelayMs(++pairingStatusStartWaits,
+                                            OSSM_PAIRING_STATUS_RETRY_MS,
+                                            OSSM_PAIRING_STATUS_INTERVAL_MS);
+}
+
+static void attemptPairingStatusStart(void *) {
+    using worker_start_retry::Decision;
+    const Decision decision = worker_start_retry::decide(paired, mqttPausedForTls());
+    if (decision == Decision::NotNeeded) {
+        ESP_LOGI("PAIRING", "Pairing status worker not needed: already paired");
+        return;
+    }
+    if (decision == Decision::Defer) {
+        const uint32_t delayMs = nextPairingStatusStartDelayMs();
+        ESP_LOGI("PAIRING",
+                 "Pairing status worker start deferred: a TLS job has MQTT "
+                 "paused; retry in %u ms",
+                 (unsigned)delayMs);
+        schedulePairingStatusStart(delayMs);
+        return;
+    }
+
+    const uint32_t attempt = ++pairingStatusStartAttempts;
+    const size_t freeBefore =
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    const size_t largestBefore =
+        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (xTaskCreatePinnedToCore(pairingStatusTask, "pairingStatusTask",
+                                pairingStatusStackBytes, nullptr, 1, nullptr,
+                                0) == pdPASS) {
+        ESP_LOGI("PAIRING",
+                 "Pairing status worker started on attempt %u: stack=%u "
+                 "internal free=%u largest=%u before, free=%u largest=%u after",
+                 (unsigned)attempt, (unsigned)pairingStatusStackBytes,
+                 (unsigned)freeBefore, (unsigned)largestBefore,
+                 (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL |
+                                                   MALLOC_CAP_8BIT),
+                 (unsigned)heap_caps_get_largest_free_block(
+                     MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        return;
+    }
+
+    const uint32_t delayMs = nextPairingStatusStartDelayMs();
+    ESP_LOGW("PAIRING",
+             "Pairing status worker attempt %u could not create its task: "
+             "stack=%u internal free=%u largest=%u; retry in %u ms",
+             (unsigned)attempt, (unsigned)pairingStatusStackBytes,
+             (unsigned)freeBefore, (unsigned)largestBefore, (unsigned)delayMs);
+    schedulePairingStatusStart(delayMs);
+}
+
+void startPairingStatusCheck() {
+    if (pairingStatusStartTimer != nullptr) return;  // already scheduled
+
+    esp_timer_create_args_t timerArgs = {};
+    timerArgs.callback = attemptPairingStatusStart;
+    timerArgs.dispatch_method = ESP_TIMER_TASK;
+    timerArgs.name = "pairingStatusStart";
+    if (esp_timer_create(&timerArgs, &pairingStatusStartTimer) != ESP_OK) {
+        pairingStatusStartTimer = nullptr;
+        ESP_LOGE("PAIRING",
+                 "Pairing status worker: no start timer, trying once now");
+        attemptPairingStatusStart(nullptr);
+        return;
+    }
+    schedulePairingStatusStart(OSSM_PAIRING_STATUS_START_DELAY_MS);
 }
 
 void drawPairingSuccess() {
