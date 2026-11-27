@@ -113,14 +113,19 @@ void revokeHomingLocked() {
 // What a receive-only HAT sees of a bus owned by another master. Motion then
 // stays on STEP/DIR with that master as the independent monitor; see
 // shared_bus_logic.h.
-shared_bus::Observation sharedBusObservation() {
+shared_bus::Observation sharedBusIdentity() {
     const auto hat = getOssmHatStatus();
-    OssmHatTelemetry sample;
-    OssmHatControlSnapshot control;
     shared_bus::Observation seen;
     seen.hatDetected = hat.detected;
     seen.receiveOnly = hat.passive;
     seen.serialSelected = motorMotionSerialLatched();
+    return seen;
+}
+
+shared_bus::Observation sharedBusObservation() {
+    auto seen = sharedBusIdentity();
+    OssmHatTelemetry sample;
+    OssmHatControlSnapshot control;
     seen.telemetryFresh = readOssmHatTelemetry(sample);
     seen.controlsFresh = readOssmHatControlSnapshot(control);
     seen.modbusEnable = control.modbusEnable;
@@ -133,7 +138,7 @@ bool required() {
 #else
     // The serial guard protects serial motion. A receive-only HAT cannot send
     // any, so the shared-bus interlock below applies instead.
-    if (shared_bus::active(sharedBusObservation())) return false;
+    if (shared_bus::active(sharedBusIdentity())) return false;
     return rememberedHat || ossmHatDetected();
 #endif
 }
@@ -1010,8 +1015,10 @@ const char *motorSafetyReason() {
 
 bool motorSafetyCanEnableOutputs() {
     const bool needed = required();
-    const auto hat = getOssmHatStatus();
-    const bool controls = controlsReady();
+    // Serial readiness only participates in the serial guard. A shared bus
+    // gets its own fresh mode, telemetry and control check below on every call.
+    const auto hat = needed ? getOssmHatStatus() : OssmHatStatus{};
+    const bool controls = needed && controlsReady();
     portENTER_CRITICAL(&guardMux);
     const bool fault = guard.fault() != motor_guard::Fault::None;
     const bool armed = guard.armed();
