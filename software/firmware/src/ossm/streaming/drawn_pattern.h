@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "drawn_sample_format.h"
+#include "drawn_modifiers.h"
 
 namespace motion_link { class Owner; }
 
@@ -12,10 +13,13 @@ bool patternOwnerCurrent(const PatternReferenceLost &event);
 enum class PatternStart { Accepted, Invalid, NotReady, Busy };
 PatternStart drawnPatternStartStatus(uint64_t revision);
 PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t ownerRevision,
-                               bool localControl = false, drawn_pattern::SampleFormat format = drawn_pattern::SampleFormat::Q8);
+                               bool localControl = false,
+                               drawn_pattern::SampleFormat format = drawn_pattern::SampleFormat::Q8,
+                               const drawn_pattern::Modifiers &modifiers = drawn_pattern::noModifiers());
 bool renewDrawnPattern(uint64_t ownerRevision);
 bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
                          float value, bool selectBleSource);
+bool applyLeasedBleSensation(motion_link::Owner &link, uint16_t connection, uint8_t value);
 void cancelDrawnPattern();
 void cancelRemoteDrawnPattern();
 bool drawnPatternActive();
@@ -26,6 +30,8 @@ struct PatternRateStamp {
     float phase, rateHz, phaseAcceleration;
     uint16_t leadBoundMs;
     bool first, serial, leadKnown;
+    float requestedStrength, gain, targetGain, carrier;
+    uint32_t frameIndex;
 };
 bool drawnPatternRateStamp(uint32_t sequence, PatternRateStamp &out);
 struct PatternStop {

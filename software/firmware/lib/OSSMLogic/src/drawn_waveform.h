@@ -69,6 +69,8 @@ public:
         return true;
     }
 
+    double authoredStart() const { return double(start_) / count_; }
+
     double position(double phase) const {
         const double u = prepareCell(phase);
         double value = polynomial_[5];

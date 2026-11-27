@@ -103,6 +103,19 @@ void announcePatternTime(uint32_t sequence) {
                   unsigned(stamp.leadBoundMs), unsigned(stamp.first), unsigned(stamp.serial), unsigned(stamp.leadKnown));
 }
 
+void announcePatternFeel(uint32_t sequence) {
+    streaming::PatternRateStamp stamp{};
+    if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
+        Serial.printf("RAD_PATTERN_FEEL unavailable %lu\n", static_cast<unsigned long>(sequence));
+        return;
+    }
+    Serial.printf("RAD_PATTERN_FEEL %lu %lu %lld %lld %lld %lld %lu\n",
+                  static_cast<unsigned long>(stamp.sequence), static_cast<unsigned long>(stamp.atMs),
+                  std::llround(stamp.requestedStrength * 1e5), std::llround(stamp.gain * 1e6),
+                  std::llround(stamp.targetGain * 1e6), std::llround(stamp.carrier * 1e9),
+                  static_cast<unsigned long>(stamp.frameIndex));
+}
+
 void console(void*) {
     // Never wait for a USB host or block application setup on a serial cable.
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -127,6 +140,8 @@ void console(void*) {
                               static_cast<unsigned long>(sampledAt));
             }
             else if (serialIdentity::unsignedArgument(command, "patterntime", argument)) announcePatternTime(argument);
+            else if (serialIdentity::unsignedArgument(command, "patternfeel", argument))
+                announcePatternFeel(argument);
             else if (strcmp(command, "hat") == 0) announceHat();
 #if OSSM_HAT_SERIAL_BACKEND
             else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();

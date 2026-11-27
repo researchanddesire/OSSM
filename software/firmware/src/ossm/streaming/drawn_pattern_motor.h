@@ -14,10 +14,12 @@ struct State {
     int32_t position = 0;
     int32_t from = 0, to = 0;
     double speed = 0, acceleration = 0;
+    double strength = 0, stepsPerMm = 0;
 };
 using drawn_pattern::Frame;
 using drawn_pattern::FrameResult;
-State read(uint64_t revision);
+State read(uint64_t revision, bool annotated = false);
+void setSensation(uint8_t value);
 uint32_t now();
 bool current(uint64_t revision);
 bool position(uint64_t revision, int32_t target, const State &limits, bool starting);

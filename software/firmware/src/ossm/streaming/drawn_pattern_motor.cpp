@@ -3,6 +3,7 @@
 
 #include "constants/Config.h"
 #include "ossm/state/calibration.h"
+#include "ossm/play_controls/play_controls.h"
 #include "ossm/state/settings.h"
 #include "services/communication/queue.h"
 #include "services/motorMotion.h"
@@ -19,7 +20,9 @@ static bool withinPercent(float value) {
     return std::isfinite(value) && value >= 0 && value <= 100;
 }
 
-State read(uint64_t revision) {
+void setSensation(uint8_t value) { play_controls::setRemoteControl(PlayControls::SENSATION, value); }
+
+State read(uint64_t revision, bool annotated) {
     State state;
     if (stepper == nullptr || !calibration.isHomed || stepperFrame != StepperFrame::Native ||
         !current(revision) || !motorSafetyCanEnableOutputs()) return state;
@@ -33,7 +36,10 @@ State read(uint64_t revision) {
     state.from = -offset - span;
     state.to = -offset;
     state.speed = Config::Driver::maxSpeedMmPerSecond * Config::Driver::stepsPerMM * s / 100.0;
-    state.acceleration = Config::Driver::maxAcceleration * Config::Driver::stepsPerMM * a / 100.0;
+    state.strength = a / 100.0;
+    state.stepsPerMm = Config::Driver::stepsPerMM;
+    state.acceleration =
+        Config::Driver::maxAcceleration * Config::Driver::stepsPerMM * (annotated ? .5 : state.strength);
     state.serial = motorMotionUsesSerial();
     if (state.serial) {
         const auto caps = getOssmHatPositionStatus();

@@ -60,6 +60,11 @@ public:
         }
         return distance;
     }
+    double secondsToGoal() const {
+        double time = 0;
+        for (unsigned i = index_; i < size_; ++i) time += segments_[i].seconds;
+        return time;
+    }
     double rate() const { return rate_; }
     double acceleration() const { return acceleration_; }
 

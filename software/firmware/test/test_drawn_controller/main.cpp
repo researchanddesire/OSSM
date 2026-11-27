@@ -29,7 +29,11 @@ void tick(uint32_t count = 1) {
 }
 }
 namespace streaming::pattern_motor {
-State read(uint64_t ticket) {
+void setSensation(uint8_t value) {
+    settings.sensation = value;
+    motor.strength = value * .01;
+}
+State read(uint64_t ticket, bool) {
     auto copy = motor;
     copy.ready = copy.ready && ticket == revision;
     return copy;
@@ -448,8 +452,127 @@ void test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_tim
         TEST_ASSERT_TRUE(drawnPatternRateStamp(seq,revised));
 }
 
+void test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey_ownership() {
+    using namespace drawn_pattern;
+    motor.speed = 320;
+    motor.stepsPerMm = 20;
+    timedPulses = true;
+    const auto plain = start(true);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(plain));
+    tick(3500);
+    const auto reference = frames;
+    cancelDrawnPattern();
+    frames.clear();
+    nextPulseAt = 0;
+    Modifiers m;
+    m.count = 2;
+    m.entries[0] = {200, 400, 0};
+    m.entries[1] = {700, 700, 250};
+    const auto launch = [&](bool local = false) {
+        return startDrawnPattern(samples, 32, 2000, revision, local, SampleFormat::Q8, m);
+    };
+    motion_link::Owner link;
+    link.onMotionCommand(7);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(launch()));
+    tick(3500);
+    TEST_ASSERT_TRUE(reference == frames);
+    PatternRateStamp before{}, after{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, before));
+    TEST_ASSERT_TRUE(applyLeasedBleSensation(link, 7, 50));
+    tick(8);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, after));
+    TEST_ASSERT_TRUE(after.sequence > before.sequence);
+    TEST_ASSERT_EQUAL_UINT32(0, before.frameIndex);
+    TEST_ASSERT_TRUE(after.frameIndex > before.frameIndex);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-5, std::fmod(after.frameIndex * .012, 1.), after.carrier);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, .5, after.requestedStrength);
+    TEST_ASSERT_TRUE(after.carrier >= 0 && after.carrier < 1);
+    TEST_ASSERT_FALSE(applyLeasedBleSensation(link, motion_link::kNoConnection, 80));
+    TEST_ASSERT_FALSE(applyLeasedBleSensation(link, 7, 180));
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(applyLeasedBleSensation(link, 7, 0));
+    tick(4);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_TRUE(applyLeasedBleSensation(link, 8, 80));
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(8, link.owner());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(launch(true)));
+    TEST_ASSERT_TRUE(applyLeasedBleSensation(link, 8, 20));
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_TRUE(applyLeasedBleSensation(link, 8, 20));
+    TEST_ASSERT_FALSE(drawnPatternActive());
+}
+
+void test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop() {
+    using namespace drawn_pattern;
+    const char flat[] = "80808080808080808080808080808080";
+    Modifiers m;
+    m.count = 1;
+    m.entries[0] = {0, 1000, 0};
+    motor.speed = 4000;
+    motor.acceleration = 100000;
+    motor.stepsPerMm = 20;
+    motor.strength = 1;
+    for (bool serial : {false, true}) {
+        motor.serial = serial;
+        timedPulses = !serial;
+        nextPulseAt = 0;
+        frames.clear();
+        motor.ready = true;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+                              int(startDrawnPattern(flat, 32, 4000, revision, true, SampleFormat::Q8, m)));
+        tick(4500);
+        TEST_ASSERT_TRUE(drawnPatternActive());
+        const int32_t centre = motor.to - std::lround((motor.to - motor.from) * 128. / 255.);
+        bool above = false, below = false;
+        unsigned crossings = 0;
+        for (size_t i = 1; i < frames.size(); ++i) {
+            TEST_ASSERT_TRUE(frames[i] >= motor.from && frames[i] <= motor.to);
+            above |= frames[i] > centre + 2;
+            below |= frames[i] < centre - 2;
+            if (frames[i] > centre && frames[i - 1] <= centre) ++crossings;
+        }
+        TEST_ASSERT_TRUE(above && below);
+        TEST_ASSERT_GREATER_THAN_UINT32(12, crossings);
+        motor.ready = false;
+        tick(1);
+        TEST_ASSERT_FALSE(drawnPatternActive());
+        TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+    }
+}
+void test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause() {
+    using namespace drawn_pattern;
+    Modifiers list;
+    TEST_ASSERT_TRUE(list.reserve(500));
+    list.count = 500;
+    for (uint16_t i = 0; i < 498; ++i) list.entries[i] = {i, i, 20};
+    list.entries[498] = {600, 700, 0};
+    list.entries[499] = {900, 900, 1234};
+    TEST_ASSERT_TRUE(list.valid());
+    motor.strength = 1;
+    motor.speed = 2000;
+    motor.stepsPerMm = 20;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+                          int(startDrawnPattern(samples, 32, 2000, revision, true, SampleFormat::Q8, list)));
+    // The mailbox owns this data independently of the upload's lifetime.
+    list.entries[499] = {910, 910, 999};
+    uint16_t duration = 0;
+    TEST_ASSERT_DOUBLE_WITHIN(1e-12, .9, activeMarkers->index.upcoming(.8, duration));
+    TEST_ASSERT_EQUAL_UINT16(1234, duration);
+    TEST_ASSERT_TRUE(activeMarkers->index.range(.65) != nullptr);
+    tick(25);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    cancelDrawnPattern();
+    TEST_ASSERT_FALSE(activeMarkers);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause);
+    RUN_TEST(test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey_ownership);
+    RUN_TEST(test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop);
     RUN_TEST(test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_time);
     RUN_TEST(test_accepted_entry_waits_for_backend_without_reissuing_move);
     RUN_TEST(test_unstarted_entry_fails_at_deadline_and_guard_remains_immediate);

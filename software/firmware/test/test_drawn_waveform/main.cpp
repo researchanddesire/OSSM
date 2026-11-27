@@ -1,5 +1,7 @@
 #include <unity.h>
 #include <array>
+#include <vector>
+#include "drawn_modifier_motion.h"
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -381,8 +383,210 @@ void test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets(
     }
 }
 
+void test_hold_lands_once_per_cycle_at_the_original_phase_and_scales_stationary_time() {
+    using namespace drawn_pattern;
+    Modifiers m;
+    m.count = 1;
+    m.entries[0] = {400, 400, 333};
+    MarkerIndex index;
+    index.reset(m, .25);
+    const PhaseLimits limits{1.2, 4., 21.};
+    for (double level : {0., .5, 1.}) {
+        MarkedPhase motion;
+        PhaseClock plain;
+        double plainPhase = 0;
+        std::vector<unsigned> holds;
+        bool onPoint = false;
+        double lastRate = 0, lastAccel = 0;
+        for (unsigned frame = 0; frame < 11000; ++frame) {
+            const auto previous = motion.phase;
+            motion.advance(.001, limits, index, level);
+            plain.setGoal(limits.rate, limits.acceleration, limits.jerk);
+            plainPhase += plain.advance(.001);
+            plainPhase -= std::floor(plainPhase);
+            if (level == 0) TEST_ASSERT_EQUAL_DOUBLE(plainPhase, motion.phase);
+            double increment = motion.phase - previous;
+            if (increment < -.5) increment += 1.;
+            TEST_ASSERT_TRUE(increment >= -1e-8 && increment <= limits.rate * .001 + 1e-8);
+            const double accel = motion.clock.acceleration();
+            TEST_ASSERT_TRUE(std::abs(accel) <= 4.00001 && std::abs(accel - lastAccel) <= .0210001);
+            TEST_ASSERT_TRUE(std::abs(motion.clock.rate() - lastRate) <= .0040001);
+            const bool parked = motion.clock.rate() == 0 && std::abs(motion.phase - .15) < 1e-8;
+            if (parked && !onPoint) holds.push_back(0);
+            if (parked) ++holds.back();
+            onPoint = parked;
+            lastRate = motion.clock.rate();
+            lastAccel = accel;
+        }
+        if (!level) {
+            TEST_ASSERT_TRUE(holds.empty());
+            continue;
+        }
+        TEST_ASSERT_GREATER_OR_EQUAL_UINT32(4, holds.size());
+        for (size_t i = 0; i + 1 < holds.size(); ++i) TEST_ASSERT_DOUBLE_WITHIN(1., 333. * level, holds[i]);
+    }
+}
+
+void test_close_points_start_at_seam_and_late_activation_does_not_snap() {
+    using namespace drawn_pattern;
+    Modifiers list;
+    list.count = 3;
+    list.entries[0] = {0, 0, 25};
+    list.entries[1] = {1, 1, 33};
+    list.entries[2] = {999, 999, 22};
+    MarkerIndex index;
+    index.reset(list, 0);
+    MarkedPhase m;
+    PhaseLimits limits{1., 2., 12.};
+    m.advance(.020, limits, index, 1);
+    TEST_ASSERT_EQUAL_DOUBLE(0., m.phase);
+    m.advance(.020, limits, index, 1);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0., m.phase);
+    for (unsigned k = 0; k < 1800; ++k) m.advance(.001, limits, index, 0);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-8, 1., m.clock.rate());
+    unsigned acquired = 0;
+    for (unsigned k = 0; k < 9000; ++k) {
+        double old = m.phase;
+        m.advance(.002, limits, index, 1);
+        double d = m.phase - old;
+        if (d < -.5) d += 1;
+        TEST_ASSERT_TRUE(d >= -1e-8 && d <= .0020001);
+        if (m.clock.rate() == 0 && std::abs(m.phase - .999) < 1e-8) ++acquired;
+    }
+    TEST_ASSERT_GREATER_THAN_UINT32(20, acquired);
+}
+
+void test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives() {
+    using namespace drawn_pattern;
+    Modifiers m;
+    m.count = 1;
+    m.entries[0] = {250, 750, 0};
+    MarkerIndex index;
+    index.reset(m, 0);
+    VibrationBudget budget{2000, 8000, 200000, 20, {.2, .4, 1.6}};
+    VibrationClock half, full;
+    half.advance(1, .5);
+    full.advance(1, 1);
+    const double amplitude = budget.amplitude(.5);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(1., amplitude);
+    for (unsigned k = 0; k < 40; ++k) {
+        for (double y : {0., .5, 1.}) {
+            const double a = full.offset(y, .5, index, budget), b = half.offset(y, .5, index, budget);
+            TEST_ASSERT_DOUBLE_WITHIN(1e-9, a / 2, b);
+            TEST_ASSERT_DOUBLE_WITHIN(
+                1e-9, amplitude * (std::sin(2 * 3.14159265358979323846 * 6 * k * .005) + 1 - 2 * y), a);
+            TEST_ASSERT_TRUE(y * 2000 + a >= -1e-10 && y * 2000 + a <= 2000 + 1e-10);
+            TEST_ASSERT_EQUAL_DOUBLE(0, full.offset(y, .1, index, budget));
+            TEST_ASSERT_DOUBLE_WITHIN(1e-12, 0, full.offset(y, .25, index, budget));
+        }
+        half.advance(.005, .5);
+        full.advance(.005, 1);
+    }
+    // Finite differences on a smooth advancing base cover both envelope edges
+    // and an in-flight live gain change. Use a much finer clock than the ESP.
+    constexpr double dt = .0002;
+    VibrationClock v;
+    double lastX = 0, lastV = 0, lastA = 0, maxV = 0, maxA = 0, maxJ = 0;
+    for (unsigned k = 0; k < 42000; ++k) {
+        double t = dt * k, p = t * .2;
+        double y = .5 + .25 * std::sin(6.283185307179586 * p);
+        const double x = v.offset(y, p, index, budget);
+        const double speed = (x - lastX) / dt, accel = (speed - lastV) / dt, jerk = (accel - lastA) / dt;
+        if (k > 3) {
+            maxV = std::max(maxV, std::abs(speed));
+            maxA = std::max(maxA, std::abs(accel));
+            maxJ = std::max(maxJ, std::abs(jerk));
+        }
+        lastX = x;
+        lastV = speed;
+        lastA = accel;
+        v.advance(dt, t < 2 ? 1 : t < 3.1 ? .5 : t < 4 ? 0 : 1);
+    }
+    TEST_ASSERT_GREATER_THAN_DOUBLE(20., maxV);
+    TEST_ASSERT_TRUE(maxV <= .25 * budget.speed && maxA <= .25 * budget.acceleration &&
+                     maxJ <= 2.5 * budget.acceleration);
+    TEST_ASSERT_TRUE(budget.amplitude(.001) < budget.amplitude(.1));
+}
+
+void test_original_phase_across_q8_q16_and_sparse_inputs() {
+    using namespace drawn_pattern;
+    const char *wire[] = {"80808080000000008080808080808080",
+                          "8080808080808080000000000000000080808080808080808080808080808080",
+                          "00ff808001ff000003ff8080"};
+    const SampleFormat formats[] = {SampleFormat::Q8, SampleFormat::Q16, SampleFormat::RunsQ16};
+    Modifiers items;
+    items.count = 2;
+    items.entries[0] = {400, 400, 40};
+    items.entries[1] = {600, 900, 0};
+    for (unsigned i = 0; i < 3; ++i) {
+        Waveform curve;
+        TEST_ASSERT_TRUE(curve.decode(wire[i], std::char_traits<char>::length(wire[i]), 2000, formats[i]));
+        TEST_ASSERT_EQUAL_DOUBLE(.25, curve.authoredStart());
+        MarkerIndex index;
+        index.reset(items, curve.authoredStart());
+        TEST_ASSERT_FALSE(index.range(.2));
+        TEST_ASSERT_TRUE(index.range(.45) == &items.entries[1]);
+        uint16_t dwell = 0;
+        TEST_ASSERT_DOUBLE_WITHIN(1e-12, .15, index.upcoming(0, dwell));
+        TEST_ASSERT_EQUAL_UINT16(40, dwell);
+        TEST_ASSERT_DOUBLE_WITHIN(1e-12, 1.15, index.upcoming(.151, dwell));
+    }
+}
+
+void test_ms_hold_and_queue_fraction_keep_the_same_park_across_serial_and_step_durations() {
+    using namespace drawn_pattern;
+    Modifiers items;
+    items.count = 1;
+    items.entries[0] = {270, 270, 1};
+    MarkerIndex index;
+    index.reset(items, 0);
+    const PhaseLimits limits{.4, 1.2, 8.0};
+    MarkedPhase whole, halves;
+    for (unsigned i = 0; i < 12000; ++i) {
+        const double dt = i % 2 ? .020 : .002;
+        whole.advance(dt, limits, index, .5);
+        halves.advance(dt * .37, limits, index, .5);
+        halves.advance(dt * .63, limits, index, .5);
+        double difference = whole.phase - halves.phase;
+        difference -= std::round(difference);
+        TEST_ASSERT_DOUBLE_WITHIN(.00000007, 0., difference);
+        TEST_ASSERT_DOUBLE_WITHIN(.000005, whole.clock.rate(), halves.clock.rate());
+    }
+}
+
+void test_live_sensation_changes_the_duration_of_the_current_pause() {
+    using namespace drawn_pattern;
+    Modifiers m;
+    m.count = 1;
+    m.entries[0] = {0, 0, 1000};
+    MarkerIndex index;
+    index.reset(m, 0);
+    const PhaseLimits limits{.5, 2, 10};
+    MarkedPhase motion;
+    motion.advance(.3, limits, index, .5);
+    TEST_ASSERT_EQUAL_DOUBLE(0, motion.phase);
+    motion.advance(.4, limits, index, 1);
+    TEST_ASSERT_EQUAL_DOUBLE(0, motion.phase);
+    motion.advance(.001, limits, index, .25);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.clock.rate());
+    // The restarted half-cycle cannot reacquire the same point.
+    motion.advance(.3, limits, index, 1);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(.01, motion.phase);
+    motion = {};
+    motion.advance(.1, limits, index, 1);
+    motion.advance(.002, limits, index, 0);
+    TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_live_sensation_changes_the_duration_of_the_current_pause);
+    RUN_TEST(test_original_phase_across_q8_q16_and_sparse_inputs);
+    RUN_TEST(test_ms_hold_and_queue_fraction_keep_the_same_park_across_serial_and_step_durations);
+    RUN_TEST(test_hold_lands_once_per_cycle_at_the_original_phase_and_scales_stationary_time);
+    RUN_TEST(test_close_points_start_at_seam_and_late_activation_does_not_snap);
+    RUN_TEST(test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);
     RUN_TEST(test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets);
     RUN_TEST(test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives);
