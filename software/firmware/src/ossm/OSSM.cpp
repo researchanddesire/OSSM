@@ -68,10 +68,7 @@ void OSSM::ble_click(String commandString) {
     ESP_LOGD("OSSM", "COMMAND: %d", command.command);
 
     String currentState;
-    if (stateMachine != nullptr) {
-        stateMachine->visit_current_states(
-            [&currentState](auto state) { currentState = state.c_str(); });
-    }
+    writeStateName(currentState);
 
     switch (command.command) {
         case Commands::goToStrokeEngine:
@@ -137,14 +134,18 @@ void OSSM::ble_click(String commandString) {
     }
 }
 
-void OSSM::writeStateFingerprint(String &output) {
-    // This buffer survives across BLE status polls. Appending each field in
-    // place keeps an unchanged connected device off the shared heap.
+void OSSM::writeStateName(String &output) {
     output.remove(0);
     if (stateMachine != nullptr) {
         stateMachine->visit_current_states(
             [&output](auto state) { output = state.c_str(); });
     }
+}
+
+void OSSM::writeStateFingerprint(String &output) {
+    // This buffer survives across BLE status polls. Appending each field in
+    // place keeps an unchanged connected device off the shared heap.
+    writeStateName(output);
     for (int value : {static_cast<int>(settings.speed), static_cast<int>(settings.stroke),
                       static_cast<int>(settings.sensation), static_cast<int>(settings.depth),
                       static_cast<int>(settings.pattern)}) {
@@ -191,10 +192,7 @@ void OSSM::writeStateFingerprint(String &output) {
 // └──────────────────────────────────────────────────────────────────────┘
 String OSSM::getCurrentState() {
     StateJsonInput input;
-    if (stateMachine != nullptr) {
-        stateMachine->visit_current_states(
-            [&input](auto state) { input.state = state.c_str(); });
-    }
+    writeStateName(input.state);
 
     float positionMm = motor::getPositionMm();
     if (isnan(positionMm)) positionMm = 0.0f;

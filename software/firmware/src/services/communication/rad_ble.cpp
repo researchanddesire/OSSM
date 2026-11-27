@@ -170,9 +170,12 @@ const radble::Resource RESOURCES[] = {
 };
 
 String currentStateName() {
-    JsonDocument current;
-    deserializeJson(current, ossm->getCurrentState());
-    return current["state"] | "";
+    String name;
+    OSSM::writeStateName(name);
+    // Full telemetry also invalidates a stale physical encoder reference.
+    // Preserve that observation when a client reads only the state label.
+    (void)motorPositionUsesRs485();
+    return name;
 }
 
 bool returnToMenuSafely() {
@@ -989,18 +992,11 @@ String snapshot(radble::Surface surface, void*) {
             // Keep the unsolicited state heartbeat and state.read response below
             // the smallest ATT payload observed on supported centrals. Detailed
             // motion values remain available through the motion.* resources.
-            JsonDocument current;
-            if (deserializeJson(current, ossm->getCurrentState()))
-                return R"({"state":"unknown"})";
-            document["state"] = current["state"] | "unknown";
+            document["state"] = currentStateName();
             break;
         }
         case radble::Surface::Essential: {
-            JsonDocument current;
-            if (deserializeJson(current, ossm->getCurrentState()))
-                document["state"] = "unknown";
-            else
-                document["state"] = current["state"] | "unknown";
+            document["state"] = currentStateName();
             float volts;
             if (readMotorVoltageVolts(volts))
                 document["powered"] = volts >= 20.0f;

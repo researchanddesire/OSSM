@@ -41,6 +41,7 @@ class OSSM {
 
     // Get current state as JSON string (includes timestamp)
     String getCurrentState();
+    static void writeStateName(String &output);
 
     // Get state fingerprint without timestamp (for change detection)
     void writeStateFingerprint(String &output);
