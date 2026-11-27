@@ -4,6 +4,8 @@
 #include <mutex>
 
 #include "drawn_pattern_motor.h"
+#include "../state/ble.h"
+#include "../../services/communication/motion_link.h"
 
 namespace streaming {
 namespace {
@@ -141,6 +143,21 @@ bool renewDrawnPattern(uint64_t revision) {
     if (local || stage == Stage::Idle || owner != revision || !pattern_motor::current(revision) ||
         now - renewedAt >= drawn_pattern::leaseMs) return false;
     renewedAt = now;
+    return true;
+}
+
+// Called only after RAD BLE validates the connection-bound control lease.
+// Keep the speed write and decision about the current loop together so a wired
+// start or disconnect cannot take ownership between those operations.
+bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
+                         float value, bool selectBleSource) {
+    if (connection == motion_link::kNoConnection || !std::isfinite(value) ||
+        value < 0 || value > 100) return false;
+    std::lock_guard<std::mutex> guard(lock);
+    if (local || link.owner() != connection || value == 0)
+        stopLocked("stop", pattern_motor::now());
+    writeBleSpeed(value, selectBleSource);
+    link.onMotionCommand(connection);
     return true;
 }
 

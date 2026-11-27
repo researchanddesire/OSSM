@@ -1,5 +1,8 @@
 #include <unity.h>
 #include <vector>
+#include "../../src/ossm/state/ble.cpp"
+#include "../../src/ossm/state/settings.cpp"
+#include "../../src/services/communication/leased_speed.h"
 #include "../../src/ossm/streaming/drawn_pattern.cpp"
 
 namespace io = streaming::pattern_motor;
@@ -9,6 +12,8 @@ io::State motor;
 uint64_t revision;
 uint32_t clockMs;
 int stops;
+bool timedPulses = false;
+uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
 io::FrameResult feedback;
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
@@ -36,7 +41,11 @@ bool position(uint64_t ticket, int32_t target, const State &, bool) {
 }
 FrameResult submit(int32_t target, uint64_t ticket, bool) {
     if (!read(ticket).ready) return {Frame::Rejected, "guard"};
-    if (feedback.state == Frame::Accepted) frames.push_back(target);
+    if (timedPulses && clockMs < nextPulseAt) return {Frame::Retry, "pulse_full"};
+    if (feedback.state == Frame::Accepted) {
+        frames.push_back(target);
+        nextPulseAt = clockMs + drawn_pattern::pulseFrameMs;
+    }
     return feedback;
 }
 void stop(uint64_t ticket) { if (ticket == revision) ++stops; }
@@ -48,6 +57,10 @@ void setUp() {
     clockMs = 0;
     frames.clear();
     stops = 0;
+    timedPulses = false;
+    nextPulseAt = 0;
+    settings = {};
+    bleState = {};
     feedback = {io::Frame::Accepted};
     setDrawnPatternReady(revision, true);
 }
@@ -195,8 +208,109 @@ void test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_
     TEST_ASSERT_NULL(drawnPatternStatus().lastStop.reason);
 }
 
+// Exercise the same JSON dispatcher the RAD setting.write handler uses after
+// lease validation, the actual owner/mailbox and the production speed setter.
+motion_link::SpeedWrite writeSpeed(motion_link::Owner &link, uint16_t connection,
+                                  const char *path, double value) {
+    JsonDocument args;
+    if (value == std::floor(value)) args["value"] = static_cast<int>(value);
+    else args["value"] = value;
+    return motion_link::dispatchLeasedSpeed(path, args["value"], connection,
+        [&](uint16_t source, float speed, bool select) {
+            return applyLeasedBleSpeed(link, source, speed, select);
+        });
+}
+
+void test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately() {
+    using motion_link::SpeedWrite;
+    motion_link::Owner link;
+    link.onMotionCommand(7);
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Invalid), int(writeSpeed(link, 7, "motion.speed", 32.5)));
+    TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Invalid), int(writeSpeed(link, 7, "motion.speed", 101)));
+    TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Disconnected),
+                          int(writeSpeed(link, motion_link::kNoConnection, "motion.speed", 10)));
+    TEST_ASSERT_FALSE(settings.speedBLE.has_value());
+    TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Applied), int(writeSpeed(link, 7, "motion.speedBle", 25.5)));
+    TEST_ASSERT_FLOAT_WITHIN(.001f, 25.5f, settings.speedBLE.value());
+    TEST_ASSERT_FALSE(bleState.lastSpeedCommandWasFromBLE);
+    TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Applied), int(writeSpeed(link, 7, "motion.speed", 50)));
+    TEST_ASSERT_TRUE(bleState.lastSpeedCommandWasFromBLE);
+    TEST_ASSERT_FLOAT_WITHIN(.001f, 50, settings.speedBLE.value());
+    TEST_ASSERT_FLOAT_WITHIN(.001f, 0, settings.speed); // effective value remains owned by knob arbitration
+    motor.speed = 200;
+    tick(50);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(int(SpeedWrite::Applied), int(writeSpeed(link, 7, "motion.speed", 0)));
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(1, stops);
+    writeSpeed(link, 7, "motion.speed", 100);
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    writeSpeed(link, 8, "motion.speed", 75);
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT16(8, link.owner());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    writeSpeed(link, 8, "motion.speed", 75); // a wired loop has no BLE owner
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    TEST_ASSERT_TRUE(link.takeCommand(8, "set:speed:75", cancelDrawnPattern));
+    TEST_ASSERT_FALSE(drawnPatternActive()); // unleased legacy text on the same link
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(4900);
+    writeSpeed(link, 8, "motion.speed", 50);
+    tick(100);
+    TEST_ASSERT_FALSE(drawnPatternActive()); // a setting write does not renew the five-second lease
+    TEST_ASSERT_EQUAL_STRING("lease_expired", drawnPatternStatus().lastStop.reason);
+}
+
+void test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits() {
+    motion_link::Owner link;
+    link.onMotionCommand(8);
+    motor.from = -10000; // maximum configured 500 mm, 20 steps/mm
+    motor.to = 0;
+    motor.acceleration = 1000000; // classic 50,000 mm/s²
+    timedPulses = true;
+    const char smooth[] = "000a254f7fb0daf5fff5dab07f4f250a";
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+        int(startDrawnPattern(smooth, sizeof(smooth)-1, 500, revision)));
+    drawn_pattern::Waveform wave;
+    TEST_ASSERT_TRUE(wave.decode(smooth, sizeof(smooth)-1, 500));
+    unsigned peaks = 0;
+    int32_t previous = motor.to;
+    for (int percent : {15, 100, 35, 80}) {
+        TEST_ASSERT_EQUAL_INT(int(motion_link::SpeedWrite::Applied),
+                              int(writeSpeed(link, 8, "motion.speed", percent)));
+        motor.speed = 200.0 * settings.speedBLE.value(); // 20kHz at 100%
+        const uint32_t period = wave.safePeriodMs(10000, motor.speed, motor.acceleration/2);
+        tick(2);
+        TEST_ASSERT_EQUAL_UINT32(period, drawnPatternStatus().periodMs);
+        const auto stepCount = frames.size();
+        for (uint32_t elapsed = 0; elapsed < period + 250; ++elapsed) {
+            if (elapsed % 1000 == 0) TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+            tick();
+        }
+        TEST_ASSERT_TRUE(drawnPatternActive());
+        const auto first = frames.begin() + stepCount;
+        TEST_ASSERT_LESS_OR_EQUAL_INT32(motor.from+2, *std::min_element(first, frames.end()));
+        TEST_ASSERT_GREATER_OR_EQUAL_INT32(motor.to-2, *std::max_element(first, frames.end()));
+    }
+    for (const int32_t target : frames) {
+        TEST_ASSERT_TRUE(target >= motor.from && target <= motor.to);
+        const auto steps = static_cast<unsigned>(std::abs(target-previous));
+        TEST_ASSERT_LESS_OR_EQUAL_UINT(40, steps); // includes live changes, no phase jumps
+        peaks = std::max(peaks, steps);
+        previous = target;
+    }
+    TEST_ASSERT_EQUAL_UINT(40, peaks);
+    TEST_ASSERT_EQUAL_INT(0, stops);
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_only_leased_current_owner_changes_live_speed_and_zero_stops_immediately);
+    RUN_TEST(test_full_stroke_high_speed_and_live_changes_preserve_phase_and_limits);
     RUN_TEST(test_asymmetric_extension_loop_enters_at_shallow_end_and_reaches_deep_end);
     RUN_TEST(test_first_stop_diagnostic_survives_idle_stops_and_clears_only_at_accepted_start);
     RUN_TEST(test_zero_speed_arms_but_expiry_never_restarts);

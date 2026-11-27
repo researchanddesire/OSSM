@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace motion_link { class Owner; }
+
 namespace streaming {
 struct PatternReferenceLost { uint64_t revision; };
 bool patternOwnerCurrent(const PatternReferenceLost &event);
@@ -11,6 +13,8 @@ PatternStart drawnPatternStartStatus(uint64_t revision);
 PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t ownerRevision,
                                bool localControl = false);
 bool renewDrawnPattern(uint64_t ownerRevision);
+bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
+                         float value, bool selectBleSource);
 void cancelDrawnPattern();
 void cancelRemoteDrawnPattern();
 bool drawnPatternActive();

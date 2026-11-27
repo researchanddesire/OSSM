@@ -75,6 +75,7 @@ streaming::PatternStart startBlePattern(uint16_t connection, const char *samples
                                        size_t length, uint32_t periodMs);
 
 bool renewBlePattern(uint16_t connection);
+bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource);
 
 void nimbleLoop(void* pvParameters);
 void initNimble();

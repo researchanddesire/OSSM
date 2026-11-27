@@ -1,5 +1,6 @@
 #include "rad_ble.h"
 #include "nimble.h"
+#include "leased_speed.h"
 
 #include <Preferences.h>
 #include <WiFi.h>
@@ -261,6 +262,7 @@ radble::Result patternLibrary(JsonObjectConst request) {
 radble::Result patternStatus() {
     JsonDocument status;
     status["version"] = 1;
+    status["liveSpeed"] = true;
     status["libraryVersion"] = 1;
     status["libraryPageSize"] = 1;
     status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
@@ -715,17 +717,14 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
             UserConfig::mqttPublishFrequencyHz = value;
             return settingValue(path);
         }
-        if (path == "motion.speedBle") {
-            if (!args["value"].is<float>())
-                return radble::Result::failure("invalid_value",
-                                               "A numeric BLE speed is required");
-            const float value = args["value"] | -1.0f;
-            if (value < 0.0f || value > 100.0f)
-                return radble::Result::failure("invalid_value",
-                                               "BLE speed must be 0..100");
-            noteBleMotionCommand(radBleServer.currentRequestConnection(), "set:speed:");
-            settings.speedBLE = value;
-            return settingValue(path);
+        switch (motion_link::dispatchLeasedSpeed(path.c_str(), args["value"],
+                    radBleServer.currentRequestConnection(), setLeasedBleSpeed)) {
+            case motion_link::SpeedWrite::Applied: return settingValue(path);
+            case motion_link::SpeedWrite::Invalid:
+                return radble::Result::failure("invalid_value", "Speed must be a valid 0..100 percentage");
+            case motion_link::SpeedWrite::Disconnected:
+                return radble::Result::failure("disconnected", "Speed controller disconnected");
+            case motion_link::SpeedWrite::Unhandled: break;
         }
         if (path == "device.name") {
             if (!args["value"].is<const char*>())
@@ -756,8 +755,7 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
         } else {
             if (value < 0 || value > 100)
                 return radble::Result::failure("invalid_value", "Value must be 0..100");
-            if (path == "motion.speed") command = "set:speed:" + String(value);
-            else if (path == "motion.stroke") command = "set:stroke:" + String(value);
+            if (path == "motion.stroke") command = "set:stroke:" + String(value);
             else if (path == "motion.depth") command = "set:depth:" + String(value);
             else if (path == "motion.sensation") command = "set:sensation:" + String(value);
             else if (path == "motion.buffer") command = "set:buffer:" + String(value);

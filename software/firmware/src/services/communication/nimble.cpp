@@ -44,13 +44,8 @@ static std::mutex motionOwnerLock;
 static motion_link::Owner motionOwner;
 
 void noteBleMotionCommand(uint16_t connHandle, const std::string& command) {
-    if (command == "go:menu") streaming::cancelDrawnPattern();
-    if (!motion_link::isMotionCommand(command)) return;
-    {
-        std::lock_guard<std::mutex> guard(motionOwnerLock);
-        streaming::cancelDrawnPattern();
-        motionOwner.onMotionCommand(connHandle);
-    }
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    if (!motionOwner.takeCommand(connHandle, command, streaming::cancelDrawnPattern)) return;
     // Someone is driving again: the disconnect ramp must not fight them.
     lostConnectionTime = 0;
 }
@@ -69,6 +64,15 @@ streaming::PatternStart startBlePattern(uint16_t connection, const char *samples
         lostConnectionTime = 0;
     }
     return result;
+}
+
+bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    if (!pServer || connection == motion_link::kNoConnection ||
+        ble_gap_conn_find(connection, nullptr) != 0) return false;
+    if (!streaming::applyLeasedBleSpeed(motionOwner, connection, value, selectBleSource)) return false;
+    lostConnectionTime = 0;
+    return true;
 }
 
 bool renewBlePattern(uint16_t connection) {

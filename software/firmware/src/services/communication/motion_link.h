@@ -28,6 +28,16 @@ class Owner {
     // sender is unknown, which clears ownership).
     void onMotionCommand(uint16_t connection) { owner_ = connection; }
 
+    // Legacy text and stock motion requests do not authorize continuing a
+    // leased drawn loop. Menu still stops it without claiming motion.
+    template<class StopPattern>
+    bool takeCommand(uint16_t connection, const std::string &command, StopPattern stop) {
+        const bool takesOwnership = isMotionCommand(command);
+        if (takesOwnership || command == "go:menu") stop();
+        if (takesOwnership) onMotionCommand(connection);
+        return takesOwnership;
+    }
+
     // `connection` dropped and `remaining` links stay. True when motion
     // must stop: no link is left, or the dropped one commanded motion last.
     bool onDisconnect(uint16_t connection, int remaining) {

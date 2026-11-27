@@ -107,12 +107,7 @@ void OSSM::ble_click(String commandString) {
             triggerMenuActionFromBle(Menu::Pairing);
             break;
         case Commands::setSpeed:
-            // BLE devices can be trusted to send true value
-            // and can bypass potentiomer smoothing logic
-            bleState.lastSpeedCommandWasFromBLE = true;
-            // Use speed knob config to determine how to handle BLE speed
-            // command
-            settings.speedBLE = command.value;
+            writeBleSpeed(command.value, true);
             break;
         case Commands::setStroke:
             play_controls::setRemoteControl(PlayControls::STROKE, command.value);

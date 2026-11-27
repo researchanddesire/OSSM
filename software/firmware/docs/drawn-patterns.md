@@ -10,6 +10,10 @@ The optional BLE setting `setting.afterHomingPosition` sets the parking distance
 
 Probe the OSSM with `sensor.read` at `pattern.play`. Version 1 returns `version`, `hasSpeedKnob`, `active`, `stored`, and `periodMs`. The effective period becomes available after the controller evaluates the curve against the calibrated travel and current motion limits.
 
+When status advertises `liveSpeed: true`, the controlling RAD BLE connection can change speed during a live loop. Send `setting.write` to `motion.speed` with an integer percentage from 1 to 100. The existing knob arbitration still determines the effective speed. `motion.speedBle` also accepts fractions and changes the configured BLE percentage without selecting it as the speed source. A zero write stops playback and a subsequent increase requires a new Play. Legacy text motion commands and commands that take over a wired or differently owned loop stop that loop.
+
+Speed is a physical velocity ceiling. The cycle stretches when its path would exceed the velocity or acceleration ceiling and returns toward the authored period when the limits permit it. Two speed settings can therefore yield the same period. A positive change preserves phase and ramps the rate of future frames. Previously queued STEP/DIR frames cover up to 20 ms and knob arbitration runs on the play-controls task.
+
 After playback ends, the optional `lastStop` object reports the first stop reason and the stage (`waiting`, `positioning` or `playing`). `atMs` is uptime in milliseconds, `elapsedMs` is milliseconds since the accepted Play request, `frameGapMs` gives the age of the last accepted playing frame, and `driverResult` is the signed backend result when applicable. An explicit stop reports `stop`. A missed hardware refill reports `pulse_underrun`. Reading status, issuing another Stop or returning to the menu preserves the record. The next accepted Play clears it.
 
 | Operation | Arguments | Behavior |
