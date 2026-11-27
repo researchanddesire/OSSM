@@ -115,14 +115,14 @@ public:
         const double jerk = jerkBudget(acceleration);
         double seconds = slope / fullSpeed;
         out.limit = "speed";
-        const auto constrain = [&](double duration, const char *cause) {
+        const auto requireDuration = [&](double duration, const char *cause) {
             if (duration > seconds) { seconds = duration; out.limit = cause; }
         };
-        constrain(std::sqrt(curvature / (.6 * acceleration)), "acceleration");
-        constrain(std::cbrt(third / (.7 * jerk)), "jerk");
+        requireDuration(std::sqrt(curvature / (.6 * acceleration)), "acceleration");
+        requireDuration(std::cbrt(third / (.7 * jerk)), "jerk");
         // Cover each cell at the actual backend cadence. A spatially
         // constant path has no slope from which to recover its clock.
-        constrain(double(count_) * frameMs / 1000., "sampling");
+        requireDuration(double(count_) * frameMs / 1000., "sampling");
         if (slope == 0) {
             seconds = std::max(seconds, periodMs_ / 1000.);
             out.limit = "flat";
