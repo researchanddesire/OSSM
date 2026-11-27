@@ -18,6 +18,7 @@
 #include "ossmHatTxAudit.hpp"
 #include "ossmHatEmergencyInternal.h"
 #include "ossmHatEmergencyLogic.hpp"
+#include "shared_bus_logic.h"
 
 namespace {
 
@@ -807,6 +808,30 @@ bool ossmHatDetected() {
     const bool detected = publishedStatus.detected;
     portEXIT_CRITICAL(&stateMux);
     return detected;
+}
+
+OssmHatBusMode getOssmHatBusMode() {
+    portENTER_CRITICAL(&stateMux);
+    const bool detected = publishedStatus.detected;
+    const bool passive = publishedStatus.passive;
+    portEXIT_CRITICAL(&stateMux);
+    if (!detected) return OssmHatBusMode::Undetected;
+    return passive ? OssmHatBusMode::ReceiveOnly : OssmHatBusMode::Master;
+}
+
+shared_bus::Observation getOssmHatSharedBusObservation() {
+    shared_bus::Observation seen;
+    portENTER_CRITICAL(&stateMux);
+    seen.hatDetected = publishedStatus.detected;
+    seen.receiveOnly = publishedStatus.passive;
+    const auto sample = publishedSample;
+    const auto control = publishedControls;
+    portEXIT_CRITICAL(&stateMux);
+    const uint32_t now = millis();
+    seen.telemetryFresh = ossm_hat::fresh(sample, now);
+    seen.controlsFresh = ossm_hat::controlsFresh(control, sample, now);
+    seen.modbusEnable = control.modbusEnable;
+    return seen;
 }
 
 bool readOssmHatTelemetry(OssmHatTelemetry &out) {

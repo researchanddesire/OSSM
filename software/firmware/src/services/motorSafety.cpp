@@ -113,22 +113,9 @@ void revokeHomingLocked() {
 // What a receive-only HAT sees of a bus owned by another master. Motion then
 // stays on STEP/DIR with that master as the independent monitor; see
 // shared_bus_logic.h.
-shared_bus::Observation sharedBusIdentity() {
-    const auto hat = getOssmHatStatus();
-    shared_bus::Observation seen;
-    seen.hatDetected = hat.detected;
-    seen.receiveOnly = hat.passive;
-    seen.serialSelected = motorMotionSerialLatched();
-    return seen;
-}
-
 shared_bus::Observation sharedBusObservation() {
-    auto seen = sharedBusIdentity();
-    OssmHatTelemetry sample;
-    OssmHatControlSnapshot control;
-    seen.telemetryFresh = readOssmHatTelemetry(sample);
-    seen.controlsFresh = readOssmHatControlSnapshot(control);
-    seen.modbusEnable = control.modbusEnable;
+    auto seen = getOssmHatSharedBusObservation();
+    seen.serialSelected = motorMotionSerialLatched();
     return seen;
 }
 
@@ -138,7 +125,8 @@ bool required() {
 #else
     // The serial guard protects serial motion. A receive-only HAT cannot send
     // any, so the shared-bus interlock below applies instead.
-    if (shared_bus::active(sharedBusIdentity())) return false;
+    if (getOssmHatBusMode() == OssmHatBusMode::ReceiveOnly && !motorMotionSerialLatched())
+        return false;
     return rememberedHat || ossmHatDetected();
 #endif
 }
@@ -1026,7 +1014,10 @@ bool motorSafetyCanEnableOutputs() {
     if (fault || deadlineTripped || serialProbeClaimed.load()) return false;
     const auto sharedSeen = sharedBusObservation();
     if (shared_bus::active(sharedSeen)) return shared_bus::pulsesAllowed(sharedSeen);
-    if (!needed) return true;
+    // Discovery or serial selection can race the initial classification.
+    // Only the legacy board can proceed without either interlock.
+    if (!needed)
+        return !sharedSeen.hatDetected && !sharedSeen.serialSelected && !rememberedHat.load();
     return initialized.load() && armed && deadlineArmed &&
            hat.ageMs <= 100 && hat.sampleRateHz >= 30 &&
            (!localExclusive.load() || !hat.passive) && controls;

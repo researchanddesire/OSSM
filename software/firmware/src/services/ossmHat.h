@@ -85,6 +85,15 @@ struct OssmHatDriveConfig {
 };
 
 #if OSSM_HAT_SERIAL_BACKEND
+namespace shared_bus { struct Observation; }
+enum class OssmHatBusMode : uint8_t { Undetected, Master, ReceiveOnly };
+OssmHatBusMode getOssmHatBusMode();
+inline bool ossmHatCanSelectSerial() {
+    return getOssmHatBusMode() == OssmHatBusMode::Master;
+}
+// Capture mode, telemetry and control from the same UART publication state.
+// The caller supplies the motion backend's separate serial-selection latch.
+shared_bus::Observation getOssmHatSharedBusObservation();
 bool readOssmHatDriveConfig(OssmHatDriveConfig &out);
 // Device processing timestamps, independently sampled for fault diagnosis.
 // They do not assert when a byte reached the UART pins.
