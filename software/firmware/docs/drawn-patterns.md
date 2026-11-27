@@ -51,3 +51,21 @@ A device reporting `maxSampleBits: 16` accepts `samples16` in place of `samples`
 When both `maxSparseSamples: 1024` and 16-bit support are advertised, an additional exclusive field, `samples16Runs`, can preserve short features among long holds. Each eight-character entry has a four-digit inclusive end index, then a four-digit Q16 position, both unsigned big-endian hex. Starting at index zero, hold that height through the end index. Start the next run at the following index. Include one to 32 runs with strictly increasing ends and distinct adjacent heights. The final end must be `03ff` (index 1023). For example, `01ff000003ffffff` describes 512 minimum samples followed by 512 maximum samples. The same periodic quintic reconstructs between knots. The Dashboard tests the reconstructed curve against the editable source and enables transfer only inside its 1% stroke tolerance.
 
 Existing single-slot and four-slot records load at their original precision. The first successful change stores the whole library and its selected slot atomically in `libraryV3`. Upgrading leaves the previous `libraryV2` or `curveV1` snapshot intact. Downgrading therefore restores that snapshot, including any previous slot contents replaced since the upgrade. Check the displayed name and slot after changing firmware. Playback still requires a deliberate Play or wired double-click.
+
+## Measuring the timing of a speed change
+
+The read-only USB command `clock <nonce>` echoes the unsigned decimal nonce
+and the device uptime in milliseconds as `RAD_CLOCK <nonce> <uptime>`. A
+host can bracket this response with its own send and receive times while the
+shaft is stopped to register the two clocks.
+
+`patterntime 0` reads the newest accepted playback rate change.
+`patterntime <sequence>` reads one of the last eight changes by sequence.
+The response is `RAD_PATTERN_TIME sequence uptimeMs periodMs phaseNanoCycles rateMicroHz phaseAccelerationMicroHzPerSec leadBoundMs first serial leadKnown`.
+An unavailable sequence returns `RAD_PATTERN_TIME unavailable <sequence>`.
+The three flags are decimal zero or one. Uptime and phase refer to the
+producer accepting the first frame at that governed rate. The final
+flag marks a known upper bound on the remaining queue delay. Serial-path
+shaft arrival requires independent measurement. The first flag identifies
+the first rate in a new Play. Read the records after Stop to measure live
+adjustments without issuing USB commands during playback.

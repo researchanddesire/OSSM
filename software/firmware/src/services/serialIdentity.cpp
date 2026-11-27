@@ -2,6 +2,8 @@
 #if defined(ARDUINO) && !defined(PIO_UNIT_TESTING)
 #include <Arduino.h>
 #include <atomic>
+#include <cmath>
+#include "ossm/streaming/drawn_pattern.h"
 #include "constants/Version.h"
 #include "serialIdentityProtocol.h"
 #include "services/ossmHat.h"
@@ -88,6 +90,19 @@ void announceDriveConfig() {
 }
 #endif
 
+void announcePatternTime(uint32_t sequence) {
+    streaming::PatternRateStamp stamp{};
+    if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
+        Serial.printf("RAD_PATTERN_TIME unavailable %lu\n", static_cast<unsigned long>(sequence));
+        return;
+    }
+    Serial.printf("RAD_PATTERN_TIME %lu %lu %lu %lld %lld %lld %u %u %u %u\n",
+                  static_cast<unsigned long>(stamp.sequence), static_cast<unsigned long>(stamp.atMs),
+                  static_cast<unsigned long>(stamp.periodMs), std::llround(stamp.phase * 1e9),
+                  std::llround(stamp.rateHz * 1e6), std::llround(stamp.phaseAcceleration * 1e6),
+                  unsigned(stamp.leadBoundMs), unsigned(stamp.first), unsigned(stamp.serial), unsigned(stamp.leadKnown));
+}
+
 void console(void*) {
     // Never wait for a USB host or block application setup on a serial cable.
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -99,12 +114,19 @@ void console(void*) {
         for (int count = 0; count < 128 && Serial.available(); ++count) {
             const char* command = parser.push(Serial.read());
             if (!command) continue;
+            uint32_t argument;
             if (strcmp(command, "info") == 0 || strcmp(command, "identity") == 0) {
                 if (millis() - lastAnnouncement >= 250) {
                     announce();
                     lastAnnouncement = millis();
                 }
             }
+            else if (serialIdentity::unsignedArgument(command, "clock", argument)) {
+                const auto sampledAt = millis();
+                Serial.printf("RAD_CLOCK %lu %lu\n", static_cast<unsigned long>(argument),
+                              static_cast<unsigned long>(sampledAt));
+            }
+            else if (serialIdentity::unsignedArgument(command, "patterntime", argument)) announcePatternTime(argument);
             else if (strcmp(command, "hat") == 0) announceHat();
 #if OSSM_HAT_SERIAL_BACKEND
             else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();

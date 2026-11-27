@@ -5,6 +5,23 @@
 #include <cstdint>
 
 namespace serialIdentity {
+// Parse an unsigned decimal argument without accepting partial lines or wrapping sequence numbers.
+inline bool unsignedArgument(const char *command, const char *name, uint32_t &value) {
+    const size_t length = std::strlen(name);
+    if (std::strncmp(command, name, length) != 0 || command[length] != ' ') return false;
+    const char *digit = command + length + 1;
+    if (!*digit) return false;
+    uint32_t result = 0;
+    for (; *digit; ++digit) {
+        if (*digit < '0' || *digit > '9') return false;
+        const uint32_t part = static_cast<uint32_t>(*digit - '0');
+        if (result > (UINT32_MAX - part) / 10U) return false;
+        result = 10U * result + part;
+    }
+    value = result;
+    return true;
+}
+
 // A single bounded parser owns the input stream in every build. Invalid binary
 // and oversized lines are discarded in full, never interpreted as a suffix.
 class CommandBuffer {

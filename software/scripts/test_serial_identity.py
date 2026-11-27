@@ -50,6 +50,14 @@ int main(int argc, char** argv) {
     }
     return 0;
   }
+  if (std::string(argv[1]) == "argument") {
+    std::string line;
+    while (std::getline(std::cin, line)) {
+      uint32_t value = 1;
+      if (serialIdentity::unsignedArgument(line.c_str(), "clock", value)) std::cout << value << "\n";
+    }
+    return 0;
+  }
   serialIdentity::Info info{"DTT","DTT-N4","2.0.94","staging","unknown","123456789ABC",
       4194304,0,16777216,0};
   if (std::string(argv[1]) == "injection") info.version = "2.0.4\"\nBAD";
@@ -84,6 +92,10 @@ int main(int argc, char** argv) {
 
     def test_partial_command_needs_delimiter(self):
         self.assertEqual(self.run_probe('parse',b'info'),'')
+
+    def test_clock_argument_rejects_partial_overflow_and_out_of_range_sequences(self):
+        self.assertEqual(self.run_probe('argument',
+            b'clock 4294967295\nclock 4294967296\nclock -1\nclock 3x\nclock\ncloc\nclock 0\n'), '4294967295\n0\n')
 
     def test_report_separates_target_from_physical_flash(self):
         lines = self.run_probe('format').splitlines()
