@@ -184,7 +184,7 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
     TEST_ASSERT_TRUE(frames.empty()); // finite entry done; software rows cannot start the clock yet
     produce();
     feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
-    for (unsigned batch = 0; batch < 4; ++batch) tick();
+    tick(2); // low hardware reserve drains precisely the precomputed warmup rows
     TEST_ASSERT_EQUAL_UINT(Planner::warmupRows, frames.size());
     // On a new positive setting and then zero, even an almost-completed
     // calculation from the prior setting cannot extend the submitted path.
@@ -220,7 +220,7 @@ void test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on
     tick(2);
     for (unsigned i = 0; i < Planner::warmupRows; ++i) rawPlanner->prepare([] {});
     feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
-    tick(4);
+    tick(2);
     TEST_ASSERT_EQUAL_UINT(Planner::warmupRows, frames.size());
     // The 16 ms observed electrical reserve is all the hardware can use.
     // Suspend the background planner for the failed 22 ms, then longer.
@@ -251,7 +251,7 @@ void test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_re
     tick(2);
     for (unsigned i = 0; i < Planner::warmupRows; ++i) rawPlanner->prepare([] {});
     feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 6400};
-    tick(4);
+    tick(2);
     auto *old = rawPlanner;
     TEST_ASSERT_TRUE(old->requestAssist(0));
     old->assist([&] { old->prepare([] {}); }); // CPU0 wins this ordinal
@@ -310,6 +310,48 @@ void test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest
     TEST_ASSERT_EQUAL_UINT32(before + Planner::retargetPrefix, changed.frameIndex);
     TEST_ASSERT_EQUAL_DOUBLE(100,drawnPatternStatus().speed.speedPct);
     TEST_ASSERT_LESS_OR_EQUAL_UINT32(16, reserveThrough - clockMs);
+}
+
+void test_steady_raw_recharges_with_ready_frames_without_a_live_edit() {
+    motor.speed = 5000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(3);
+    TEST_ASSERT_FALSE(rawPlanner->positivePending());
+
+    const auto before = frames.size();
+    simulateReserve = true;
+    reserveThrough = clockMs + 3; // 2 ms left on the next service
+    tick();
+    TEST_ASSERT_EQUAL_UINT(6, frames.size() - before);
+    TEST_ASSERT_EQUAL_UINT32(14, reserveThrough - clockMs);
+
+    clockMs += 6; // the measured no-append interval was 6.556 ms
+    tick();       // one millisecond host tick, peripheral still running
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(14, reserveThrough - clockMs);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(16, reserveThrough - clockMs);
+
+    const auto last = frames.size();
+    clockMs = reserveThrough; // a genuine exhaustion still stops before another pulse
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(last, frames.size());
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
+}
+
+void test_steady_recharge_rechecks_guard_before_its_next_prepared_row() {
+    motor.speed = 5000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(3);
+    guardTripAfter = frames.size() + 4;
+    simulateReserve = true;
+    reserveThrough = clockMs + 3;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(guardTripAfter, frames.size());
+    TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
 }
 
 void test_guard_is_rechecked_before_extra_handoff_recharge_row() {
@@ -1256,6 +1298,8 @@ int main() {
     RUN_TEST(test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on_real_exhaustion);
     RUN_TEST(test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing);
     RUN_TEST(test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest_boundary);
+    RUN_TEST(test_steady_raw_recharges_with_ready_frames_without_a_live_edit);
+    RUN_TEST(test_steady_recharge_rechecks_guard_before_its_next_prepared_row);
     RUN_TEST(test_guard_is_rechecked_before_extra_handoff_recharge_row);
     RUN_TEST(test_urgent_zero_and_explicit_stop_cancel_a_pending_positive_handoff);
     RUN_TEST(test_rejected_next_row_does_not_hide_a_started_prefill);

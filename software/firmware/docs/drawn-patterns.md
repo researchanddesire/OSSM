@@ -82,9 +82,13 @@ After Stop, `patternbuffer` reports
 `RAD_PATTERN_BUFFER lastQueuedUs minRunningUs maxQueuedUs immediateTurns lowWaterYields movingPlanTotalUs maxMovingPlanUs`.
 The queue durations are sampled after accepted raw pulse commands. They exclude
 the entry currently executing in the driver. A minimum of 65535 indicates no
-running-queue sample. Below 14 ms of reserve, the producer can start up to two
-extra refill turns. Every turn rechecks controls and safety. The existing
-16 ms queue admission ceiling and 25 ms stop-drain limit still apply.
+running-queue sample. An ordinary visit offers up to three frames. When a
+successful append leaves less than 14 ms and more prepared frames are ready,
+the feeder can offer up to five additional frames during that visit. It
+releases the control mailbox and rechecks the lease, controls and guard before
+each additional frame. The scheduler permits up to two immediate return visits
+before yielding. The driver admits at most 16 ms of queued motion and the
+stop-drain limit is 25 ms.
 Moving-plan times count wall time, including preemption, for newly planned
 frames whose target changed. Divide the total by the moving-frame count in
 `patterncost` to obtain the mean.

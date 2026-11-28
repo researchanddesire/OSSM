@@ -234,6 +234,11 @@ public:
         return nullptr;
     }
 
+    bool hasPreparedFrame() {
+        std::lock_guard<RingMutex> guard(mux_);
+        return warmed_ && rows_.size() != 0;
+    }
+
     void pop() {
         bool refill;
         {

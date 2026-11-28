@@ -662,13 +662,13 @@ void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReaso
 }
 namespace {
 bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned frameLimit,
-                 bool prefixOnly, bool &recharge) {
+                 bool continuing, bool canExtend, bool &recharge) {
     recharge = false;
     if (refillNow) *refillNow = false;
     const uint32_t callUs = patternServiceMicros();
     std::unique_lock<std::mutex> guard(lock);
     if (stage == Stage::Idle || owner != revision) return false;
-    if (prefixOnly && (!rawPlanner || !rawPlanner->retainedFront())) return true;
+    if (continuing && (stage != Stage::Playing || !rawClockStarted || !rawPlanner)) return true;
     const uint32_t acquiredUs = patternServiceMicros();
     if (!wakeUs) wakeUs = callUs;
     auto &turn = work.lastService;
@@ -683,11 +683,16 @@ bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned f
     RawFramePlanner *assist = nullptr;
     service(turn.atMs, frameLimit, lowAfterBatch, assist);
     const bool low = stage == Stage::Playing && lowAfterBatch;
-    recharge = low && rawPlanner && rawPlanner->retainedFront() && acceptedFrames > turn.frame;
-    const bool immediate = refillSchedule.immediate(low);
-    if (immediate) ++work.immediateTurns;
-    else if (low) ++work.lowWaterYields;
-    if (refillNow) *refillNow = immediate;
+    // Only a real append to the running peripheral permits another bounded
+    // batch. A full driver or an empty planner cannot spin in this loop.
+    recharge = canExtend && low && rawClockStarted && acceptedFrames > turn.frame &&
+               !assist && rawPlanner && rawPlanner->hasPreparedFrame();
+    if (!recharge) {
+        const bool immediate = refillSchedule.immediate(low);
+        if (immediate) ++work.immediateTurns;
+        else if (low) ++work.lowWaterYields;
+        if (refillNow) *refillNow = immediate;
+    }
     lastServiceEnd = patternServiceMicros();
     haveServiceEnd = true;
     turn.serviceUs = lastServiceEnd - acquiredUs;
@@ -700,15 +705,16 @@ bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned f
 
 bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     constexpr unsigned ordinaryBatch = 3;
+    // At most one hardware horizon of work per visit. This is a service
+    // budget, not a larger motor queue; each append still uses actual ticks.
+    constexpr unsigned maximumBatch = drawn_pattern::queuedDurationMs / drawn_pattern::pulseFrameMs;
     bool recharge = false;
-    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, recharge);
-    // The peripheral may have only 6 ms before the first handoff append.
-    // Give its already prepared prefix priority up to the regular 14 ms
-    // watermark. Unlock between every extra row and repeat ownership, live
-    // controls and guard checks; only the existing bounded prefix may extend
-    // this service. Stop/zero and a real underrun retain their normal paths.
-    for (unsigned n = ordinaryBatch; recharge && n < RawFramePlanner::retargetPrefix; ++n)
-        serviceTurn(revision, 0, refillNow, 1, true, recharge);
+    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, true, recharge);
+    // Refill below the watermark during steady motion as well as at a live
+    // retarget. Release the mailbox and resample controls, lease, backend and
+    // guard before each extra row; leave promptly on no progress or at 14 ms.
+    for (unsigned n = ordinaryBatch; recharge && n < maximumBatch; ++n)
+        serviceTurn(revision, 0, refillNow, 1, true, n + 1 < maximumBatch, recharge);
     return active;
 }
 } // namespace streaming
