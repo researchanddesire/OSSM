@@ -6,9 +6,11 @@ namespace drawn_pattern {
 // Only already prepared motor targets cross this boundary. The end phase of
 // each row stays in the software FIFO until its individual acceptance.
 struct PreparedPulses {
-    // Bounded by one existing 16 ms service visit. Releasing the motor lock
-    // at a fixed three rows can strand an otherwise ready FIFO at 1.7 ms.
-    static constexpr unsigned capacity = 7;
+    // A visit starts with one hardware horizon of source rows. The projection
+    // also carries one horizon of replacements for intervals that elapse
+    // inside the guarded motor writes. This is RAM, not a motor queue.
+    static constexpr unsigned horizonRows = 8;
+    static constexpr unsigned capacity = 2 * horizonRows - 1;
     struct Target {
         int32_t position;
         uint16_t crossing;
@@ -24,7 +26,8 @@ struct PreparedPulses {
     // Every control or gain-goal change retains its own accepted timestamp.
     // A pause or fade endpoint can also require the controller to replan
     // before offering the next row.
-    uint8_t gainBoundaries = 0;
+    uint16_t gainBoundaries = 0;
+    unsigned initialRows = horizonRows;
     bool boundaryAt(unsigned row) const {
         return row == rateBoundary || ((gainBoundaries >> row) & 1u);
     }

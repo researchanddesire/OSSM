@@ -74,7 +74,6 @@ static void startStreamingTask(void *pvParameters) {
             break;
         }
         if (!motorSafetyCanEnableOutputs()) { exitReason = "guard"; break; }
-        uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
         bool refillNow;
         if (serviceDrawnPattern(safetyRevision, wakeUs, &refillNow)) {
             haveTarget = false;
@@ -104,6 +103,8 @@ static void startStreamingTask(void *pvParameters) {
 
         // settime is when the message was received. If we trust the source we can reduce perceived lag by creating a buffer.
         if (USE_LATENCY_COMPENSATION){
+            const uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - best).count();
             int16_t mincomp =  min(int(settings.buffer * 2),int(lastPositionTime.inTime));
             int16_t offset = mincomp - currentBuffer;
             int16_t lag = std::chrono::duration_cast<std::chrono::milliseconds>(targetPositionTime.setTime - best).count();

@@ -251,17 +251,22 @@ public:
         return warmed_ && rows_.size() != 0;
     }
 
-    void pop() {
+    // A multi-row hardware acceptance owns every successor in its prefix.
+    // Advance to that known next row under the same lock as the pop.
+    Frame *pop(bool decodeNext = false) {
         bool refill;
+        Frame *next = nullptr;
         {
             std::lock_guard<RingMutex> guard(mux_);
             if (retained_) --retained_;
             else positivePending_ = false;
             const bool full = rows_.full();
             rows_.pop();
+            if (decodeNext) next = rows_.front();
             refill = full && !rows_.full();
         }
         if (refill) wake();
+        return next;
     }
 
 #ifndef ARDUINO

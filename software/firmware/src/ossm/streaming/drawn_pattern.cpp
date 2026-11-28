@@ -5,7 +5,11 @@
 #include "drawn_frame_planner.h"
 
 #include <atomic>
+#ifdef ESP_PLATFORM
+#include <esp_timer.h>
+#else
 #include <chrono>
+#endif
 #include <cstring>
 #include <mutex>
 #include <memory>
@@ -19,8 +23,14 @@
 
 namespace streaming {
 uint32_t patternServiceMicros() {
+#ifdef ESP_PLATFORM
+    // The IDF clock already runs in microseconds. Do not rebuild a POSIX
+    // timespec and divide a 64-bit nanosecond count for each pulse receipt.
+    return static_cast<uint32_t>(esp_timer_get_time());
+#else
     return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
 }
 
 namespace {
@@ -442,8 +452,9 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         const auto beforeWrite = pattern_motor::now();
         if (!local && beforeWrite - renewedAt >= drawn_pattern::leaseMs)
             return stopLocked("lease_expired", beforeWrite);
-        const unsigned remaining = allowance - (acceptedFrames - firstOrdinal);
-        if (!remaining) return;
+        const unsigned issued = acceptedFrames - firstOrdinal;
+        if (issued >= allowance) return;
+        const unsigned remaining = allowance - issued;
         auto *next = rawPlanner ? rawPlanner->front() : pending.get();
         if (!next) {
             recordEmptyFrame();
@@ -470,9 +481,11 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         const bool prepared = (rawClockStarted || fillingRaw) && rawPlanner && !softwareEntry;
         drawn_pattern::PreparedPulses successors;
         drawn_pattern::PreparedPulses::Target first{frame.target, frame.crossing, 0, frame.from == frame.target};
-        if (prepared && remaining > 1) {
+        if (prepared && (rawClockStarted || remaining > 1)) {
             const bool endAtQuiet = !zero && reserveVibration && reconfigureAfterFade;
-            rawPlanner->successors(successors, remaining - 1, endAtQuiet, zero);
+            successors.initialRows = remaining;
+            const auto lookahead = remaining + (rawClockStarted ? drawn_pattern::PreparedPulses::horizonRows : 0);
+            rawPlanner->successors(successors, lookahead - 1, endAtQuiet, zero);
             const auto &firstGoal = rawPlanner->retainedFront() ? rawPlanner->previousSpeed : speedStatus;
             if (stampedGoal != firstGoal.phaseRateHz || lastAppliedPeriod != firstGoal.periodMs ||
                 (activeMarkers && (lastStampedStrength != caps.strength ||
@@ -565,10 +578,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
                 ++attemptIndex;
                 nextAttemptRow += batch.attempts[attemptIndex].result.frames;
             }
-            if (consumed) {
-                next = rawPlanner->front();
-                recordPlan(*next);
-            }
+            if (consumed) recordPlan(*next);
             const auto &accepted = *next;
             const bool boundary = successors.count && successors.boundaryAt(consumed);
             retainedGoal = rawPlanner && rawPlanner->retainedFront();
@@ -598,7 +608,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
                 committedTarget = accepted.target;
             }
             ++acceptedFrames;
-            if (rawPlanner) rawPlanner->pop();
+            if (rawPlanner) next = rawPlanner->pop(!finalRow);
             else frame.valid = false;
         }
         if (started) observeQueueStart(pattern_motor::now());
@@ -924,8 +934,8 @@ bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned f
 
 bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     constexpr unsigned ordinaryBatch = 3;
-    // At most one hardware horizon of work per visit. This is a service
-    // budget, not a larger motor queue; each append still uses actual ticks.
+    // The starting work allowance excludes timed intervals spent inside an
+    // admitted batch. Hardware admission always uses the live FAS ticks.
     constexpr unsigned maximumBatch = drawn_pattern::queuedDurationMs / drawn_pattern::pulseFrameMs;
     bool recharge = false;
     unsigned allowance = maximumBatch;

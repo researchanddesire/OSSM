@@ -503,9 +503,10 @@ void test_prepared_refill_limits_ownership_and_releases_on_the_first_decline() {
     rows.count = rows.capacity;
     for (unsigned i = 0; i < rows.count; ++i) rows.targets[i] = {int32_t(i + 1), uint16_t(5000 + i)};
 
-    // A waiting Stop or user edit can arrive at any of the eight calls.
+    // Fully elapsed intervals can admit the entire projection. A waiting
+    // Stop or user edit can arrive at any individual call.
     // Only already authorized writes may precede it. There is no spin on
-    // a full motor, a stopped clock or a low reserve after the eighth row.
+    // a full motor, a stopped clock or the end of the prepared projection.
     for (unsigned permitted = 1; permitted <= rows.count + 1; ++permitted) {
         for (bool decline : {false, true}) {
             PulseBatch burst;
@@ -514,13 +515,13 @@ void test_prepared_refill_limits_ownership_and_releases_on_the_first_decline() {
             burst.submit({0,32768}, rows, [&](PreparedPulses::Target row) -> FrameResult {
                 TEST_ASSERT_EQUAL_INT32(int32_t(writes), row.position);
                 ++writes;
-                clock += 705; // injected wall time per admitted individual write
+                clock += 2000; // one elapsed source frame per individual write
                 if (decline && writes == permitted) return {Frame::Retry, "pulse_append", 4};
                 return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 1698};
             }, [&] { return decline || writes < permitted; }, [&] { return clock; });
             TEST_ASSERT_EQUAL_UINT(permitted, writes);
             TEST_ASSERT_EQUAL_UINT(permitted, burst.count);
-            TEST_ASSERT_EQUAL_UINT32(permitted * 705, burst.attempts[burst.count - 1].atUs);
+            TEST_ASSERT_EQUAL_UINT32(permitted * 2000, burst.attempts[burst.count - 1].atUs);
         }
     }
     unsigned writes = 0;
@@ -530,6 +531,60 @@ void test_prepared_refill_limits_ownership_and_releases_on_the_first_decline() {
         return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, uint16_t(8000 + 2000 * writes)};
     }, [] { return true; }, [] { return 0; });
     TEST_ASSERT_EQUAL_UINT(3, writes);
+}
+
+void test_slow_guarded_burst_replaces_elapsed_rows_before_returning_with_low_reserve() {
+    using namespace drawn_pattern;
+    // 110432: the last eight electrical groups before ordinal 1998. FAS
+    // reported 6578 us pending at the last append. Its next service detected
+    // a drained queue 7995 us later. Earlier per-write timing is modeled.
+    const unsigned counts[] = {3,2,3,2,2,3,2,3};
+    const unsigned ticks[] = {13474,13422,13375,13313,13273,13213,13157,13099};
+    PreparedPulses rows;
+    rows.count = rows.capacity;
+    for (unsigned i = 0; i < rows.count; ++i) rows.targets[i].position = i + 1;
+    for (const unsigned futureCost : {0u, 1000u, 1500u, 3000u}) {
+        PulseBatch burst;
+        uint32_t nowUs = UINT32_MAX - 10000; // include rollover inside the visit
+        int pendingTicks = 105250;
+        for (unsigned i = 0; i < 8; ++i) pendingTicks += 16 * 2400 - counts[i] * ticks[i];
+        unsigned accepted = 0;
+        burst.submit({0, 32768}, rows, [&](auto row) -> FrameResult {
+            TEST_ASSERT_EQUAL_INT32(accepted, row.position);
+            const auto elapsed = accepted < 8 ? 2400u : futureCost;
+            nowUs += elapsed;
+            pendingTicks -= static_cast<int>(elapsed * 16);
+            if (pendingTicks <= 0) return {Frame::Rejected, "pulse_underrun"};
+            pendingTicks += accepted < 8 ? counts[accepted] * ticks[accepted] : 32000;
+            ++accepted;
+            if (accepted == 8) TEST_ASSERT_EQUAL_INT(105250, pendingTicks);
+            TEST_ASSERT_LESS_OR_EQUAL_INT(16 * 16000, pendingTicks);
+            return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, uint16_t(pendingTicks / 16)};
+        }, [] { return true; }, [&] { return nowUs; });
+        TEST_ASSERT_GREATER_THAN_UINT(8, accepted);
+        if (futureCost <= 1500) TEST_ASSERT_GREATER_THAN_INT(7995 * 16, pendingTicks);
+        else TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(burst.attempts[burst.count-1].result.state));
+    }
+}
+
+void test_fast_visits_never_spend_future_time_or_pair_across_the_last_credit() {
+    using namespace drawn_pattern;
+    for (unsigned initial = 1; initial <= PreparedPulses::horizonRows; ++initial) {
+        PreparedPulses rows;
+        rows.count = rows.capacity;
+        rows.initialRows = initial;
+        PreparedPulses::Target first{0,32768,0,true};
+        for (auto &row : rows.targets) row = first;
+        rows.groupWaits(first);
+        unsigned accepted = 0;
+        PulseBatch batch;
+        batch.submit(first, rows, [&](auto target) -> FrameResult {
+            const uint8_t n = target.followingHolds ? 2 : 1;
+            accepted += n;
+            return {Frame::Accepted,nullptr,0,FrameTiming::Running,0,6000,n};
+        }, [] { return true; }, [] { return 123456u; });
+        TEST_ASSERT_EQUAL_UINT(initial, accepted);
+    }
 }
 
 void test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authority() {
@@ -601,7 +656,7 @@ void test_prefill_ends_on_start_and_each_gain_change_keeps_its_timestamp() {
     for (const bool starting : {false, true}) {
         PreparedPulses::Target first{7,32768,0,true};
         PreparedPulses rows;
-        rows.count = rows.capacity;
+        rows.count = rows.horizonRows - 1;
         rows.rateBoundary = 3;
         rows.gainBoundaries = (1u << 1) | (1u << 5);
         for (auto &row : rows.targets) row = first;
@@ -1264,6 +1319,8 @@ int main() {
     RUN_TEST(test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_driver);
     RUN_TEST(test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation);
     RUN_TEST(test_prepared_refill_limits_ownership_and_releases_on_the_first_decline);
+    RUN_TEST(test_slow_guarded_burst_replaces_elapsed_rows_before_returning_with_low_reserve);
+    RUN_TEST(test_fast_visits_never_spend_future_time_or_pair_across_the_last_credit);
     RUN_TEST(test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authority);
     RUN_TEST(test_positive_rate_boundary_is_timed_at_its_own_accepted_write);
     RUN_TEST(test_prefill_ends_on_start_and_each_gain_change_keeps_its_timestamp);

@@ -80,8 +80,7 @@ public:
     }
 };
 
-static_assert(PreparedPulses::capacity + 1 == queuedDurationMs / pulseFrameMs,
-              "a prepared burst cannot exceed the existing service visit");
+static_assert(PreparedPulses::horizonRows == queuedDurationMs / pulseFrameMs);
 
 struct PulseBatch {
     struct Attempt {
@@ -108,7 +107,12 @@ struct PulseBatch {
                 Allowed allowed, Clock clock, uint32_t (*millisAtBoundary)() = nullptr) {
         auto target = first;
         unsigned consumed = 0;
+        unsigned available = next.initialRows;
+        const uint32_t entered = clock();
         for (;;) {
+            // A pair must fit the remaining logical allowance, even when
+            // a rate boundary or prefill leaves only one ordinary row.
+            target.followingHolds = std::min<unsigned>(target.followingHolds, available - consumed - 1);
             auto &attempt = attempts[count++];
             attempt.result = write(target);
             attempt.atUs = clock();
@@ -120,6 +124,12 @@ struct PulseBatch {
             if (consumed > next.count ||
                 (attempt.result.timing != FrameTiming::Running && attempt.result.timing != FrameTiming::Prefill) ||
                 attempt.result.queuedUs >= refillBelowUs) return;
+            if (attempt.result.timing == FrameTiming::Running) {
+                const uint32_t elapsed = attempt.atUs - entered;
+                available = next.initialRows + std::min<unsigned>(PreparedPulses::horizonRows,
+                                                  elapsed / (pulseFrameMs * 1000));
+            }
+            if (consumed >= available) return;
             if (!allowed()) {
                 controlsChanged = true;
                 return;

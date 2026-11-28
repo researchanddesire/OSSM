@@ -43,7 +43,7 @@ public:
     }
 
     void clear(const Cursor &accepted) {
-        accepted_ = accepted;
+        acceptedCursor() = accepted;
         firstRecord_ = count_ = read_ = write_ = used_ = 0;
         decoded_ = false;
     }
@@ -119,25 +119,28 @@ public:
 
     Frame *front() {
         if (!count_) return nullptr;
+        auto &row = cursors_[frontIndex_];
         if (!decoded_) {
-            static_cast<Cursor &>(front_) = accepted_;
-            apply(read_, front_);
+            static_cast<Cursor &>(row) = acceptedCursor();
+            apply(read_, row);
             const uint32_t from = storage_[read_];
-            std::memcpy(&front_.from, &from, sizeof(from));
-            front_.planUs = storage_[advance(read_, 2)];
+            std::memcpy(&row.from, &from, sizeof(from));
+            row.planUs = storage_[advance(read_, 2)];
             const auto flags = storage_[advance(read_, 3)];
-            front_.crossing = static_cast<uint16_t>(flags);
-            front_.valid = (flags & (1u << 16)) != 0;
-            front_.offered = (flags & (1u << 17)) != 0;
+            row.crossing = static_cast<uint16_t>(flags);
+            row.valid = (flags & (1u << 16)) != 0;
+            row.offered = (flags & (1u << 17)) != 0;
             decoded_ = true;
         }
-        return &front_;
+        return &row;
     }
 
     void pop() {
         const auto *row = front();
         if (!row) return;
-        accepted_ = *row;
+        // The decoded front is now the immutable accepted cursor. Keep it
+        // in place instead of copying the entire phase under the ring lock.
+        frontIndex_ ^= 1;
         const unsigned length = lengths_[firstRecord_];
         used_ -= length;
         read_ = advance(read_, length);
@@ -151,7 +154,7 @@ public:
     // rows and in-flight results are invalidated by the caller's generation.
     unsigned truncate(unsigned retained, Cursor &newTail) {
         retained = std::min({retained, count_, maxRetained});
-        newTail = accepted_;
+        newTail = acceptedCursor();
         unsigned pos = read_;
         unsigned retainedWords = 0;
         for (unsigned i = 0; i < retained; ++i) {
@@ -183,8 +186,9 @@ private:
     static_assert(storageWords / maxRecordWords >= 12, "even all-literal cursors preserve the old reserve");
     static_assert((capacity & (capacity - 1)) == 0, "record indices wrap at a power of two");
 
-    Cursor accepted_;
-    Frame front_;
+    Frame cursors_[2];
+    unsigned frontIndex_ = 0;
+    Cursor &acceptedCursor() { return cursors_[frontIndex_ ^ 1]; }
     // Allocate before starting the worker. The unchanged 64-row ring and
     // controller can occupy separate heap blocks on a fragmented ESP32.
     std::unique_ptr<uint32_t[]> storage_{new (std::nothrow) uint32_t[storageWords]};
