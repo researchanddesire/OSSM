@@ -13,11 +13,13 @@ inline double reportedPeak(double mmPerSecond) {
 
 inline void writePatternSpeed(JsonDocument &result, const PatternSpeedStatus &speed) {
     result["version"] = 2;
+    result["speedEnvelope"] = 3;
     result["state"] = speed.state;
     result["speedPct"] = speed.speedPct;
     result["nominalMmS"] = reportedPeak(speed.nominalMmS);
     result["plannedPeakMmS"] = reportedPeak(speed.plannedPeakMmS);
     result["phaseRateHz"] = speed.phaseRateHz;
+    result["steadyJerkLimitMmS3"] = speed.steadyJerkLimitMmS3;
     if (speed.periodMs) result["periodMs"] = speed.periodMs;
     else result["periodMs"] = nullptr;
     result["limit"] = speed.limit;
@@ -27,6 +29,7 @@ inline void writePatternSpeed(JsonDocument &result, const PatternSpeedStatus &sp
 // peak speeds in the same correlated GATT response as the ownership renewal.
 inline void addPatternSpeed(JsonDocument &result, const PatternStatus &playback) {
     result["speedLaw"] = 2;
+    result["speedEnvelope"] = 3;
     if (!playback.active) return;
     const auto &speed = playback.speed;
     auto plan = result["speedPlan"].to<JsonArray>();

@@ -81,6 +81,7 @@ bool stoppedPatternFeedGap(PatternFeedGap &out);
 struct PatternSpeedStatus {
     const char *state = "idle", *limit = "flat";
     double speedPct = 0, nominalMmS = 0, plannedPeakMmS = 0, phaseRateHz = 0;
+    double steadyJerkLimitMmS3 = 0;
     uint32_t periodMs = 0;
 };
 struct PatternStatus {

@@ -825,6 +825,7 @@ void test_paused_speed_is_indefinite_and_long_stop_keeps_its_diagnostics() {
 
     JsonDocument detail;
     writePatternSpeed(detail, playback.speed);
+    TEST_ASSERT_EQUAL(3, detail["speedEnvelope"].as<int>());
     TEST_ASSERT_TRUE(detail["periodMs"].is<JsonVariantConst>());
     TEST_ASSERT_TRUE(detail["periodMs"].isNull());
     TEST_ASSERT_EQUAL_FLOAT(0, detail["phaseRateHz"].as<float>());

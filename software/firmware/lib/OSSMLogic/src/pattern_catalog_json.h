@@ -11,6 +11,8 @@ inline void addModifierCapabilities(JsonDocument &result) {
     result["modifierVersion"] = 1;
     result["maxModifiers"] = drawn_pattern::Modifiers::capacity;
     result["maxPauseMs"] = drawn_pattern::maxPauseMs;
+    // Preserve deployed clients' capabilities before the optional planner revision.
+    if (measureJson(result) > 347) result.remove("speedEnvelope");
     if (measureJson(result) > 347) {
         result.remove("modifierVersion");
         result.remove("maxModifiers");

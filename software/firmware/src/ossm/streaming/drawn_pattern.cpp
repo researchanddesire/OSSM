@@ -249,7 +249,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
     if (zero) {
         goalRate = 0;
         effectivePeriod = speedStatus.periodMs = 0;
-        speedStatus.phaseRateHz = speedStatus.plannedPeakMmS = 0;
+        speedStatus.phaseRateHz = speedStatus.plannedPeakMmS = speedStatus.steadyJerkLimitMmS3 = 0;
         if (stage == Stage::Waiting) { speedStatus.state = "waiting"; return; }
         speedStatus.state = stage == Stage::Paused ? "paused" : "pausing";
     }
@@ -318,6 +318,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         effectivePeriod = speedStatus.periodMs = pace.periodMs;
         goalRate = speedStatus.phaseRateHz = pace.rate;
         speedStatus.plannedPeakMmS = pace.peak / caps.stepsPerMm;
+        speedStatus.steadyJerkLimitMmS3 = pace.shapeJerkLimit / caps.stepsPerMm;
         speedStatus.limit = pace.limit;
         if (std::strcmp(pace.limit, "speed") == 0) {
             if (nextReserve) speedStatus.limit = "vibration";
@@ -328,7 +329,8 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         if (nextReserve) {
             clockAcceleration = std::min(clockAcceleration, 2 * goalRate);
             clockJerk = std::min(clockJerk, 8 * goalRate);
-            if (!fading) vibrationBudget = {span, v, a, caps.stepsPerMm, {goalRate, clockAcceleration, clockJerk}};
+            if (!fading) vibrationBudget = {span, v, a, caps.stepsPerMm,
+                                            {goalRate, clockAcceleration, clockJerk}, pace.fullPathJerkLimit};
         }
         if (markerIndex.holds)
             activeMarkers->brakeBounds.reset({goalRate, clockAcceleration, clockJerk});

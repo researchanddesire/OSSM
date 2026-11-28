@@ -321,6 +321,7 @@ namespace drawn_pattern {
         static constexpr double hz = 6;
         double span = 0, speed = 0, acceleration = 0, nominalSteps = 0;
         PhaseLimits phase{};
+        double basePathJerk = 0;
         bool matches(double v, double a) const {
             return v == speed && a == acceleration;
         }
@@ -344,7 +345,8 @@ namespace drawn_pattern {
             const double jerk = acceleration / .1;
             const double p1 = w + 2 * baseShare * speed / span;
             const double p2 = w * w + 2 * baseShare * acceleration / span;
-            const double p3 = w * w * w + 2 * baseShare * jerk / span;
+            // Endpoint bias follows the base drawing, including its own authored jerk.
+            const double p3 = w * w * w + 2 * std::max(basePathJerk, baseShare * jerk) / span;
             constexpr double share = 1 - baseShare;
             cachedWidth = width;
             cachedAmplitude = std::min(

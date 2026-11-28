@@ -142,6 +142,7 @@ public:
     struct Pace {
         uint32_t periodMs = 0;
         double rate = 0, peak = 0, phaseAcceleration = 0, phaseJerk = 0;
+        double shapeJerkLimit = 0, fullPathJerkLimit = 0;
         const char *limit = "flat";
     };
 
@@ -151,19 +152,18 @@ public:
     Pace pace(double span, double fullSpeed, double acceleration,
               double fraction, uint32_t frameMs) const {
         Pace out;
-        if (!(span > 0 && fullSpeed > 0 && acceleration > 0 &&
+        if (!(count_ > 0 && span > 0 && fullSpeed > 0 && acceleration > 0 &&
               fraction > 0 && fraction <= 1 && frameMs > 0)) return out;
         const double slope = maximumSlope(span);
         const double curvature = maximumCurvature(span);
         const double third = maximumThird(span);
-        const double jerk = jerkBudget(acceleration);
+        const double controlJerk = acceleration / .100;
         double seconds = slope / fullSpeed;
         out.limit = "speed";
         const auto requireDuration = [&](double duration, const char *cause) {
             if (duration > seconds) { seconds = duration; out.limit = cause; }
         };
         requireDuration(std::sqrt(curvature / (.6 * acceleration)), "acceleration");
-        requireDuration(std::cbrt(third / (.7 * jerk)), "jerk");
         // Cover each cell at the actual backend cadence. A spatially
         // constant path has no slope from which to recover its clock.
         requireDuration(double(count_) * frameMs / 1000., "sampling");
@@ -171,6 +171,18 @@ public:
             seconds = std::max(seconds, periodMs_ / 1000.);
             out.limit = "flat";
         }
+        // For x(phase), constant-rate playback contributes x''' * rate³.
+        // Preserve that authored jerk as Speed rises. Limit the commanded
+        // acceleration change to one configured acceleration per output frame.
+        // Live changes of rate have a separate 100 ms smoothing budget.
+        const double frameSeconds = frameMs / 1000.;
+        const double requestedShapeJerk = third / (seconds * seconds * seconds);
+        const double shapeCeiling = .7 * acceleration / frameSeconds;
+        if (requestedShapeJerk > shapeCeiling)
+            requireDuration(std::cbrt(third / shapeCeiling), "jerk");
+        const double fullShapeJerk = std::min(shapeCeiling, std::max(.7 * controlJerk, requestedShapeJerk));
+        out.shapeJerkLimit = fullShapeJerk * fraction * fraction * fraction;
+        out.fullPathJerkLimit = fullShapeJerk + .3 * controlJerk;
         const double milliseconds = std::ceil(1000. * seconds / fraction);
         out.periodMs = static_cast<uint32_t>(std::min(milliseconds, double(UINT32_MAX)));
         out.rate = fraction / seconds;
@@ -178,19 +190,14 @@ public:
         const double stableSlope = std::max(1., slope);
         out.phaseAcceleration = .4 * acceleration / stableSlope;
         if (curvature > 0)
-            out.phaseAcceleration = std::min(out.phaseAcceleration, .15 * jerk * seconds / (3 * curvature));
-        out.phaseJerk = .15 * jerk / stableSlope;
+            out.phaseAcceleration = std::min(out.phaseAcceleration, .15 * controlJerk * seconds / (3 * curvature));
+        out.phaseJerk = .15 * controlJerk / stableSlope;
         return out;
     }
 
     double maximumSlope(double span) const { return slope_ * count_ / scale() * span; }
     double maximumCurvature(double span) const { return curvature_ * count_ * count_ / scale() * span; }
     double maximumThird(double span) const { return third_ * count_ * count_ * count_ / scale() * span; }
-
-    // Caps the change in commanded acceleration to its configured range per
-    // 100 ms. The steady shape receives 70% of this jerk budget, and
-    // the live phase clock reserves 15% for each mixed/control term. Physical Stop and guard trips bypass the motion clock.
-    static double jerkBudget(double acceleration) { return acceleration / .100; }
 
 private:
     double prepareCell(double phase) const {

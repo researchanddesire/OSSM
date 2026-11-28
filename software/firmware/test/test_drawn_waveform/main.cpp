@@ -308,6 +308,34 @@ void test_speed_fraction_sets_true_peak_on_classic_rail_independent_of_source_du
     TEST_ASSERT_DOUBLE_WITHIN(1e-10, limited.peak/4, longSource.pace(120, 20000, 2000, .25, 2).peak);
 }
 
+// This smooth 64-knot waveform contains a small higher-frequency component.
+// Its slope and acceleration permit 1 m/s. A fixed 100 ms shape-jerk budget
+// would stretch it to below 700 mm/s even on the unrestricted classic backend.
+void test_speed_scales_authored_jerk_without_accelerating_the_control_ramp() {
+    char hex[64 * 4 + 1];
+    for (unsigned i = 0; i < 64; ++i) {
+        const double angle = i * 2 * std::acos(-1.) / 64;
+        const double position = .5 - .45 * std::cos(angle) - .006 * std::cos(7 * angle);
+        std::snprintf(hex + 4 * i, 5, "%04x", static_cast<unsigned>(std::lround(65535 * position)));
+    }
+    Waveform curve;
+    TEST_ASSERT_TRUE(curve.decode(hex, 256, 500, drawn_pattern::SampleFormat::Q16));
+    constexpr double span = 164, v = 1000, a = 50000, dt = .002;
+    const auto full = curve.pace(span, v, a, 1, 2);
+    const auto quarter = curve.pace(span, v, a, .25, 2);
+    const double oldPeak = curve.maximumSlope(span) * std::cbrt(.7 * a / (.1 * curve.maximumThird(span)));
+    TEST_ASSERT_TRUE(oldPeak < 700);
+    TEST_ASSERT_DOUBLE_WITHIN(.02, 1000., full.peak);
+    TEST_ASSERT_DOUBLE_WITHIN(.02, 250., quarter.peak);
+    TEST_ASSERT_DOUBLE_WITHIN(1.e-7, full.shapeJerkLimit, 64 * quarter.shapeJerkLimit);
+    TEST_ASSERT_TRUE(curve.maximumCurvature(span) * full.rate * full.rate <= .6 * a);
+    TEST_ASSERT_TRUE(curve.maximumThird(span) * std::pow(full.rate, 3) <= full.shapeJerkLimit * (1. + 1.e-12));
+    TEST_ASSERT_TRUE(full.fullPathJerkLimit <= a / dt);
+    TEST_ASSERT_EQUAL_DOUBLE(full.phaseAcceleration, quarter.phaseAcceleration);
+    TEST_ASSERT_EQUAL_DOUBLE(full.phaseJerk, quarter.phaseJerk);
+    TEST_ASSERT_EQUAL_DOUBLE(0, curve.pace(span, v, a, 0, 2).shapeJerkLimit);
+}
+
 void test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead() {
     using namespace drawn_pattern;
     PulseQueue q;
@@ -672,9 +700,10 @@ void test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets(
     drawn_pattern::PhaseClock clock;
     constexpr double span=1800, acceleration=100000, dt=.0005;
     const auto limits=curve.pace(span,20000,acceleration,1.,2);
-    double phase=0, previousAcceleration=0;
+    double phase=0, previousAcceleration=0, previousPhaseAcceleration=0;
     for (unsigned frame=0;frame<60000;++frame) {
-        const double speed=(frame/3100)%3==0?650.:((frame/3100)%3==1?20000.:1400.);
+        constexpr double speeds[] = {650., 20000., 1400., 0., 20000.};
+        const double speed = speeds[(frame/3100) % 5];
         clock.setGoal(curve.pace(span,20000,acceleration,speed/20000.,2).rate,
                       limits.phaseAcceleration,limits.phaseJerk);
         phase+=clock.advance(dt);
@@ -683,7 +712,19 @@ void test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets(
                                                curve.phaseDerivative(phase,1)*a);
         TEST_ASSERT_TRUE(std::abs(positionAcceleration)<=acceleration);
         TEST_ASSERT_TRUE(std::abs(positionAcceleration-previousAcceleration)<=
-                         dt*curve.jerkBudget(acceleration)+1e-7);
+                         dt*limits.fullPathJerkLimit+1e-7);
+        // Separate the source's own cubic-in-rate jerk from the two terms
+        // introduced by changing Speed. The latter stay comfort-bounded
+        // even at the start of a rapid downshift from the full phase rate.
+        const double beta = (a - previousPhaseAcceleration) / dt;
+        const double controlJerk = span * (3 * curve.phaseDerivative(phase, 2) * r * a +
+                                                 curve.phaseDerivative(phase, 1) * beta);
+        TEST_ASSERT_TRUE(std::abs(controlJerk) <= .3 * acceleration / .100 + 1.e-6);
+        const double fraction = r / limits.rate;
+        const double shapeLimit = limits.shapeJerkLimit * fraction * fraction * fraction;
+        const double sourceJerk = span * curve.phaseDerivative(phase, 3) * r * r * r;
+        TEST_ASSERT_TRUE(std::abs(sourceJerk) <= shapeLimit + 1.e-7);
+        previousPhaseAcceleration = a;
         previousAcceleration=positionAcceleration;
     }
 }
@@ -957,6 +998,7 @@ int main() {
     RUN_TEST(test_plain_step_crossing_preserves_launch_changes_holds_reversals_and_seams);
     RUN_TEST(test_raw_watermark_recovers_between_measured_size_service_gaps);
     RUN_TEST(test_speed_fraction_sets_true_peak_on_classic_rail_independent_of_source_duration);
+    RUN_TEST(test_speed_scales_authored_jerk_without_accelerating_the_control_ramp);
     RUN_TEST(test_deliberate_raw_park_requires_positive_tail_and_verified_empty_anchor);
     RUN_TEST(test_stationary_entry_requires_untouched_empty_driver_and_matching_position);
     RUN_TEST(test_crossing_clock_projection_matches_full_clock_during_retargets);
