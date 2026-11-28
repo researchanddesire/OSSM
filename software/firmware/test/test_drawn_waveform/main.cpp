@@ -1028,12 +1028,14 @@ void test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives() 
     m.count = 1;
     m.entries[0] = {250, 750, 0};
     MarkerIndex index;
-    index.reset(m, 0);
-    VibrationBudget budget{2000, 8000, 200000, 20, {.2, .4, 1.6}};
+    Waveform flat;
+    TEST_ASSERT_TRUE(flat.decode("80808080808080808080808080808080", 32, 2000));
+    TEST_ASSERT_TRUE(index.reset(m, 0, &flat));
+    VibrationBudget budget{2000, 8000, 200000, 20, {.2, .4, 1.6}, 2000000, 8000};
     VibrationClock half, full;
     half.advance(1, .5);
     full.advance(1, 1);
-    const double amplitude = budget.amplitude(.5);
+    const double amplitude = budget.amplitude(.5, {});
     TEST_ASSERT_GREATER_THAN_DOUBLE(1., amplitude);
     for (unsigned k = 0; k < 40; ++k) {
         for (double y : {0., .5, 1.}) {
@@ -1071,7 +1073,7 @@ void test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives() 
     TEST_ASSERT_GREATER_THAN_DOUBLE(20., maxV);
     TEST_ASSERT_TRUE(maxV <= .25 * budget.speed && maxA <= .25 * budget.acceleration &&
                      maxJ <= 2.5 * budget.acceleration);
-    TEST_ASSERT_TRUE(budget.amplitude(.001) < budget.amplitude(.1));
+    TEST_ASSERT_TRUE(budget.amplitude(.001, {}) < budget.amplitude(.1, {}));
 }
 
 void test_original_phase_across_q8_q16_and_sparse_inputs() {

@@ -30,6 +30,7 @@ std::vector<uint32_t> acceptedAtMs;
 uint32_t reserveThrough = 0;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
+std::vector<uint16_t> crossings;
 io::FrameResult feedback;
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
 
@@ -106,6 +107,7 @@ FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, uns
     if (timedPulses && clockMs < nextPulseAt) return {Frame::Retry, "pulse_full"};
     if (feedback.state == Frame::Accepted) {
         frames.push_back(target);
+        crossings.push_back(crossing);
         nextPulseAt = clockMs + drawn_pattern::pulseFrameMs;
     }
     return feedback;
@@ -125,6 +127,7 @@ void setUp() {
     motor = {true, false, false, false, -100, -2000, -1000, 0, 8000};
     clockMs = 0;
     frames.clear();
+    crossings.clear();
     stops = 0;
     deferEntry = false;
     parkPolls = 0;
@@ -387,15 +390,15 @@ void test_saved_marked_speed_change_refills_through_the_first_fading_gain_comman
     while (frames.size() < stopAtFrame && clockMs < 3000) tick();
     TEST_ASSERT_EQUAL_UINT(443, frames.size());
     TEST_ASSERT_EQUAL_DOUBLE(1, vibration.gain.value());
+    const PhaseLimits outgoing{goalRate, clockAcceleration, clockJerk};
     motor.speed = 3200;
     stopAtFrame = 447;
     while (frames.size() < stopAtFrame && clockMs < 3000) tick();
     TEST_ASSERT_EQUAL_UINT(447, frames.size());
     TEST_ASSERT_TRUE(reconfigureAfterFade);
     auto expectedPhase = motionPhase;
-    const PhaseLimits original{goalRate, clockAcceleration, clockJerk};
     for (unsigned i=447; i<451; ++i)
-        expectedPhase.advance(.002, original, activeMarkers->index, motor.strength);
+        expectedPhase.advance(.002, outgoing, activeMarkers->index, motor.strength);
     stopAtFrame = 0;
     simulateReserve = true;
     timedWriteCostMs = 1;
@@ -1091,7 +1094,96 @@ void test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey
     TEST_ASSERT_FALSE(drawnPatternActive());
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
     TEST_ASSERT_TRUE(applyLeasedBleSensation(link, 8, 20));
-    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_TRUE(drawnPatternActive());
+}
+
+void test_sensation_preserves_plain_commands_including_live_edits_and_speed_zero() {
+    const char fullWidth[] =
+        "000000990266056509970efc15931d5e265b308a3ba8470a526f5dd36937749b"
+        "80008b6496c8a22cad90b8f5c457cf75d9a4e2a1ea6cf103f668fa9afd99"
+        "ff66ffffff66fd99fa9af668f103ea6ce2a1d9a4cf75c457b8f5ad90a22"
+        "c96c88b648000749b69375dd3526f470a3ba8308a265b1d5e15930efc0997"
+        "056502660099";
+    for (bool serial : {false, true}) {
+        std::vector<int32_t> reference;
+        std::vector<uint16_t> edges;
+        for (int level : {50, 0, 1, 100, -1}) {
+            setUp();
+            motor.serial = serial;
+            motor.from = -3280;
+            motor.to = 0;
+            motor.acceleration = io::baseAcceleration(1000000);
+            timedPulses = !serial;
+            io::setSensation(level < 0 ? 0 : level);
+            motion_link::Owner lease;
+            lease.onMotionCommand(7);
+            TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+                fullWidth, sizeof(fullWidth) - 1, 12000, revision, false, drawn_pattern::SampleFormat::Q16)));
+            tick(20);
+            TEST_ASSERT_EQUAL_STRING("waiting", drawnPatternStatus().speed.state);
+            TEST_ASSERT_TRUE(frames.empty());
+            motor.speed = serial ? 1000 : 20000;
+            for (unsigned t = 0; t < 6200; ++t) {
+                if (t % 1000 == 0) TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+                if (t == 900) motor.speed = 0;
+                if (t == 4000) {
+                    TEST_ASSERT_EQUAL_STRING("paused", drawnPatternStatus().speed.state);
+                    motor.speed = serial ? 250 : 5000;
+                }
+                if (t == 4800) motor.speed *= 4;
+                if (level < 0 && t % 137 == 0) {
+                    constexpr unsigned levels[] = {0, 1, 50, 100};
+                    TEST_ASSERT_TRUE(applyLeasedBleSensation(lease, 7, levels[(t / 137) % 4]));
+                }
+                tick();
+            }
+            TEST_ASSERT_TRUE(drawnPatternActive());
+            TEST_ASSERT_TRUE(*std::min_element(frames.begin(), frames.end()) <
+                             *std::max_element(frames.begin(), frames.end()));
+            if (reference.empty()) { reference = frames; edges = crossings; }
+            else { TEST_ASSERT_TRUE(reference == frames); TEST_ASSERT_TRUE(edges == crossings); }
+            cancelDrawnPattern();
+            const auto committed = frames.size();
+            tick(10);
+            TEST_ASSERT_EQUAL_UINT(committed, frames.size());
+        }
+    }
+}
+
+void test_whole_sine_range_has_an_effect_at_low_speed_without_retiming_the_base() {
+    using namespace drawn_pattern;
+    const char sine[] = "000009be257d4f047fffb0fbda82f641fffff641da82b0fb80004f04257d09be";
+    Modifiers marked;
+    marked.entries[marked.count++] = {0, 1000, 0};
+    for (const auto speed : {1000, 5000}) {
+        std::vector<double> basePhase;
+        std::vector<int32_t> baseRows;
+        for (const unsigned strength : {0, 50, 100}) {
+            setUp();
+            timedPulses = true;
+            motor.from = -3280;
+            motor.to = 0;
+            motor.speed = speed;
+            motor.acceleration = io::baseAcceleration(1000000);
+            io::setSensation(strength);
+            TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+                sine, sizeof(sine) - 1, 12000, revision, true, SampleFormat::Q16, marked)));
+            unsigned differences = 0;
+            for (unsigned i = 0; i < 6000; ++i) {
+                tick(2);
+                const auto row = frames.empty() ? motor.position : frames.back();
+                if (strength == 0) {
+                    basePhase.push_back(motionPhase.phase);
+                    baseRows.push_back(row);
+                } else {
+                    TEST_ASSERT_EQUAL_DOUBLE(basePhase[i], motionPhase.phase);
+                    if (baseRows[i] != row) ++differences;
+                }
+            }
+            if (strength) TEST_ASSERT_GREATER_THAN_UINT(100, differences);
+            cancelDrawnPattern();
+        }
+    }
 }
 
 void test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop() {
@@ -1563,6 +1655,8 @@ int main() {
     RUN_TEST(test_full_pause_grid_releases_decoded_pages_and_survives_zero_on_both_backends);
     RUN_TEST(test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause);
     RUN_TEST(test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey_ownership);
+    RUN_TEST(test_sensation_preserves_plain_commands_including_live_edits_and_speed_zero);
+    RUN_TEST(test_whole_sine_range_has_an_effect_at_low_speed_without_retiming_the_base);
     RUN_TEST(test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop);
     RUN_TEST(test_rate_stamp_history_uses_accepted_frames_and_preserves_real_prefill_time);
     RUN_TEST(test_accepted_entry_waits_for_backend_without_reissuing_move);

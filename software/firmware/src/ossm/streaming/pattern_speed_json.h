@@ -7,13 +7,15 @@
 
 namespace streaming {
 
+constexpr unsigned drawnSpeedEnvelope = 4;
+
 inline double reportedPeak(double mmPerSecond) {
     return std::round(mmPerSecond * 10.) / 10.;
 }
 
 inline void writePatternSpeed(JsonDocument &result, const PatternSpeedStatus &speed) {
     result["version"] = 2;
-    result["speedEnvelope"] = 3;
+    result["speedEnvelope"] = drawnSpeedEnvelope;
     result["state"] = speed.state;
     result["speedPct"] = speed.speedPct;
     result["nominalMmS"] = reportedPeak(speed.nominalMmS);
@@ -29,7 +31,7 @@ inline void writePatternSpeed(JsonDocument &result, const PatternSpeedStatus &sp
 // peak speeds in the same correlated GATT response as the ownership renewal.
 inline void addPatternSpeed(JsonDocument &result, const PatternStatus &playback) {
     result["speedLaw"] = 2;
-    result["speedEnvelope"] = 3;
+    result["speedEnvelope"] = drawnSpeedEnvelope;
     if (!playback.active) return;
     const auto &speed = playback.speed;
     auto plan = result["speedPlan"].to<JsonArray>();

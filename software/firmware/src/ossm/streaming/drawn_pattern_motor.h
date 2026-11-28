@@ -21,7 +21,10 @@ struct State {
     // Native input values for detecting wired control or calibration changes
     // between contiguous electrical writes under one motor command lock.
     float speedPercent = 0, sensationPercent = 0, strokePercent = 0, depthPercent = 0, rail = 0;
+    bool sensationControlsMotion = false;
 };
+// The usual 50% acceleration setting is the fixed baseline for authored paths.
+constexpr double baseAcceleration(double maximum) { return .5 * maximum; }
 using drawn_pattern::Frame;
 using drawn_pattern::FrameResult;
 State read(uint64_t revision, bool annotated = false);

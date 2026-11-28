@@ -192,7 +192,44 @@ public:
         if (curvature > 0)
             out.phaseAcceleration = std::min(out.phaseAcceleration, .15 * controlJerk * seconds / (3 * curvature));
         out.phaseJerk = .15 * controlJerk / stableSlope;
+        if (slope == 0) {
+            // A constant position cannot bound its phase dynamics. Use a
+            // smooth clock for any effects on that same stationary drawing.
+            out.phaseAcceleration = std::min(out.phaseAcceleration, 2 / seconds);
+            out.phaseJerk = std::min(out.phaseJerk, 8 / seconds);
+        }
         return out;
+    }
+
+    // A carrier can use the derivative budget left in its authored interval.
+    // Bound every touching quintic by its Bernstein controls, using the same
+    // derivative units as the whole-curve governor. A range includes both
+    // edge cells, even when its authored endpoints fall between samples.
+    struct DerivativeUse {
+        uint8_t slope = 0, curvature = 0, third = 0;
+    };
+    DerivativeUse vibrationDerivatives(unsigned start, unsigned end) const {
+        double peaks[3]{};
+        const double whole[] = {slope_, curvature_, third_};
+        const size_t first = start * count_ / 1000;
+        const size_t last = (end * count_ + 999) / 1000;
+        for (size_t cell = first; cell < last; ++cell) {
+            if (sample(cell) == sample((cell + 1) % count_)) continue;
+            double b[6];
+            controlPoints(cell, b);
+            for (size_t order = 0; order < 3; ++order) {
+                const size_t degree = 5 - order;
+                for (size_t i = 0; i < degree; ++i) {
+                    b[i] = degree * (b[i + 1] - b[i]);
+                    peaks[order] = std::max(peaks[order], std::abs(b[i]));
+                }
+            }
+        }
+        const auto upperFraction = [&](size_t order) -> uint8_t {
+            if (whole[order] == 0) return 0;
+            return static_cast<uint8_t>(std::ceil(255 * std::min(1., peaks[order] / whole[order])));
+        };
+        return {upperFraction(0), upperFraction(1), upperFraction(2)};
     }
 
     double maximumSlope(double span) const { return slope_ * count_ / scale() * span; }

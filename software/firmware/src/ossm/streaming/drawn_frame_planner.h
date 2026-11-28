@@ -41,7 +41,8 @@ inline void calculate(const Inputs &in, const Cursor &begin, Frame &frame,
     const auto &vibration = begin.vibration;
     const bool withinEnvelope = phase.clock.secondsToGoal() == 0 &&
                                 phase.clock.rate() <= in.limits.rate + 1e-12;
-    const double amplitude = in.vibrationEnabled && (withinEnvelope || !vibration.gain.atZero())
+    const double amplitude = in.vibrationEnabled && phase.clock.rate() <= in.budget.cruiseRate + 1e-12 &&
+                             (withinEnvelope || !vibration.gain.atZero())
                                  ? in.strength : 0;
     drawn_pattern::FrameBrake brake;
     if (index.holds) brake.bounds = &in.brake;

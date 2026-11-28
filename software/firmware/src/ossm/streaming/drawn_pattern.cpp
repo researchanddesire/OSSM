@@ -226,6 +226,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const uint32_t readStart = patternServiceMicros();
     auto caps = pattern_motor::read(owner, activeMarkers != nullptr);
+    if (!activeMarkers) caps.strength = 0;
     if (caps.ready && (stage == Stage::Positioning || stage == Stage::EntryBraking ||
                        (stage == Stage::Waiting && caps.fraction > 0))) {
         pattern_motor::readFiniteState(caps, stage != Stage::Positioning);
@@ -302,7 +303,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     }
     if (stage == Stage::Paused) return;
     const bool requestedVibration = !zero && markerIndex.hasVibration && caps.strength > 0;
-    const bool reserve = requestedVibration || !vibration.gain.atZero();
+    const bool reserve = markerIndex.hasVibration;
     if (zero && lastSpeed != 0) {
         invalidateFrames();
         lastSpeed = 0;
@@ -317,15 +318,12 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         } else {
             invalidateFrames();
         }
-        const bool nextReserve = requestedVibration || !boundaryVibration.gain.atZero();
+        const bool nextReserve = markerIndex.hasVibration;
         committedTargetValid = false;
         const double span = static_cast<double>(caps.to) - caps.from;
-        const double share = nextReserve ? drawn_pattern::VibrationBudget::baseShare : 1.;
         // A changing vibration budget fades out at its old safe amplitude.
         const bool fading = !boundaryVibration.gain.atZero() && !vibrationBudget.matches(caps.speed, caps.acceleration);
-        const double v = fading ? std::min(caps.speed, vibrationBudget.speed) : caps.speed;
-        const double a = fading ? std::min(caps.acceleration, vibrationBudget.acceleration) : caps.acceleration;
-        const auto pace = curve.pace(span, caps.fullSpeed * share, a * share, v / caps.fullSpeed,
+        const auto pace = curve.pace(span, caps.fullSpeed, caps.acceleration, caps.fraction,
                                      serial ? 20 : drawn_pattern::pulseFrameMs);
         if (!pace.periodMs) return stopLocked("period_limit", now);
         effectivePeriod = speedStatus.periodMs = pace.periodMs;
@@ -333,17 +331,22 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         speedStatus.plannedPeakMmS = pace.peak / caps.stepsPerMm;
         speedStatus.steadyJerkLimitMmS3 = pace.shapeJerkLimit / caps.stepsPerMm;
         speedStatus.limit = pace.limit;
-        if (std::strcmp(pace.limit, "speed") == 0) {
-            if (nextReserve) speedStatus.limit = "vibration";
-            else if (caps.fullSpeed < caps.nominalSpeed) speedStatus.limit = "backend";
-        }
+        if (std::strcmp(pace.limit, "speed") == 0 && caps.fullSpeed < caps.nominalSpeed)
+            speedStatus.limit = "backend";
         clockAcceleration = pace.phaseAcceleration;
         clockJerk = pace.phaseJerk;
-        if (nextReserve) {
-            clockAcceleration = std::min(clockAcceleration, 2 * goalRate);
-            clockJerk = std::min(clockJerk, 8 * goalRate);
-            if (!fading) vibrationBudget = {span, v, a, caps.stepsPerMm,
-                                            {goalRate, clockAcceleration, clockJerk}, pace.fullPathJerkLimit};
+        if (nextReserve && !fading) {
+            // A gain edit may finish its current ramp before fading to zero.
+            // From the last frame that requested positive gain, the base can
+            // accelerate for at most two gain ramps plus one sampled frame.
+            const double fadeSeconds = 2 * drawn_pattern::StrengthRamp::seconds +
+                (serial ? .020 : drawn_pattern::pulseFrameMs * .001);
+            const double reachableRate = std::min(goalRate / caps.fraction,
+                                                   goalRate + clockAcceleration * fadeSeconds);
+            vibrationBudget = {span, caps.speed, caps.acceleration, caps.stepsPerMm,
+                               {reachableRate, clockAcceleration, clockJerk},
+                               pace.fullPathJerkLimit, caps.fullSpeed, goalRate,
+                               curve.maximumSlope(span), curve.maximumCurvature(span), curve.maximumThird(span)};
         }
         if (markerIndex.holds)
             activeMarkers->brakeBounds.reset({goalRate, clockAcceleration, clockJerk});
@@ -447,7 +450,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         drawn_pattern::PreparedPulses successors;
         drawn_pattern::PreparedPulses::Target first{frame.target, frame.crossing, 0, frame.from == frame.target};
         if (prepared && remaining > 1) {
-            const bool endAtQuiet = !zero && reserveVibration && (!requestedVibration || reconfigureAfterFade);
+            const bool endAtQuiet = !zero && reserveVibration && reconfigureAfterFade;
             rawPlanner->successors(successors, remaining - 1, endAtQuiet, zero);
             const auto &firstGoal = rawPlanner->retainedFront() ? rawPlanner->previousSpeed : speedStatus;
             if (stampedGoal != firstGoal.phaseRateHz || lastAppliedPeriod != firstGoal.periodMs ||
@@ -625,7 +628,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         }
         // Recompute the base budget before accepting the next frame, even
         // when this call could otherwise fill several more queue entries.
-        if (!retainedGoal && !zero && reserveVibration && vibration.gain.atZero() && (!requestedVibration || reconfigureAfterFade))
+        if (!retainedGoal && !zero && reserveVibration && vibration.gain.atZero() && reconfigureAfterFade)
             return;
     }
 }
@@ -677,7 +680,7 @@ static PatternStart startPattern(const char *hex, size_t length, uint32_t period
             // if a contiguous compact duration table did not fit.
             if (owned) marks->authored.takeFrom(*owned);
             else if (!marks->authored.assign(modifiers)) return PatternStart::MarkerMemory;
-            if (!marks->index.reset(marks->authored, incoming.authoredStart())) return PatternStart::MarkerMemory;
+            if (!marks->index.reset(marks->authored, incoming.authoredStart(), &incoming)) return PatternStart::MarkerMemory;
         }
     }
     if (caps.serial) {
@@ -784,7 +787,7 @@ bool applyLeasedBleSensation(motion_link::Owner &link, uint16_t connection, uint
     if (connection == motion_link::kNoConnection || value > 100) return false;
     ControlRequest request;
     std::lock_guard<std::mutex> guard(lock);
-    if (local || link.owner() != connection || !activeMarkers) stopLocked("stop", pattern_motor::now());
+    if (local || link.owner() != connection) stopLocked("stop", pattern_motor::now());
     pattern_motor::setSensation(value);
     link.onMotionCommand(connection);
     return true;

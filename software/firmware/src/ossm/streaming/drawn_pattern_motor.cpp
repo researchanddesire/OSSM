@@ -38,6 +38,7 @@ State read(uint64_t revision, bool annotated) {
     state.nominalSpeed = Config::Driver::maxSpeedMmPerSecond * Config::Driver::stepsPerMM;
     state.fullSpeed = state.nominalSpeed;
     state.speedPercent = s;
+    state.sensationControlsMotion = annotated;
     state.sensationPercent = a;
     state.strokePercent = stroke;
     state.depthPercent = depth;
@@ -46,7 +47,7 @@ State read(uint64_t revision, bool annotated) {
     state.strength = a / 100.0;
     state.stepsPerMm = Config::Driver::stepsPerMM;
     state.acceleration =
-        Config::Driver::maxAcceleration * Config::Driver::stepsPerMM * (annotated ? .5 : state.strength);
+        baseAcceleration(Config::Driver::maxAcceleration * Config::Driver::stepsPerMM);
     state.serial = motorMotionUsesSerial();
     if (state.serial) {
         const auto caps = getOssmHatPositionStatus();
@@ -100,7 +101,8 @@ void submitPrepared(drawn_pattern::PulseBatch &batch, drawn_pattern::PreparedPul
             return mayContinue() && !motorHomingSessionActive() &&
                    calibration.isHomed && stepperFrame == StepperFrame::Native &&
                    calibration.measuredStrokeSteps == caps.rail && settings.speed == caps.speedPercent &&
-                   settings.sensation == caps.sensationPercent && settings.stroke == caps.strokePercent &&
+                   (!caps.sensationControlsMotion || settings.sensation == caps.sensationPercent) &&
+                   settings.stroke == caps.strokePercent &&
                    settings.depth == caps.depthPercent;
         };
         // A command may have waited for another motor operation to release

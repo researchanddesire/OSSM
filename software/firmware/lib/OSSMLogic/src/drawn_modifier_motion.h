@@ -7,6 +7,7 @@
 
 #include "drawn_modifiers.h"
 #include "drawn_phase_rate.h"
+#include "drawn_waveform.h"
 
 namespace drawn_pattern {
 
@@ -33,14 +34,29 @@ namespace drawn_pattern {
             return true;
         }
 
-        bool reset(const Modifiers &items, double firstMinimum) {
+        bool reset(const Modifiers &items, double firstMinimum, const Waveform *curve = nullptr) {
             markers = &items;
             offset = firstMinimum;
             holds = 0;
             hasVibration = false;
+            std::fill_n(use, roomBins, Waveform::DerivativeUse{});
             for (unsigned i = 0; i < items.count; ++i) {
-                if (items.entries[i].isPause()) ++holds;
-                if (items.entries[i].isVibration()) hasVibration = true;
+                const auto &item = items.entries[i];
+                if (item.isPause()) ++holds;
+                if (item.isVibration()) {
+                    hasVibration = true;
+                    auto &bin = use[item.start * roomBins / 1000];
+                    const auto bounds = curve ? curve->vibrationDerivatives(item.start, item.end)
+                                              : Waveform::DerivativeUse{255, 255, 255};
+                    bin.slope = std::max(bin.slope, bounds.slope);
+                    bin.curvature = std::max(bin.curvature, bounds.curvature);
+                    bin.third = std::max(bin.third, bounds.third);
+                }
+            }
+            if (hasVibration) {
+                for (unsigned i = 0; i < subdivisions; ++i)
+                    spatialUse[i] = curve ? curve->vibrationDerivatives(i * bandWidth, (i + 1) * bandWidth)
+                                          : Waveform::DerivativeUse{255, 255, 255};
             }
             // If every marker is a pause its lookup index is its own ordinal.
             // A fully occupied pause grid needs no second 2,000-byte allocation.
@@ -111,10 +127,20 @@ namespace drawn_pattern {
             return cycle + m.start / 1000.0 - offset;
         }
 
+        const Waveform::DerivativeUse &vibrationUse(unsigned start) const { return use[start * roomBins / 1000]; }
+
+        static constexpr unsigned subdivisions = 8;
+        static constexpr unsigned bandWidth = 1000 / subdivisions;
+        const Waveform::DerivativeUse &bandUse(unsigned band) const { return spatialUse[band]; }
         bool hasVibration = false;
         unsigned holds = 0;
 
       private:
+        // Nearby ranges share the most conservative allowance. This keeps
+        // storage bounded even for a thousand markers.
+        static constexpr unsigned roomBins = 32;
+        Waveform::DerivativeUse use[roomBins]{};
+        Waveform::DerivativeUse spatialUse[subdivisions]{};
         const Modifiers *markers = nullptr;
         double offset = 0;
         static constexpr unsigned inlineCapacity = 4;
@@ -316,7 +342,7 @@ namespace drawn_pattern {
     // end. Rapid edits coalesce into the most recent target at the next join.
     class StrengthRamp {
       public:
-        static constexpr double seconds = .4;
+        static constexpr double seconds = .25;
         double value() const {
             const double u = elapsed / seconds;
             return from + (to - from) * u * u * u * (10 + u * (-15 + 6 * u));
@@ -341,22 +367,25 @@ namespace drawn_pattern {
         double from = 0, to = 0, elapsed = seconds;
     };
 
-    // The base path receives 75% of each physical derivative budget when rumble
-    // is armed. The remaining quarter covers the complete derivative of the
-    // added waveform, including its spatial window, live strength and endpoint
-    // bias.
+    // Limit only the added carrier, including its spatial and gain windows.
     struct VibrationBudget {
-        static constexpr double baseShare = .75;
         static constexpr double hz = 6;
         double span = 0, speed = 0, acceleration = 0, nominalSteps = 0;
         PhaseLimits phase{};
-        double basePathJerk = 0;
+        double basePathJerk = 0, maximumSpeed = 0, cruiseRate = 0;
+        double slope = 0, curvature = 0, third = 0;
         bool matches(double v, double a) const {
             return v == speed && a == acceleration;
         }
 
-        double amplitude(double width) const {
-            if (width == cachedWidth) return cachedAmplitude;
+        struct AmplitudeCache {
+            double width = -1, amplitude = 0;
+            Waveform::DerivativeUse use{};
+        };
+        double amplitude(double width, Waveform::DerivativeUse use, bool spatial = false) const {
+            auto &cache = spatial ? bandCache : rangeCache;
+            if (width == cache.width && use.slope == cache.use.slope &&
+                use.curvature == cache.use.curvature && use.third == cache.use.third) return cache.amplitude;
             if (!(width > 0 && span > 0 && speed > 0 && acceleration > 0))
                 return 0;
             constexpr double w = 2 * 3.14159265358979323846 * hz;
@@ -372,20 +401,51 @@ namespace drawn_pattern {
             const double h1 = e1 + g1, h2 = e2 + 2 * e1 * g1 + g2;
             const double h3 = e3 + 3 * e2 * g1 + 3 * e1 * g2 + g3;
             const double jerk = acceleration / .1;
-            const double p1 = w + 2 * baseShare * speed / span;
-            const double p2 = w * w + 2 * baseShare * acceleration / span;
-            // Endpoint bias follows the base drawing, including its own authored jerk.
-            const double p3 = w * w * w + 2 * std::max(basePathJerk, baseShare * jerk) / span;
-            constexpr double share = 1 - baseShare;
-            cachedWidth = width;
-            cachedAmplitude = std::min(
-                {span * .01, nominalSteps, share * speed / (p1 + 2 * h1),
-                 share * acceleration / (p2 + 2 * p1 * h1 + 2 * h2),
-                 share * jerk / (p3 + 3 * p2 * h1 + 3 * p1 * h2 + 2 * h3)});
-            return cachedAmplitude;
+            const double d1 = slope * (use.slope / 255.);
+            const double d2 = curvature * (use.curvature / 255.);
+            const double d3 = third * (use.third / 255.);
+            const double rate = phase.rate, rate2 = rate * rate;
+            const double pathSpeed = d1 * rate;
+            const double pathAcceleration = d2 * rate2 + d1 * phase.acceleration;
+            const double pathJerk = d3 * rate2 * rate +
+                3 * d2 * rate * phase.acceleration + d1 * phase.jerk;
+            // The endpoint bias moves with the drawing. Charge its actual
+            // derivative bounds and reserve the remaining physical capacity.
+            const double p1 = w + 2 * pathSpeed / span;
+            const double p2 = w * w + 2 * pathAcceleration / span;
+            const double p3 = w * w * w + 2 * pathJerk / span;
+            const double v = std::max(0., std::min({.25 * speed, maximumSpeed - pathSpeed,
+                                                   speed - d1 * cruiseRate}));
+            const double aRoom = std::min(.25 * acceleration, std::max(0., acceleration - pathAcceleration));
+            const double jRoom = std::min(.5 * jerk, std::max(0., basePathJerk - pathJerk));
+            cache.use = use;
+            cache.width = width;
+            cache.amplitude = std::min(
+                {span * .01, nominalSteps, v / (p1 + 2 * h1),
+                 aRoom / (p2 + 2 * p1 * h1 + 2 * h2),
+                 jRoom / (p3 + 3 * p2 * h1 + 3 * p1 * h2 + 2 * h3)});
+            return cache.amplitude;
+        }
+        struct Window { double start, width, height; };
+        Window window(const Modifier &region, double authored, const MarkerIndex &index) const {
+            double start = region.start * .001;
+            double width = (region.end - region.start) * .001;
+            double height = amplitude(width, index.vibrationUse(region.start));
+            if (height < 1.e-8) {
+                // A fast passage in one cell must not mute every slower
+                // passage in a wide marking. Each disjoint sub-window joins
+                // at zero displacement, velocity and acceleration.
+                const unsigned band = static_cast<unsigned>(authored * MarkerIndex::subdivisions);
+                const unsigned left = std::max<unsigned>(region.start, band * MarkerIndex::bandWidth);
+                const unsigned right = std::min<unsigned>(region.end, (band + 1) * MarkerIndex::bandWidth);
+                start = left * .001;
+                width = (right - left) * .001;
+                height = amplitude(width, index.bandUse(band), true);
+            }
+            return {start, width, height};
         }
         // Recreated with the budget whenever governing limits change.
-        mutable double cachedWidth = -1, cachedAmplitude = 0;
+        mutable AmplitudeCache rangeCache{}, bandCache{};
     };
 
     struct VibrationClock {
@@ -402,15 +462,16 @@ namespace drawn_pattern {
             if (!(level > 0)) return 0;
             const auto *region = index.range(playbackPhase);
             if (!region) return 0;
-            const double width = (region->end - region->start) * .001;
-            const double u =
-                (index.authored(playbackPhase) - region->start * .001) / width;
+            const double authored = index.authored(playbackPhase);
+            const auto window = budget.window(*region, authored, index);
+            if (window.height == 0) return 0;
+            const double u = (authored - window.start) / window.width;
             const double bell = 4 * u * (1 - u);
             const double wave =
                 std::sin(2 * 3.14159265358979323846 * carrier) + 1 - 2 * y;
             // y + a*(sin + 1−2y) is a convex blend of y and (1+sin)/2;
             // 0≤a≤.01 throughout. Bounds do not require clipping the position.
-            return level * budget.amplitude(width) * bell * bell * bell * wave;
+            return level * window.height * bell * bell * bell * wave;
         }
     };
 
