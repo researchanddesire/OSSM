@@ -237,10 +237,11 @@ public:
         return nullptr;
     }
 
-    void successors(drawn_pattern::PreparedPulses &out, unsigned maximum) {
+    void successors(drawn_pattern::PreparedPulses &out, unsigned maximum,
+                    bool endAtQuiet = false, bool parking = false) {
         std::lock_guard<RingMutex> guard(mux_);
         if (!warmed_) return;
-        rows_.successors(out, maximum);
+        rows_.successors(out, maximum, retained_, endAtQuiet, parking);
         if (positivePending_ && retained_ <= out.count) out.rateBoundary = retained_;
     }
 

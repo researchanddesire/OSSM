@@ -120,7 +120,8 @@ void test_retries_wrap_marks_and_retained_boundary_match_uncompressed_rows() {
         while (wanted + 1 < expected.size() && wanted < 2) {
             const auto &before = expected[wanted];
             const auto &row = expected[wanted + 1];
-            if (row.vibration.gain.goal() != before.vibration.gain.goal()) break;
+            TEST_ASSERT_EQUAL(row.vibration.gain.goal() != before.vibration.gain.goal(),
+                              projection.boundaryAt(wanted + 1));
             TEST_ASSERT_EQUAL_INT32(row.target, projection.targets[wanted].position);
             TEST_ASSERT_EQUAL_UINT16(row.crossing, projection.targets[wanted].crossing);
             ++wanted;
@@ -154,6 +155,38 @@ Cursor literalCursor(uint32_t value) {
     Cursor cursor;
     std::memcpy(static_cast<void *>(&cursor), words.data(), sizeof(cursor));
     return cursor;
+}
+
+void test_fade_end_and_speed_park_limit_only_the_required_prepared_prefix() {
+    FrameQueue queue;
+    Cursor tail{};
+    tail.vibration.gain.advance(StrengthRamp::seconds, 1.);
+    tail.phase.clock.setGoal(1., 2., 8.);
+    tail.phase.clock.advance(2.);
+    queue.clear(tail);
+    for (unsigned i = 0; i < 8; ++i) {
+        Frame row;
+        static_cast<Cursor &>(row) = tail;
+        row.valid = row.targetKnown = true;
+        if (i == 1) row.vibration.gain.advance(.002, 0.);
+        if (i == 3) row.vibration.gain.advance(StrengthRamp::seconds, 0.);
+        if (i == 6) {
+            row.phase.clock.setGoal(0., 2., 8.);
+            row.phase.clock.advance(2.);
+        }
+        TEST_ASSERT_TRUE(queue.push(row, tail));
+        tail = row;
+    }
+    PreparedPulses steady, fade, parking, outgoing;
+    queue.successors(steady, 7);
+    queue.successors(fade, 7, 0, true, false);
+    queue.successors(parking, 7, 0, false, true);
+    queue.successors(outgoing, 7, 5, true, false);
+    TEST_ASSERT_EQUAL_UINT(7, steady.count);
+    TEST_ASSERT_EQUAL_HEX8(2, steady.gainBoundaries);
+    TEST_ASSERT_EQUAL_UINT(3, fade.count); // Include the exact first quiet row.
+    TEST_ASSERT_EQUAL_UINT(5, parking.count); // Driver parking confirms the rest individually.
+    TEST_ASSERT_EQUAL_UINT(5, outgoing.count); // Recompute only after the new law begins.
 }
 
 void test_complete_literal_rows_and_full_queue_refusal_are_lossless() {
@@ -231,6 +264,7 @@ int main() {
     UNITY_BEGIN();
     RUN_TEST(test_startup_buffers_fail_without_changing_old_markers_or_a_new_queue);
     RUN_TEST(test_retries_wrap_marks_and_retained_boundary_match_uncompressed_rows);
+    RUN_TEST(test_fade_end_and_speed_park_limit_only_the_required_prepared_prefix);
     RUN_TEST(test_complete_literal_rows_and_full_queue_refusal_are_lossless);
     RUN_TEST(test_fully_populated_markers_survive_queue_clear_and_new_generation);
     return UNITY_END();

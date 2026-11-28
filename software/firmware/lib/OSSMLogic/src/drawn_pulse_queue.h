@@ -87,10 +87,10 @@ struct PulseBatch {
     struct Attempt {
         FrameResult result{Frame::Rejected, "guard"};
         uint32_t atUs = 0;
+        uint32_t boundaryAtMs = 0;
     };
     Attempt attempts[1 + PreparedPulses::capacity]{};
     unsigned count = 0;
-    uint32_t rateAcceptedAtMs = 0;
     bool revoked = false, controlsChanged = false;
 
     void revoke(uint32_t nowUs) {
@@ -113,10 +113,12 @@ struct PulseBatch {
             attempt.result = write(target);
             attempt.atUs = clock();
             if (attempt.result.state != Frame::Accepted) return;
-            if (consumed == next.rateBoundary && millisAtBoundary)
-                rateAcceptedAtMs = millisAtBoundary();
+            if (next.boundaryAt(consumed) && millisAtBoundary) {
+                attempt.boundaryAtMs = millisAtBoundary();
+            }
             consumed += attempt.result.frames;
-            if (consumed > next.count || attempt.result.timing != FrameTiming::Running ||
+            if (consumed > next.count ||
+                (attempt.result.timing != FrameTiming::Running && attempt.result.timing != FrameTiming::Prefill) ||
                 attempt.result.queuedUs >= refillBelowUs) return;
             if (!allowed()) {
                 controlsChanged = true;

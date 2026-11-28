@@ -60,7 +60,9 @@ public:
         put(pos, row.planUs);
         put(pos, row.crossing | (uint32_t(row.valid) << 16) | (uint32_t(row.offered) << 17) |
                      (uint32_t(row.targetKnown) << 18) |
-                     (uint32_t(row.vibration.gain.goal() == previousTail.vibration.gain.goal()) << 19));
+                     (uint32_t(row.vibration.gain.goal() == previousTail.vibration.gain.goal()) << 19) |
+                     (uint32_t(row.vibration.gain.atZero()) << 20) |
+                     (uint32_t(row.phase.clock.rate() == 0) << 21));
         const unsigned maskStart = pos;
         pos = advance(pos, maskWords);
         unsigned words = headerWords;
@@ -86,15 +88,27 @@ public:
     }
 
     // Read only the two-word motor projection of successive immutable
-    // rows. A gain-goal change needs its own accepted-frame timestamp.
-    void successors(drawn_pattern::PreparedPulses &out, unsigned maximum) const {
+    // rows. Gain/law changes split electrical waits and get a timestamp.
+    // End a fade at its first quiet cursor, so the controller can transfer
+    // the vibration budget before issuing a row from the next envelope.
+    void successors(drawn_pattern::PreparedPulses &out, unsigned maximum,
+                    unsigned retained = 0, bool endAtQuiet = false, bool parking = false) const {
         unsigned pos = read_;
         const unsigned end = std::min({count_, maximum + 1, drawn_pattern::PreparedPulses::capacity + 1});
+        constexpr uint32_t quiet = 1u << 20;
+        constexpr uint32_t stoppedClock = 1u << 21;
         for (unsigned i = 1; i < end; ++i) {
+            const auto priorFlags = storage_[advance(pos, 3)];
+            if (i > retained && endAtQuiet && (priorFlags & quiet)) break;
+            // The parking protocol individually confirms its final two
+            // stationary targets before checking the physical driver.
+            if (parking && (priorFlags & (stoppedClock | quiet)) == (stoppedClock | quiet)) break;
             pos = advance(pos, lengths_[record(i - 1)]);
             const auto flags = storage_[advance(pos, 3)];
-            constexpr uint32_t eligible = (1u << 16) | (1u << 18) | (1u << 19);
-            if ((flags & eligible) != eligible) break;
+            constexpr uint32_t eligible = (1u << 16) | (1u << 18);
+            if ((flags & eligible) != eligible ||
+                (parking && (flags & (stoppedClock | quiet)) == (stoppedClock | quiet))) break;
+            if (!(flags & (1u << 19))) out.gainBoundaries |= 1u << i;
             auto &target = out.targets[out.count++];
             const uint32_t bits = storage_[advance(pos, 1)];
             std::memcpy(&target.position, &bits, sizeof(bits));

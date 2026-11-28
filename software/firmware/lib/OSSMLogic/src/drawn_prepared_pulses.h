@@ -21,11 +21,19 @@ struct PreparedPulses {
     // Keep its hardware acceptance independently timestampable.
     unsigned rateBoundary = capacity + 1;
 
+    // Every control or gain-goal change retains its own accepted timestamp.
+    // A pause or fade endpoint can also require the controller to replan
+    // before offering the next row.
+    uint8_t gainBoundaries = 0;
+    bool boundaryAt(unsigned row) const {
+        return row == rateBoundary || ((gainBoundaries >> row) & 1u);
+    }
+
     void groupWaits(Target &first) {
         // Two adjacent stationary intervals can share one hardware WAIT.
         // Do not coalesce through a changing position, gain or law.
         for (unsigned i = count; i > 0; --i) {
-            if (i == rateBoundary) continue;
+            if (boundaryAt(i)) continue;
             auto &row = i == 1 ? first : targets[i - 2];
             const auto &next = targets[i - 1];
             if (row.stationary && next.stationary && row.position == next.position)

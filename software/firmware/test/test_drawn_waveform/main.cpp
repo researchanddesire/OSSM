@@ -587,8 +587,43 @@ void test_positive_rate_boundary_is_timed_at_its_own_accepted_write() {
                 [] { return clockMs * 1000; }, [] { return clockMs; });
             }
             TEST_ASSERT_EQUAL_UINT(mode == 0 ? rows.count + 1 : seam, accepted);
-            TEST_ASSERT_EQUAL_UINT32(expectedTime, burst.rateAcceptedAtMs);
+            uint32_t actualTime = 0;
+            for (unsigned i = 0; i < burst.count; ++i) actualTime += burst.attempts[i].boundaryAtMs;
+            TEST_ASSERT_EQUAL_UINT32(expectedTime, actualTime);
             TEST_ASSERT_EQUAL(mode == 0, expectedTime != 0);
+        }
+    }
+}
+
+void test_prefill_ends_on_start_and_each_gain_change_keeps_its_timestamp() {
+    using namespace drawn_pattern;
+    static uint32_t clockMs;
+    for (const bool starting : {false, true}) {
+        PreparedPulses::Target first{7,32768,0,true};
+        PreparedPulses rows;
+        rows.count = rows.capacity;
+        rows.rateBoundary = 3;
+        rows.gainBoundaries = (1u << 1) | (1u << 5);
+        for (auto &row : rows.targets) row = first;
+        rows.groupWaits(first);
+        unsigned ordinal = 0;
+        PulseBatch batch;
+        clockMs = 0;
+        batch.submit(first, rows, [&](auto row) -> FrameResult {
+            ++clockMs;
+            const uint8_t count = row.followingHolds ? 2 : 1;
+            if (count > 1) TEST_ASSERT_FALSE(rows.boundaryAt(ordinal + 1));
+            ordinal += count;
+            const auto timing = !starting ? FrameTiming::Running :
+                                ordinal < 5 ? FrameTiming::Prefill : FrameTiming::Started;
+            return {Frame::Accepted,nullptr,0,timing,0,6000,count};
+        }, [] { return true; }, [] { return clockMs * 1000; }, [] { return clockMs; });
+        TEST_ASSERT_EQUAL_UINT(starting ? 5 : 8, ordinal);
+        unsigned n = 0;
+        for (unsigned i = 0; i < batch.count; ++i) {
+            const auto &a = batch.attempts[i];
+            TEST_ASSERT_EQUAL_UINT32(rows.boundaryAt(n) ? i+1 : 0, a.boundaryAtMs);
+            n += a.result.frames;
         }
     }
 }
@@ -1229,6 +1264,7 @@ int main() {
     RUN_TEST(test_prepared_refill_limits_ownership_and_releases_on_the_first_decline);
     RUN_TEST(test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authority);
     RUN_TEST(test_positive_rate_boundary_is_timed_at_its_own_accepted_write);
+    RUN_TEST(test_prefill_ends_on_start_and_each_gain_change_keeps_its_timestamp);
     RUN_TEST(test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix);
     RUN_TEST(test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);

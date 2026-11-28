@@ -91,8 +91,9 @@ FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, uns
     if (simulateReserve) {
         if (!observedPulseRunning) return {Frame::Rejected, "pulse_underrun"};
         if (reserveThrough + 2 > clockMs + 16) return {Frame::Retry, "pulse_full"};
-        reserveThrough += 2;
-        frames.push_back(target);
+        const unsigned rows = compactHolds && followingHolds && reserveThrough + 4 <= clockMs + 16 ? 2 : 1;
+        reserveThrough += rows * 2;
+        frames.insert(frames.end(), rows, target);
         if (timedWriteCostMs) {
             clockMs += timedWriteCostMs;
             acceptedAtMs.push_back(clockMs);
@@ -100,7 +101,7 @@ FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, uns
         const auto queuedUs = static_cast<uint16_t>((reserveThrough - clockMs) * 1000);
         if (frames.size() == expireAfter) clockMs += drawn_pattern::leaseMs;
         return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0,
-                queuedUs};
+                queuedUs, static_cast<uint8_t>(rows)};
     }
     if (timedPulses && clockMs < nextPulseAt) return {Frame::Retry, "pulse_full"};
     if (feedback.state == Frame::Accepted) {
@@ -360,6 +361,60 @@ void test_steady_raw_recharges_with_ready_frames_without_a_live_edit() {
     TEST_ASSERT_FALSE(drawnPatternActive());
     TEST_ASSERT_EQUAL_UINT(last, frames.size());
     TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
+}
+
+void test_saved_marked_speed_change_refills_through_the_first_fading_gain_command() {
+    using namespace drawn_pattern;
+    // Actual 23.95 mm saved Q16 trial, before the vibration window.
+    // The 1% path was still active when a 16% Speed edit began its fade.
+    constexpr char wire[] =
+        "00000285097b1400212f302640004fda5ed06c0076847d7b8000800080008000"
+        "8000800080007fff8000800080007fff80008000800080008000800080008000"
+        "80008000800080008000800080008000800080008000857f93ffa87fbfffd77f"
+        "ebfffa7ffffffc44f1d1e1c5cd3fb55d9b3d800064c24aa232c01e3a0e2e03bb";
+    Modifiers marks;
+    marks.entries[marks.count++] = {200,625,0};
+    marks.entries[marks.count++] = {875,875,30000};
+    motor.from = -479;
+    motor.to = 0;
+    motor.speed = 200;
+    motor.strength = 1;
+    motor.acceleration = 500000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+        wire, sizeof(wire)-1, 12000, revision, true, SampleFormat::Q16, marks)));
+    compactHolds = true;
+    stopAtFrame = 443;
+    while (frames.size() < stopAtFrame && clockMs < 3000) tick();
+    TEST_ASSERT_EQUAL_UINT(443, frames.size());
+    TEST_ASSERT_EQUAL_DOUBLE(1, vibration.gain.value());
+    motor.speed = 3200;
+    stopAtFrame = 447;
+    while (frames.size() < stopAtFrame && clockMs < 3000) tick();
+    TEST_ASSERT_EQUAL_UINT(447, frames.size());
+    TEST_ASSERT_TRUE(reconfigureAfterFade);
+    auto expectedPhase = motionPhase;
+    const PhaseLimits original{goalRate, clockAcceleration, clockJerk};
+    for (unsigned i=447; i<451; ++i)
+        expectedPhase.advance(.002, original, activeMarkers->index, motor.strength);
+    stopAtFrame = 0;
+    simulateReserve = true;
+    timedWriteCostMs = 1;
+    reserveThrough = clockMs + 7;
+    tick();
+    TEST_ASSERT_GREATER_THAN_UINT(451, frames.size());
+    TEST_ASSERT_GREATER_OR_EQUAL_UINT(14, reserveThrough - clockMs);
+    PatternRateStamp stamp{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, stamp));
+    TEST_ASSERT_EQUAL_UINT32(451, stamp.frameIndex);
+    TEST_ASSERT_EQUAL_DOUBLE(1, stamp.gain);
+    TEST_ASSERT_EQUAL_DOUBLE(0, stamp.targetGain);
+    TEST_ASSERT_FLOAT_WITHIN(1e-7, expectedPhase.phase, stamp.phase);
+    // Actual 8.649 ms without another write exhausted the old 6 ms queue.
+    timedWriteCostMs = 0;
+    clockMs += 8;
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(16, reserveThrough - clockMs);
 }
 
 void test_real_slow_to_fast_boundary_commits_its_actual_frame_clock_during_refill() {
@@ -1486,6 +1541,7 @@ int main() {
     RUN_TEST(test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing);
     RUN_TEST(test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest_boundary);
     RUN_TEST(test_steady_raw_recharges_with_ready_frames_without_a_live_edit);
+    RUN_TEST(test_saved_marked_speed_change_refills_through_the_first_fading_gain_command);
     RUN_TEST(test_real_slow_to_fast_boundary_commits_its_actual_frame_clock_during_refill);
     RUN_TEST(test_steady_recharge_rechecks_guard_before_its_next_prepared_row);
     RUN_TEST(test_guard_is_rechecked_before_extra_handoff_recharge_row);

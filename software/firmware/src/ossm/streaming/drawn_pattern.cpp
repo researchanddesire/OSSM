@@ -91,7 +91,7 @@ using frame_plan::RawFramePlanner;
 std::unique_ptr<Marking> serialMarkers;
 Marking *activeMarkers = nullptr;
 RawFramePlanner *rawPlanner = nullptr;
-bool rawClockStarted = false;
+bool rawClockStarted = false, fillingRaw = false;
 const drawn_pattern::MarkerIndex unmarked{};
 
 drawn_pattern::MarkedPhase motionPhase;
@@ -293,7 +293,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         stage = Stage::Paused;
         speedStatus.state = "paused";
         invalidateFrames(true);
-        rawClockStarted = false;
+        rawClockStarted = fillingRaw = false;
         if (!zero) {
             stage = Stage::Playing;
             softwareEntry = !serial;
@@ -441,17 +441,21 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         }
         recordPlan(frame);
         const uint32_t submitStart = patternServiceMicros();
-        const bool prepared = rawClockStarted && rawPlanner && !softwareEntry && !zero &&
-            (rawPlanner->positivePending() ||
-             (stampedGoal == speedStatus.phaseRateHz && lastAppliedPeriod == speedStatus.periodMs));
+        // First establish that an actual raw command was accepted. Finite
+        // priming and unowned stationary entry retain their own clocks.
+        const bool prepared = (rawClockStarted || fillingRaw) && rawPlanner && !softwareEntry;
         drawn_pattern::PreparedPulses successors;
         drawn_pattern::PreparedPulses::Target first{frame.target, frame.crossing, 0, frame.from == frame.target};
-        if (prepared && remaining > 1 &&
-            (!activeMarkers || (lastStampedStrength == caps.strength &&
-             frame.vibration.gain.goal() == vibration.gain.goal() &&
-             !reconfigureAfterFade && (!reserveVibration || requestedVibration)))) {
-            rawPlanner->successors(successors, remaining - 1);
-            if (!activeMarkers) successors.groupWaits(first);
+        if (prepared && remaining > 1) {
+            const bool endAtQuiet = !zero && reserveVibration && (!requestedVibration || reconfigureAfterFade);
+            rawPlanner->successors(successors, remaining - 1, endAtQuiet, zero);
+            const auto &firstGoal = rawPlanner->retainedFront() ? rawPlanner->previousSpeed : speedStatus;
+            if (stampedGoal != firstGoal.phaseRateHz || lastAppliedPeriod != firstGoal.periodMs ||
+                (activeMarkers && (lastStampedStrength != caps.strength ||
+                 frame.vibration.gain.goal() != vibration.gain.goal()))) {
+                successors.gainBoundaries |= 1u;
+            }
+            successors.groupWaits(first);
         }
 
         drawn_pattern::PulseBatch batch;
@@ -466,6 +470,11 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         if (!batch.count) {
             const auto at = pattern_motor::now();
             if (!local && at - renewedAt >= drawn_pattern::leaseMs) stopLocked("lease_expired", at);
+            // A wired change could have overtaken our input snapshot while
+            // waiting for the motor gate. Sample it again promptly while
+            // the peripheral is low; a waiting Stop still gets the mailbox.
+            lowAfterBatch = batch.controlsChanged && rawClockStarted && !pendingControl.load() &&
+                            work.lastQueuedUs < drawn_pattern::refillBelowUs;
             return;
         }
         auto result = batch.attempts[0].result;
@@ -492,14 +501,17 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
             if (!serial) recordPulseSubmit(row, acceptedFrames + committed, attempt.atUs);
         }
         if (committed) result.frames = static_cast<uint8_t>(committed);
-        if (result.timing == drawn_pattern::FrameTiming::Started) {
+        const bool started = result.timing == drawn_pattern::FrameTiming::Started ||
+                             last.timing == drawn_pattern::FrameTiming::Started;
+        if (started) {
             // Starting a full prefill can leave this prospective frame pending.
             rawClockStarted = true;
-            observeQueueStart(pattern_motor::now());
+            fillingRaw = false;
         }
         if (result.state == pattern_motor::Frame::Rejected)
             return stopLocked(result.reason, pattern_motor::now(), result.driverResult);
         if (result.state == pattern_motor::Frame::Retry) {
+            if (started) observeQueueStart(pattern_motor::now());
             ++work.retries;
             if (result.timing == drawn_pattern::FrameTiming::PrimeTail) lastProgressAt = now;
             if (now - lastProgressAt >= drawn_pattern::frameStarvationMs)
@@ -523,13 +535,18 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
             (result.timing == drawn_pattern::FrameTiming::Prefill ||
              result.timing == drawn_pattern::FrameTiming::Started ||
              result.timing == drawn_pattern::FrameTiming::Running);
+        unsigned attemptIndex = 0, nextAttemptRow = batch.attempts[0].result.frames;
         for (unsigned consumed = 0; consumed < result.frames; ++consumed) {
+            if (consumed == nextAttemptRow) {
+                ++attemptIndex;
+                nextAttemptRow += batch.attempts[attemptIndex].result.frames;
+            }
             if (consumed) {
                 next = rawPlanner->front();
                 recordPlan(*next);
             }
             const auto &accepted = *next;
-            const bool boundary = successors.count && consumed == successors.rateBoundary;
+            const bool boundary = successors.count && successors.boundaryAt(consumed);
             retainedGoal = rawPlanner && rawPlanner->retainedFront();
             const auto &applied = retainedGoal ? rawPlanner->previousSpeed : speedStatus;
             if ((consumed == 0 || boundary) &&
@@ -539,11 +556,12 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
                 // A single guarded refill can cross a live rate boundary.
                 // Its exact logical ordinal, incoming cursor and acceptance
                 // time remain distinct even if more rows then reach FAS.
-                const auto at = boundary ? batch.rateAcceptedAtMs : pattern_motor::now();
-                recordRateGoal(at, result.timing, caps.strength, accepted.vibration.gain.goal(), entryToRaw, applied);
+                const auto at = boundary ? batch.attempts[attemptIndex].boundaryAtMs : pattern_motor::now();
+                recordRateGoal(at, batch.attempts[attemptIndex].result.timing, caps.strength,
+                               accepted.vibration.gain.goal(), entryToRaw, applied);
             }
             const bool finalRow = consumed + 1 == result.frames;
-            if (finalRow || (successors.count && consumed + 1 == successors.rateBoundary)) {
+            if (finalRow || (successors.count && successors.boundaryAt(consumed + 1))) {
                 // Only a law boundary and the final cursor need full state
                 // copies. Ordinary steady bursts still copy it once.
                 motionPhase = accepted.phase;
@@ -559,6 +577,8 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
             if (rawPlanner) rawPlanner->pop();
             else frame.valid = false;
         }
+        if (started) observeQueueStart(pattern_motor::now());
+        fillingRaw = !started && result.timing == drawn_pattern::FrameTiming::Prefill;
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
         if (result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
@@ -576,7 +596,8 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         if (batch.controlsChanged) {
             const auto at = pattern_motor::now();
             if (!local && at - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", at);
-            lowAfterBatch = false;
+            lowAfterBatch = rawClockStarted && !pendingControl.load() &&
+                            work.lastQueuedUs < drawn_pattern::refillBelowUs;
             return;
         }
         if (batch.count > 1) return; // release the mailbox after each bounded burst
@@ -589,7 +610,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
                 stage = parked == pattern_motor::Park::Parked ? Stage::Paused : Stage::Draining;
                 speedStatus.state = stage == Stage::Paused ? "paused" : "pausing";
                 invalidateFrames(true);
-                rawClockStarted = false;
+                rawClockStarted = fillingRaw = false;
                 drainAt = now;
                 return;
             }
@@ -676,7 +697,7 @@ static PatternStart startPattern(const char *hex, size_t length, uint32_t period
         rawPlanner = planner;
         activeMarkers = planner->marking.get();
     }
-    rawClockStarted = false;
+    rawClockStarted = fillingRaw = false;
     curve = incoming;
     speedStatus = {};
     speedStatus.state = "waiting";
