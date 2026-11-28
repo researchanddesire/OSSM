@@ -117,7 +117,9 @@ double clockAcceleration = 0, clockJerk = 0;
 // Serial accepts one ACK-gated 20 ms sample. STEP/DIR uses the private
 // planner ring; only the feeder ever submits one of its completed rows.
 std::unique_ptr<frame_plan::Frame> pending;
+drawn_pattern::StationaryEntryClock entryClock;
 void invalidateFrames(bool warmup = false) {
+    entryClock.reset();
     if (rawPlanner) rawPlanner->invalidate(warmup);
     if (pending) pending->valid = false;
 }
@@ -481,6 +483,8 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
             const auto in = inputs();
             frame_plan::calculate(in, cursor(), frame, curve, activeMarkers ? &activeMarkers->index : nullptr);
         }
+        if (softwareEntry && committedTargetValid && frame.target == committedTarget &&
+            !entryClock.due(beforeWrite)) return;
         recordPlan(frame);
         const uint32_t submitStart = patternServiceMicros();
         // First establish that an actual raw command was accepted. Finite
@@ -624,6 +628,8 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         fillingRaw = !started && result.timing == drawn_pattern::FrameTiming::Prefill;
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
+        if (softwareEntry) entryClock.accepted(pattern_motor::now());
+        else entryClock.reset();
         if (result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
         work.frames = acceptedFrames;
         committedTargetValid = true;
@@ -771,6 +777,7 @@ static PatternStart startPattern(const char *hex, size_t length, uint32_t period
     stampedGoal = -1;
     stationaryFrames = 0;
     softwareEntry = false;
+    entryClock.reset();
     committedTargetValid = false;
     vibration = {};
     vibrationBudget = {};

@@ -22,6 +22,20 @@ struct FrameResult {
 
 constexpr uint32_t frameStarvationMs = 200;
 
+// While the driver confirms identical targets before its first STEP, the
+// feeder owns their timing. Only accepted stationary rows consume this clock.
+class StationaryEntryClock {
+    uint32_t lastFrameAt_ = 0;
+    bool active_ = false;
+public:
+    bool due(uint32_t now) const { return !active_ || now - lastFrameAt_ >= pulseFrameMs; }
+    void accepted(uint32_t now) {
+        lastFrameAt_ = active_ ? lastFrameAt_ + pulseFrameMs : now;
+        active_ = true;
+    }
+    void reset() { active_ = false; }
+};
+
 // FAS can emit the one-step re-prime immediately, then keep its finite
 // ramp busy with the remainder of that step interval. Only an observed
 // arrival at the issued target can extend the ordinary starvation budget.

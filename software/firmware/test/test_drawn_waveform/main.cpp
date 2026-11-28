@@ -22,6 +22,29 @@ static std::string encode(const std::array<int, 16>& points) {
 const std::array<int, 16> asymmetric{0, 8, 27, 51, 90, 142, 228, 255,
                                      255, 196, 167, 93, 60, 60, 22, 3};
 
+void test_stationary_entry_keeps_time_across_late_visits_and_discards_debt_on_reset() {
+    using namespace drawn_pattern;
+    StationaryEntryClock clock;
+    const uint32_t start = UINT32_MAX - 4000;
+    unsigned accepted = 0;
+    // Irregular service turns span a millisecond rollover and a long lead-in.
+    // The real feeder may submit up to three ordinary rows per visit.
+    for (uint32_t elapsed = 0; elapsed <= 10179; elapsed += elapsed % 5 == 0 ? 3 : 2) {
+        for (unsigned i = 0; i < 3 && clock.due(start + elapsed); ++i) {
+            clock.accepted(start + elapsed);
+            ++accepted;
+        }
+        TEST_ASSERT_EQUAL_UINT32(1 + elapsed / pulseFrameMs, accepted);
+    }
+    clock.reset();
+    const auto resumed = start + 60000;
+    TEST_ASSERT_TRUE(clock.due(resumed));
+    clock.accepted(resumed);
+    TEST_ASSERT_FALSE(clock.due(resumed));
+    TEST_ASSERT_FALSE(clock.due(resumed + 1));
+    TEST_ASSERT_TRUE(clock.due(resumed + pulseFrameMs));
+}
+
 void test_finite_prime_tail_uses_programmed_limits_and_verified_position() {
     using namespace drawn_pattern;
     PulsePrimeWait wait;
@@ -1335,6 +1358,7 @@ int main() {
     RUN_TEST(test_raw_queue_prefills_leading_holds_and_starts_once_with_bounded_lookahead);
     RUN_TEST(test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_errors);
     RUN_TEST(test_finite_prime_tail_uses_programmed_limits_and_verified_position);
+    RUN_TEST(test_stationary_entry_keeps_time_across_late_visits_and_discards_debt_on_reset);
     RUN_TEST(test_wire_bounds_are_checked_before_motion);
     RUN_TEST(test_passes_through_all_samples_no_overshoot_and_continuous_velocity);
     RUN_TEST(test_phase_starts_at_a_resting_extremum_and_loops_without_a_jump);

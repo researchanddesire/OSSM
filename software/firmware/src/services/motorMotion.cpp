@@ -172,10 +172,6 @@ public:
             const auto entry = pulseQueue_.entryState(*pulse_, logical, primingPulse_);
             if (entry == Entry::Busy) return {Frame::Rejected, "entry_busy"};
             if (entry == Entry::Stationary) {
-                const auto now = millis();
-                if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs)
-                    return {Frame::Retry, "pulse_entry_hold"};
-                lastPauseAt_ = now;
                 return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::EntryHold};
             }
             if (needsPulseRamp_) {
@@ -534,7 +530,6 @@ private:
     drawn_pattern::PulseQueue pulseQueue_;
     drawn_pattern::PulsePrimeWait primeWait_;
     std::atomic_bool primingPulse_{false}, needsPulseRamp_{true};
-    uint32_t lastPauseAt_ = 0;
     bool serialPatternFrame_ = false;
     bool frameValid_ = false;
     portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;

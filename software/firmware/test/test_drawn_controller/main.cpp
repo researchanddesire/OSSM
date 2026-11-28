@@ -1563,6 +1563,31 @@ void test_raw_queue_acquisition_restamps_delayed_stationary_entry() {
     TEST_ASSERT_EQUAL_UINT32(raw.sequence, summary.rawStartSequence);
 }
 
+void test_stationary_lead_starts_a_fresh_clock_for_a_speed_edit_and_new_owner() {
+    motor.speed = 500;
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::EntryHold};
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    tick(8);
+    TEST_ASSERT_FALSE(frames.empty());
+    const auto beforeEdit = frames.size();
+    clockMs += 40;
+    motor.speed = 600;
+    for (int i = 0; i < 5; ++i) serviceDrawnPattern(revision);
+    TEST_ASSERT_EQUAL_UINT(beforeEdit + 1, frames.size());
+    tick(2);
+    TEST_ASSERT_EQUAL_UINT(beforeEdit + 2, frames.size());
+
+    const auto beforeRestart = frames.size();
+    ++revision;
+    setDrawnPatternReady(revision, true);
+    clockMs += 40;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    for (int i = 0; i < 5; ++i) serviceDrawnPattern(revision);
+    TEST_ASSERT_EQUAL_UINT(beforeRestart + 1, frames.size());
+    tick(2);
+    TEST_ASSERT_EQUAL_UINT(beforeRestart + 2, frames.size());
+}
+
 void test_retry_reuses_frame_but_replans_for_live_inputs_and_safety() {
     motor.speed = 500;
     motor.strength = .5;
@@ -1989,6 +2014,7 @@ int main() {
     RUN_TEST(test_pause_drain_deadline_and_resume_position_fail_closed);
     RUN_TEST(test_indefinite_zero_parks_and_resumes_same_phase_on_both_backends);
     RUN_TEST(test_raw_queue_acquisition_restamps_delayed_stationary_entry);
+    RUN_TEST(test_stationary_lead_starts_a_fresh_clock_for_a_speed_edit_and_new_owner);
     RUN_TEST(test_retry_reuses_frame_but_replans_for_live_inputs_and_safety);
     RUN_TEST(test_refill_turn_is_bounded_and_retains_work_only_after_stop);
     RUN_TEST(test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends);
