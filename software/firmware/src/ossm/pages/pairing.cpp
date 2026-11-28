@@ -8,6 +8,7 @@
 #include <ArduinoJson.h>
 
 #include "FirmwareProvenance.h"
+#include "services/feedbackTiming.h"
 #include "worker_start_retry.h"
 
 #include "constants/Version.h"
@@ -311,6 +312,7 @@ static void startPairingStatusRound(void *) {
     }
 
     const uint32_t attempt = pairingStatusBackoff.beginAttempt();
+    feedbackTimingMilestone(feedback_timing::Milestone::PairingRound);
     const size_t freeBefore = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     const size_t largestBefore =
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);

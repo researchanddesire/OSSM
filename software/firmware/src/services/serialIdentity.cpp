@@ -6,6 +6,7 @@
 #include "ossm/streaming/drawn_pattern.h"
 #include "constants/Version.h"
 #include "serialIdentityProtocol.h"
+#include "services/feedbackTiming.h"
 #include "services/ossmHat.h"
 #include "services/motorFeedback.h"
 #include "services/motorSafety.h"
@@ -128,6 +129,7 @@ void console(void*) {
             }
             else if (serialIdentity::unsignedArgument(command, "patterntime", argument)) announcePatternTime(argument);
             else if (strcmp(command, "hat") == 0) announceHat();
+            else if (strcmp(command, "feedback") == 0) feedbackTimingReportNow();
 #if OSSM_HAT_SERIAL_BACKEND
             else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();
 #endif
