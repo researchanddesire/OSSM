@@ -24,6 +24,7 @@ bool timedPulses = false, simulateReserve = false;
 bool compactHolds = false;
 size_t stopAtFrame = 0;
 size_t guardTripAfter = SIZE_MAX;
+size_t expireAfter = SIZE_MAX;
 uint32_t reserveThrough = 0;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
@@ -90,8 +91,10 @@ FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, uns
         if (reserveThrough + 2 > clockMs + 16) return {Frame::Retry, "pulse_full"};
         reserveThrough += 2;
         frames.push_back(target);
+        const auto queuedUs = static_cast<uint16_t>((reserveThrough - clockMs) * 1000);
+        if (frames.size() == expireAfter) clockMs += drawn_pattern::leaseMs;
         return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0,
-                static_cast<uint16_t>((reserveThrough - clockMs) * 1000)};
+                queuedUs};
     }
     if (timedPulses && clockMs < nextPulseAt) return {Frame::Retry, "pulse_full"};
     if (feedback.state == Frame::Accepted) {
@@ -128,7 +131,7 @@ void setUp() {
     io::observedPulseRunning = true;
     timedPulses = simulateReserve = compactHolds = false;
     stopAtFrame = 0;
-    guardTripAfter = SIZE_MAX;
+    guardTripAfter = expireAfter = SIZE_MAX;
     nextPulseAt = 0;
     settings = {};
     bleState = {};
@@ -363,6 +366,24 @@ void test_steady_recharge_rechecks_guard_before_its_next_prepared_row() {
     TEST_ASSERT_FALSE(drawnPatternActive());
     TEST_ASSERT_EQUAL_UINT(guardTripAfter, frames.size());
     TEST_ASSERT_EQUAL_STRING("guard", drawnPatternStatus().lastStop.reason);
+}
+
+void test_owner_lease_expiring_at_a_ready_pulse_boundary_stops_at_last_accepted_row() {
+    motor.speed = 5000;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start()));
+    feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000};
+    tick(3);
+    TEST_ASSERT_TRUE(renewDrawnPattern(revision));
+    expireAfter = frames.size() + 1;
+    simulateReserve = true;
+    reserveThrough = clockMs + 3;
+    tick();
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(expireAfter, frames.size());
+    TEST_ASSERT_EQUAL_STRING("lease_expired", drawnPatternStatus().lastStop.reason);
+    PatternWork stopped;
+    TEST_ASSERT_TRUE(stoppedPatternWork(stopped));
+    TEST_ASSERT_EQUAL_UINT(frames.size(), stopped.frames);
 }
 
 void test_guard_is_rechecked_before_extra_handoff_recharge_row() {
@@ -1408,6 +1429,7 @@ int main() {
     RUN_TEST(test_steady_raw_recharges_with_ready_frames_without_a_live_edit);
     RUN_TEST(test_steady_recharge_rechecks_guard_before_its_next_prepared_row);
     RUN_TEST(test_guard_is_rechecked_before_extra_handoff_recharge_row);
+    RUN_TEST(test_owner_lease_expiring_at_a_ready_pulse_boundary_stops_at_last_accepted_row);
     RUN_TEST(test_urgent_zero_and_explicit_stop_cancel_a_pending_positive_handoff);
     RUN_TEST(test_rejected_next_row_does_not_hide_a_started_prefill);
     RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);

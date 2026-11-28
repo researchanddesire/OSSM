@@ -497,6 +497,73 @@ void test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocatio
     }
 }
 
+void test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance() {
+    using namespace drawn_pattern;
+    // Captured 30.60 mm Q8 brake: accepted row 729 generated a 27,180-tick
+    // wait, followed by a negative STEP and another wait in rows 730/731.
+    const PreparedPulses::Target prefix[] = {
+        {-96,32768}, {-97,27664}, {-97,32768}, {-98,24976}, {-98,32768}
+    };
+    PreparedPulses next{{{-99,32768}, {-100,21424}}, 2};
+    for (unsigned mode = 0; mode < 5; ++mode) {
+        PulseQueue queue;
+        InterruptingQueue driver;
+        driver.tail = -96;
+        while (!driver.running) queue.submit<PulseCommand>(driver, -96, 32000, 32768, 3200, 7);
+        driver.retireImmediately = true;
+        driver.count = 1;
+        auto write = [&](PreparedPulses::Target row) {
+            return queue.submit<PulseCommand>(driver, row.position, 32000, row.crossing, 3200, 7);
+        };
+        for (auto row : prefix) TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(write(row).state));
+        TEST_ASSERT_EQUAL_UINT16(35805, driver.last.ticks);
+        const auto prior = driver.journal.size();
+        uint32_t receipt = 1000;
+        PulseBatch batch;
+        unsigned checks = 0;
+        batch.submit({-99,22896}, next, write, [&] {
+            ++checks;
+            if (mode == 1) return false; // pending control, owner lease or wired edit
+            if (mode == 2 && checks == 2) driver.refuseHold = 4;
+            if (mode == 3) driver.running = false;
+            if (mode == 4) { driver.count = 2; driver.queuedTicks = 15 * 16000; }
+            return true;
+        }, [&] { return ++receipt; });
+        const unsigned accepted = mode == 0 ? 3 : mode == 2 ? 2 : 1;
+        TEST_ASSERT_EQUAL_UINT(prior + accepted, driver.journal.size());
+        TEST_ASSERT_EQUAL_UINT16(27180, driver.journal[prior].ticks);
+        if (accepted > 1) {
+            TEST_ASSERT_EQUAL_UINT16(36820, driver.journal[prior + 1].ticks);
+            TEST_ASSERT_EQUAL_UINT8(1, driver.journal[prior + 1].steps);
+            TEST_ASSERT_FALSE(driver.journal[prior + 1].count_up);
+        }
+        if (accepted > 2) {
+            TEST_ASSERT_EQUAL_UINT16(26461, driver.journal[prior + 2].ticks);
+            TEST_ASSERT_EQUAL_UINT8(0, driver.journal[prior + 2].steps);
+            // Even with its executing pulse about to expire, both additional
+            // commands cover the measured 4,989 us between feeder visits.
+            TEST_ASSERT_GREATER_THAN_UINT32(4989 * 16, 27180 + 36820 + 26461);
+        }
+        const auto &last = batch.attempts[batch.count - 1].result;
+        if (mode == 2) {
+            TEST_ASSERT_EQUAL_INT(int(Frame::Retry), int(last.state));
+            TEST_ASSERT_EQUAL_INT(4, last.driverResult);
+            driver.refuseHold = 0;
+            TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(write(next.targets[1]).state));
+            TEST_ASSERT_EQUAL_UINT8(0, driver.last.steps);
+        } else if (mode == 3) {
+            TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(last.state));
+            TEST_ASSERT_EQUAL_STRING("pulse_underrun", last.reason);
+            TEST_ASSERT_EQUAL_UINT(1, driver.starts);
+        } else if (mode == 4) {
+            TEST_ASSERT_EQUAL_INT(int(Frame::Retry), int(last.state));
+            TEST_ASSERT_EQUAL_STRING("pulse_full", last.reason);
+        } else {
+            TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(last.state));
+        }
+    }
+}
+
 void test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate() {
     using namespace drawn_pattern;
     constexpr int frameTicks=32000;
@@ -1041,6 +1108,7 @@ int main() {
     RUN_TEST(test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives);
     RUN_TEST(test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_driver);
     RUN_TEST(test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation);
+    RUN_TEST(test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);
     RUN_TEST(test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets);
     RUN_TEST(test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives);

@@ -37,6 +37,11 @@ State read(uint64_t revision, bool annotated) {
     state.to = -offset;
     state.nominalSpeed = Config::Driver::maxSpeedMmPerSecond * Config::Driver::stepsPerMM;
     state.fullSpeed = state.nominalSpeed;
+    state.speedPercent = s;
+    state.sensationPercent = a;
+    state.strokePercent = stroke;
+    state.depthPercent = depth;
+    state.rail = rail;
     state.fraction = s / 100.0;
     state.strength = a / 100.0;
     state.stepsPerMm = Config::Driver::stepsPerMM;
@@ -83,6 +88,44 @@ FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t cros
     })) return {Frame::Rejected, "guard", 0, drawn_pattern::FrameTiming::Unknown, micros() - start};
     result.commandGateUs = gateUs;
     return result;
+}
+void submitPrepared(drawn_pattern::PulseBatch &batch, drawn_pattern::PreparedPulses::Target first,
+                    const drawn_pattern::PreparedPulses &next, uint64_t revision,
+                    const State &caps, bool (*mayContinue)()) {
+    const uint32_t start = micros();
+    uint32_t gateUs = 0;
+    const bool authorized = runMotorPatternCommand(revision, [&] {
+        gateUs = micros() - start;
+        const auto stillRequested = [&] {
+            return mayContinue() && !motorHomingSessionActive() &&
+                   calibration.isHomed && stepperFrame == StepperFrame::Native &&
+                   calibration.measuredStrokeSteps == caps.rail && settings.speed == caps.speedPercent &&
+                   settings.sensation == caps.sensationPercent && settings.stroke == caps.strokePercent &&
+                   settings.depth == caps.depthPercent;
+        };
+        // A command may have waited for another motor operation to release
+        // this lock. Revalidate user intent at admission and at every seam.
+        if (stillRequested()) {
+            batch.submit(first, next, [&](auto target) {
+                // Each write checks the current owner, live guard, backend and
+                // actual remaining peripheral time and queue slots.
+                return submitPatternFrame(target.position, revision, false, target.crossing, 0);
+            }, stillRequested, patternServiceMicros);
+        } else {
+            batch.controlsChanged = true;
+        }
+        return true;
+    });
+    if (!authorized) {
+        // The safety owner can revoke before this lock or during the final
+        // append. Its immediate physical cut supersedes the whole session.
+        batch.revoked = true;
+        if (!batch.count) {
+            batch.count = 1;
+            batch.attempts[0] = {{Frame::Rejected, "guard"}, patternServiceMicros()};
+        }
+    }
+    batch.attempts[0].result.commandGateUs = authorized ? gateUs : micros() - start;
 }
 bool pulseClockRunning() {
     auto *pulse = getMotorPulseStepper();

@@ -4,6 +4,7 @@
 #include "drawn_pattern.h"
 #include "drawn_frame_planner.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <mutex>
@@ -23,6 +24,13 @@ uint32_t patternServiceMicros() {
 namespace {
 enum class Stage { Idle, Waiting, Positioning, EntryBraking, Playing, Draining, Paused };
 std::mutex lock;
+// A same-owner Stop or edit waiting on the mailbox takes precedence over
+// optional refill writes. The actual physical guard revokes independently.
+std::atomic<unsigned> pendingControl{0};
+struct ControlRequest {
+    ControlRequest() { ++pendingControl; }
+    ~ControlRequest() { --pendingControl; }
+};
 drawn_pattern::Waveform curve;
 Stage stage = Stage::Idle;
 bool ready = false, local = false, serial = false;
@@ -209,7 +217,12 @@ void recordPlan(frame_plan::Frame &frame) {
     work.maxPlanUs = std::max(work.maxPlanUs, planUs);
 }
 
-void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, RawFramePlanner *&assist) {
+bool mayContinueBurst() {
+    return pendingControl.load() == 0 && (local || pattern_motor::now() - renewedAt < drawn_pattern::leaseMs);
+}
+
+void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
+             bool &lowAfterBatch, RawFramePlanner *&assist) {
     if (!local && now - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", now);
     const uint32_t readStart = patternServiceMicros();
     auto caps = pattern_motor::read(owner, activeMarkers != nullptr);
@@ -399,7 +412,14 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
     };
     if (rawPlanner && !rawPlanner->configured()) rawPlanner->configure(inputs(), cursor());
 
+    const unsigned firstOrdinal = acceptedFrames;
     for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
+        if (pendingControl.load()) return;
+        const auto beforeWrite = pattern_motor::now();
+        if (!local && beforeWrite - renewedAt >= drawn_pattern::leaseMs)
+            return stopLocked("lease_expired", beforeWrite);
+        const unsigned remaining = allowance - (acceptedFrames - firstOrdinal);
+        if (!remaining) return;
         auto *next = rawPlanner ? rawPlanner->front() : pending.get();
         if (!next) {
             recordEmptyFrame();
@@ -421,18 +441,59 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         }
         recordPlan(frame);
         const uint32_t submitStart = patternServiceMicros();
-        const bool mayGroup = rawClockStarted && rawPlanner && !activeMarkers && !zero &&
-                              !softwareEntry && frame.from == frame.target &&
-                              stampedGoal == speedStatus.phaseRateHz && lastAppliedPeriod == speedStatus.periodMs;
-        const unsigned following = mayGroup ? rawPlanner->followingHolds(frame.target) : 0;
-        const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, following);
-        const uint32_t submitUs = patternServiceMicros() - submitStart;
-        if (!serial) recordPulseSubmit(result, acceptedFrames + result.frames, submitStart + submitUs);
-        work.lastService.commandGateUs = std::max(work.lastService.commandGateUs, result.commandGateUs);
-        ++work.submissions;
-        work.submitTotalUs += submitUs;
-        if (submitUs > 2000) ++work.submitOver2ms;
-        work.maxSubmitUs = std::max(work.maxSubmitUs, submitUs);
+        const bool steady = rawClockStarted && rawPlanner && !softwareEntry && !zero &&
+            !rawPlanner->positivePending() && stampedGoal == speedStatus.phaseRateHz &&
+            lastAppliedPeriod == speedStatus.periodMs;
+        const bool mayGroupWaits = steady && !activeMarkers && frame.from == frame.target;
+        const unsigned following = mayGroupWaits
+            ? std::min(remaining - 1, rawPlanner->followingHolds(frame.target)) : 0;
+        drawn_pattern::PreparedPulses successors;
+        if (steady && !following && remaining > 1 &&
+            (!activeMarkers || (lastStampedStrength == caps.strength &&
+             frame.vibration.gain.goal() == vibration.gain.goal() &&
+             !reconfigureAfterFade && (!reserveVibration || requestedVibration)))) {
+            rawPlanner->successors(successors, remaining - 1);
+        }
+
+        drawn_pattern::PulseBatch batch;
+        if (successors.count) {
+            pattern_motor::submitPrepared(batch, {frame.target, frame.crossing}, successors,
+                                          owner, caps, mayContinueBurst);
+        } else {
+            batch.count = 1;
+            batch.attempts[0].result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, following);
+            batch.attempts[0].atUs = patternServiceMicros();
+        }
+
+        if (!batch.count) {
+            const auto at = pattern_motor::now();
+            if (!local && at - renewedAt >= drawn_pattern::leaseMs) stopLocked("lease_expired", at);
+            return;
+        }
+        auto result = batch.attempts[0].result;
+        unsigned committed = 0;
+        uint32_t since = submitStart;
+        const auto &last = batch.attempts[batch.count - 1].result;
+        for (unsigned n = 0; n < batch.count; ++n) {
+            const auto &attempt = batch.attempts[n];
+            const auto &row = attempt.result;
+            const uint32_t submitUs = attempt.atUs - since;
+            since = attempt.atUs;
+            work.lastService.commandGateUs = std::max(work.lastService.commandGateUs, row.commandGateUs);
+            ++work.submissions;
+            work.submitTotalUs += submitUs;
+            if (submitUs > 2000) ++work.submitOver2ms;
+            work.maxSubmitUs = std::max(work.maxSubmitUs, submitUs);
+            if (row.state == pattern_motor::Frame::Accepted) {
+                committed += row.frames;
+                result = row;
+                if (row.timing == drawn_pattern::FrameTiming::Running)
+                    work.minRunningUs = std::min(work.minRunningUs, row.queuedUs);
+                if (row.queuedUs != UINT16_MAX) work.maxQueuedUs = std::max(work.maxQueuedUs, row.queuedUs);
+            }
+            if (!serial) recordPulseSubmit(row, acceptedFrames + committed, attempt.atUs);
+        }
+        if (committed) result.frames = static_cast<uint8_t>(committed);
         if (result.timing == drawn_pattern::FrameTiming::Started) {
             // Starting a full prefill can leave this prospective frame pending.
             rawClockStarted = true;
@@ -455,14 +516,13 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         }
         if (result.queuedUs != UINT16_MAX) {
             work.lastQueuedUs = result.queuedUs;
-            work.maxQueuedUs = std::max(work.maxQueuedUs, result.queuedUs);
-            if (result.timing == drawn_pattern::FrameTiming::Running)
-                work.minRunningUs = std::min(work.minRunningUs, result.queuedUs);
-            lowAfterBatch = i + 1 == pulseFramesPerTurn && result.queuedUs < drawn_pattern::refillBelowUs;
+            lowAfterBatch = (i + 1 == pulseFramesPerTurn || batch.count > 1 ||
+                             acceptedFrames - firstOrdinal + committed == allowance) &&
+                            result.queuedUs < drawn_pattern::refillBelowUs;
         }
         for (unsigned consumed = 1; consumed < result.frames; ++consumed) {
             // Only this locked consumer can remove or invalidate these rows.
-            // The stationary intervals are already committed to FAS.
+            // Each interval has already been accepted by FAS.
             rawPlanner->pop();
             next = rawPlanner->front();
             recordPlan(*next);
@@ -493,6 +553,21 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         if (rawPlanner) rawPlanner->pop();
         else frame.valid = false;
         lastProgressAt = lastFrameAt = now;
+        if (batch.revoked) return stopLocked("guard", pattern_motor::now());
+        if (last.state == pattern_motor::Frame::Rejected)
+            return stopLocked(last.reason, pattern_motor::now(), last.driverResult);
+        if (last.state == pattern_motor::Frame::Retry) {
+            ++work.retries;
+            lowAfterBatch = false;
+            return;
+        }
+        if (batch.controlsChanged) {
+            const auto at = pattern_motor::now();
+            if (!local && at - renewedAt >= drawn_pattern::leaseMs) return stopLocked("lease_expired", at);
+            lowAfterBatch = false;
+            return;
+        }
+        if (batch.count > 1) return; // release the mailbox after each bounded burst
         if (stationaryFrames >= 2) {
             // One frame is held in software lookahead. Two accepted identical
             // terminal targets put a stationary tail after the final movement.
@@ -663,6 +738,7 @@ bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
                          float value, bool selectBleSource) {
     if (connection == motion_link::kNoConnection || !std::isfinite(value) ||
         value < 0 || value > 100) return false;
+    ControlRequest request;
     std::lock_guard<std::mutex> guard(lock);
     if (local || link.owner() != connection)
         stopLocked("stop", pattern_motor::now());
@@ -673,6 +749,7 @@ bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
 
 bool applyLeasedBleSensation(motion_link::Owner &link, uint16_t connection, uint8_t value) {
     if (connection == motion_link::kNoConnection || value > 100) return false;
+    ControlRequest request;
     std::lock_guard<std::mutex> guard(lock);
     if (local || link.owner() != connection || !activeMarkers) stopLocked("stop", pattern_motor::now());
     pattern_motor::setSensation(value);
@@ -681,10 +758,12 @@ bool applyLeasedBleSensation(motion_link::Owner &link, uint16_t connection, uint
 }
 
 void cancelDrawnPattern() {
+    ControlRequest request;
     std::lock_guard<std::mutex> guard(lock);
     stopLocked("stop", pattern_motor::now());
 }
 void cancelRemoteDrawnPattern() {
+    ControlRequest request;
     std::lock_guard<std::mutex> guard(lock);
     if (!local) stopLocked("remote_release", pattern_motor::now());
 }
@@ -707,6 +786,7 @@ PatternStatus drawnPatternStatus() {
     return {stage != Stage::Idle, applied.periodMs, lastStop, applied};
 }
 void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReason) {
+    ControlRequest request;
     std::lock_guard<std::mutex> guard(lock);
     if (enabled && pattern_motor::current(revision)) {
         stopLocked(exitReason, pattern_motor::now());
@@ -719,7 +799,7 @@ void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReaso
 }
 namespace {
 bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned frameLimit,
-                 bool continuing, bool canExtend, bool &recharge) {
+                 bool continuing, unsigned &allowance, bool &recharge) {
     recharge = false;
     if (refillNow) *refillNow = false;
     const uint32_t callUs = patternServiceMicros();
@@ -738,11 +818,12 @@ bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned f
     turn.mailboxUs = acquiredUs - callUs;
     bool lowAfterBatch = false;
     RawFramePlanner *assist = nullptr;
-    service(turn.atMs, frameLimit, lowAfterBatch, assist);
+    service(turn.atMs, frameLimit, allowance, lowAfterBatch, assist);
+    allowance -= std::min(allowance, acceptedFrames - turn.frame);
     const bool low = stage == Stage::Playing && lowAfterBatch;
     // Only a real append to the running peripheral permits another bounded
     // batch. A full driver or an empty planner cannot spin in this loop.
-    recharge = canExtend && low && rawClockStarted && acceptedFrames > turn.frame &&
+    recharge = allowance && low && rawClockStarted && acceptedFrames > turn.frame &&
                !assist && rawPlanner && rawPlanner->hasPreparedFrame();
     if (!recharge) {
         const bool immediate = refillSchedule.immediate(low);
@@ -766,12 +847,13 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     // budget, not a larger motor queue; each append still uses actual ticks.
     constexpr unsigned maximumBatch = drawn_pattern::queuedDurationMs / drawn_pattern::pulseFrameMs;
     bool recharge = false;
-    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, true, recharge);
+    unsigned allowance = maximumBatch;
+    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, allowance, recharge);
     // Refill below the watermark during steady motion as well as at a live
-    // retarget. Release the mailbox and resample controls, lease, backend and
-    // guard before each extra row; leave promptly on no progress or at 14 ms.
-    for (unsigned n = ordinaryBatch; recharge && n < maximumBatch; ++n)
-        serviceTurn(revision, 0, refillNow, 1, true, n + 1 < maximumBatch, recharge);
+    // retarget. A burst yields the mailbox after at most three individually
+    // guarded rows. Stop on no progress or at the 14 ms refill watermark.
+    while (recharge)
+        serviceTurn(revision, 0, refillNow, 1, true, allowance, recharge);
     return active;
 }
 } // namespace streaming

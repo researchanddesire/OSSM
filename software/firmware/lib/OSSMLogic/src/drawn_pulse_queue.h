@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "drawn_waveform.h"
+#include "drawn_prepared_pulses.h"
 
 namespace drawn_pattern {
 enum class Frame { Accepted, Retry, Rejected };
@@ -76,6 +77,35 @@ public:
         }
         consecutive_ = 0;
         return false;
+    }
+};
+
+struct PulseBatch {
+    struct Attempt {
+        FrameResult result{Frame::Rejected, "guard"};
+        uint32_t atUs = 0;
+    };
+    Attempt attempts[1 + PreparedPulses::capacity]{};
+    unsigned count = 0;
+    bool revoked = false, controlsChanged = false;
+
+    template<class Write, class Allowed, class Clock>
+    void submit(PreparedPulses::Target first, const PreparedPulses &next, Write write,
+                Allowed allowed, Clock clock) {
+        auto target = first;
+        for (;;) {
+            auto &attempt = attempts[count++];
+            attempt.result = write(target);
+            attempt.atUs = clock();
+            if (count > next.count || attempt.result.state != Frame::Accepted ||
+                attempt.result.timing != FrameTiming::Running || attempt.result.frames != 1 ||
+                attempt.result.queuedUs >= refillBelowUs) return;
+            if (!allowed()) {
+                controlsChanged = true;
+                return;
+            }
+            target = next.targets[count - 1];
+        }
     }
 };
 

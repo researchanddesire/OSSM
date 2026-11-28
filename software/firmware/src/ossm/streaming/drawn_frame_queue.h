@@ -8,6 +8,7 @@
 #include <type_traits>
 
 #include "drawn_modifier_motion.h"
+#include "drawn_prepared_pulses.h"
 
 namespace streaming::frame_plan {
 
@@ -58,7 +59,8 @@ public:
         put(pos, static_cast<uint32_t>(row.target));
         put(pos, row.planUs);
         put(pos, row.crossing | (uint32_t(row.valid) << 16) | (uint32_t(row.offered) << 17) |
-                     (uint32_t(row.targetKnown) << 18));
+                     (uint32_t(row.targetKnown) << 18) |
+                     (uint32_t(row.vibration.gain.goal() == previousTail.vibration.gain.goal()) << 19));
         const unsigned maskStart = pos;
         pos = advance(pos, maskWords);
         unsigned words = headerWords;
@@ -92,6 +94,23 @@ public:
             if (storage_[pos] != same || storage_[advance(pos, 1)] != same) return i - 1;
         }
         return limit ? limit - 1 : 0;
+    }
+
+    // Read only the two-word motor projection of successive immutable
+    // rows. A gain-goal change needs its own accepted-frame timestamp.
+    void successors(drawn_pattern::PreparedPulses &out, unsigned maximum) const {
+        unsigned pos = read_;
+        const unsigned end = std::min({count_, maximum + 1, drawn_pattern::PreparedPulses::capacity + 1});
+        for (unsigned i = 1; i < end; ++i) {
+            pos = advance(pos, lengths_[record(i - 1)]);
+            const auto flags = storage_[advance(pos, 3)];
+            constexpr uint32_t eligible = (1u << 16) | (1u << 18) | (1u << 19);
+            if ((flags & eligible) != eligible) break;
+            auto &target = out.targets[out.count++];
+            const uint32_t bits = storage_[advance(pos, 1)];
+            std::memcpy(&target.position, &bits, sizeof(bits));
+            target.crossing = static_cast<uint16_t>(flags);
+        }
     }
 
     Frame *front() {

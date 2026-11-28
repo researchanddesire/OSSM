@@ -114,6 +114,18 @@ void test_retries_wrap_marks_and_retained_boundary_match_uncompressed_rows() {
             TEST_ASSERT_EQUAL_PTR(first, queue.front());
             TEST_ASSERT_TRUE(first->offered);
         }
+        PreparedPulses projection;
+        queue.successors(projection, 2);
+        unsigned wanted = 0;
+        while (wanted + 1 < expected.size() && wanted < 2) {
+            const auto &before = expected[wanted];
+            const auto &row = expected[wanted + 1];
+            if (row.vibration.gain.goal() != before.vibration.gain.goal()) break;
+            TEST_ASSERT_EQUAL_INT32(row.target, projection.targets[wanted].position);
+            TEST_ASSERT_EQUAL_UINT16(row.crossing, projection.targets[wanted].crossing);
+            ++wanted;
+        }
+        TEST_ASSERT_EQUAL_UINT(wanted, projection.count);
         const unsigned pops = std::min(3u, queue.size());
         for (unsigned k = 0; k < pops; ++k) {
             equalFrame(expected.front(), queue.front());
