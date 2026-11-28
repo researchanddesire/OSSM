@@ -23,6 +23,12 @@ namespace drawn_pattern {
                 if (items.entries[i].isPause()) ++holds;
                 if (items.entries[i].isVibration()) hasVibration = true;
             }
+            // If every marker is a pause its lookup index is its own ordinal.
+            // A fully occupied pause grid needs no second 2,000-byte allocation.
+            if (holds == items.count) {
+                extraPauses.reset();
+                return true;
+            }
             extraPauses.reset(holds > inlineCapacity ? new (std::nothrow)
                                                            uint16_t[holds]
                                                      : nullptr);
@@ -55,15 +61,15 @@ namespace drawn_pattern {
 
         // First pause at/after a threshold in unwrapped playback coordinates.
         double upcoming(double threshold, uint16_t &duration) const {
-            const uint16_t *pauses =
-                extraPauses ? extraPauses.get() : inlinePauses;
+            const uint16_t *pauses = nullptr;
+            if (holds != markers->count) pauses = extraPauses ? extraPauses.get() : inlinePauses;
             const double t = threshold + offset;
             double cycle = std::floor(t);
             const double at = (t - cycle) * 1000;
             unsigned lo = 0, hi = holds;
             while (lo < hi) {
                 const unsigned k = (lo + hi) / 2;
-                if (markers->entries[pauses[k]].start < at - 1e-10)
+                if (markers->entries[pauses ? pauses[k] : k].start < at - 1e-10)
                     lo = k + 1;
                 else
                     hi = k;
@@ -72,7 +78,7 @@ namespace drawn_pattern {
                 lo = 0;
                 ++cycle;
             }
-            const auto &m = markers->entries[pauses[lo]];
+            const auto &m = markers->entries[pauses ? pauses[lo] : lo];
             duration = m.holdMs;
             return cycle + m.start / 1000.0 - offset;
         }

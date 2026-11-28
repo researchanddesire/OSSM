@@ -141,7 +141,7 @@ Send `pattern.modifiers` with a nonzero random unsigned 32-bit `key`, zero-based
 | End | Greater than start, up to 1000 | Same as start |
 | Hold | 0 | Maximum hold in milliseconds, 1–60000 |
 
-Sort by start. Send at most 32 whole records per request, reducing chunk size as needed for the BLE packet budget. Start at offset zero. The reply's `count` acknowledges the number of records received. A retry of an identical chunk returns the current count. A gap, overlap, invalid field or conflicting retry fails.
+Sort by start. Send at most 32 whole records per request, reducing chunk size as needed for the BLE packet budget. Start at offset zero. The reply's `count` acknowledges the number of records received. A retry of an identical chunk returns the current count. A gap, overlap, invalid field or conflicting retry returns `invalid_value`. If the device cannot allocate another page for a valid packet, it returns `busy` and keeps the previously acknowledged prefix. Retry the same chunk on the same lease.
 
 Commit on the same connection and lease with `pattern.playModified` or `pattern.saveModified`. Supply the usual sample/period and optional save destination, plus `modifierKey` and the exact `modifierCount`. A commit consumes the upload. For a new attempt after a failed commit, start a fresh transfer. Stop and lease release discard uncommitted markers. A live upload alone cannot move the shaft or change a saved slot.
 

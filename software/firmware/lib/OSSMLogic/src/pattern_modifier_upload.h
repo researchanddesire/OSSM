@@ -33,8 +33,11 @@ class PatternModifierUpload {
         return items_ && connection_ == connection && lease_ == lease && key_ == key;
     }
 public:
-    // Returns the acknowledged prefix length or zero for an invalid chunk.
-    unsigned append(uint16_t connection, uint32_t lease, JsonObjectConst args) {
+    // A zero count leaves the acknowledged prefix intact. Report a transient
+    // allocator failure separately from malformed bytes or an incorrect owner.
+    unsigned append(uint16_t connection, uint32_t lease, JsonObjectConst args,
+                    bool *outOfMemory = nullptr) {
+        if (outOfMemory) *outOfMemory = false;
         if (connection == UINT16_MAX || !lease || args.size() != 3 ||
             !args["key"].is<uint32_t>() || !args["offset"].is<uint16_t>()) return 0;
         const auto key = args["key"].as<uint32_t>();
@@ -48,28 +51,36 @@ public:
         const unsigned have = existing ? items_->count : 0;
         if (offset > have || (offset < have && end > have)) return 0;
 
-        std::unique_ptr<Modifiers> replacement;
-        if (!existing) {
-            replacement.reset(new (std::nothrow) Modifiers);
-            if (!replacement) return 0;
-        }
-        auto &target = existing ? *items_ : *replacement;
-        if (!target.reserve(end)) return 0;
+        Modifier chunk[32];
         for (unsigned index = offset; index < end; ++index) {
-            const auto *hex = data.c_str() + (index - offset)*12;
+            const auto *hex = data.c_str() + (index - offset) * 12;
             uint16_t start, finish, maximumMs;
             if (!readWord(hex, start) || !readWord(hex + 4, finish) ||
                 !readWord(hex + 8, maximumMs)) return 0;
-            const auto marker = Modifier::fromV1(start, finish, maximumMs);
+            auto &marker = chunk[index - offset];
+            marker = Modifier::fromV1(start, finish, maximumMs);
             if (!marker.valid()) return 0;
             if (index < have) {
-                const auto &old = target.entries[index];
+                const auto &old = items_->entries[index];
                 if (old.start != marker.start || old.end != marker.end || old.holdMs != marker.holdMs) return 0;
-            } else target.entries[index] = marker;
+            } else if (index) {
+                const auto &previous = index == offset ? items_->entries[index - 1] : chunk[index - offset - 1];
+                if (!Modifiers::ordered(previous, marker)) return 0;
+            }
         }
         if (offset < have) return have;
-        if (!Modifiers::valid(target.entries, end)) return 0;
-        target.count = end;
+        const auto &first = offset ? items_->entries[0] : chunk[0];
+        if (!Modifiers::validSeam(first, chunk[end - offset - 1], end)) return 0;
+
+        std::unique_ptr<Modifiers> replacement;
+        if (!existing) replacement.reset(new (std::nothrow) Modifiers);
+        auto *target = existing ? items_.get() : replacement.get();
+        if (!target || !target->reserve(end)) {
+            if (outOfMemory) *outOfMemory = true;
+            return 0;
+        }
+        for (unsigned i = offset; i < end; ++i) target->entries[i] = chunk[i - offset];
+        target->count = end;
         if (replacement) items_ = std::move(replacement);
         key_ = key;
         lease_ = lease;

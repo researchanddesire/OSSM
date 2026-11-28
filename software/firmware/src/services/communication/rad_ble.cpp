@@ -288,7 +288,9 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
     const auto connection = radBleServer.currentRequestConnection();
     if (operation == "pattern.modifiers") {
         std::lock_guard<std::mutex> guard(uploadLock);
-        const unsigned count = modifierUpload.append(connection, lease, args);
+        bool outOfMemory = false;
+        const unsigned count = modifierUpload.append(connection, lease, args, &outOfMemory);
+        if (outOfMemory) return radble::Result::failure("busy", "Insufficient memory for modifier chunk");
         if (!count) return radble::Result::failure("invalid_value", "Invalid or overlapping modifier chunk");
         return radble::Result::success(String("{\"count\":") + count + "}");
     }
@@ -361,7 +363,7 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
         return patternStatus();
     }
     const auto started = startBlePattern(radBleServer.currentRequestConnection(),
-                                         value.samples, value.length, value.periodMs, value.format(), markers);
+                                         value.samples, value.length, value.periodMs, value.format(), std::move(effects));
     if (started == PatternStart::Accepted) return patternStatus();
     if (started == PatternStart::Busy)
         return radble::Result::failure("busy", "Stop the current pattern before playing another");

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include "drawn_sample_format.h"
 #include "drawn_modifiers.h"
 
@@ -16,6 +17,9 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
                                bool localControl = false,
                                drawn_pattern::SampleFormat format = drawn_pattern::SampleFormat::Q8,
                                const drawn_pattern::Modifiers &modifiers = drawn_pattern::noModifiers());
+PatternStart startOwnedDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t ownerRevision,
+                                    bool localControl, drawn_pattern::SampleFormat format,
+                                    std::unique_ptr<drawn_pattern::Modifiers> modifiers);
 bool renewDrawnPattern(uint64_t ownerRevision);
 bool applyLeasedBleSpeed(motion_link::Owner &link, uint16_t connection,
                          float value, bool selectBleSource);

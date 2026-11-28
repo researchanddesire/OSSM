@@ -6,6 +6,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <utility>
 
 namespace drawn_pattern {
 
@@ -86,32 +87,75 @@ struct Modifiers {
     Modifiers(const Modifiers &) = delete;
     Modifiers &operator=(const Modifiers &) = delete;
 
+    class Entries {
+        static constexpr size_t inlineCount = 4;
+        static constexpr size_t pageSize = 64;
+        static constexpr size_t pageCount = (capacity - inlineCount + pageSize - 1) / pageSize;
+        struct Page { Modifier values[pageSize]; };
+        struct Directory { std::unique_ptr<Page> pages[pageCount]; };
+
+        Modifier small_[inlineCount]{};
+        std::unique_ptr<Directory> directory_;
+        size_t pages_ = 0;
+
+    public:
+        size_t allocated() const { return inlineCount + pages_ * pageSize; }
+
+        // Pages stay at fixed addresses throughout upload and playback.
+        // Growing a valid prefix never requires a second copy of that prefix.
+        bool reserve(size_t required) {
+            if (required > capacity) return false;
+            if (required <= allocated()) return true;
+            if (!directory_) {
+                directory_.reset(new (std::nothrow) Directory);
+                if (!directory_) return false;
+            }
+            while (required > allocated()) {
+                auto &page = directory_->pages[pages_];
+                page.reset(new (std::nothrow) Page);
+                if (!page) return false;
+                ++pages_;
+            }
+            return true;
+        }
+
+        const Modifier &operator[](size_t index) const {
+            if (index < inlineCount) return small_[index];
+            const size_t i = index - inlineCount;
+            return directory_->pages[i / pageSize]->values[i % pageSize];
+        }
+
+        Modifier &operator[](size_t index) {
+            return const_cast<Modifier &>(static_cast<const Entries &>(*this)[index]);
+        }
+
+        void takeFrom(Entries &other) {
+            std::copy_n(other.small_, inlineCount, small_);
+            directory_ = std::move(other.directory_);
+            pages_ = std::exchange(other.pages_, 0);
+        }
+    };
+
     uint16_t count = 0;
-private:
-    Modifier small_[4]{};
-    size_t allocated_ = 4;
-    std::unique_ptr<Modifier[]> storage_;
-public:
-    Modifier *entries = small_;
+    Entries entries;
 
     bool reserve(size_t required) {
-        if (count > allocated_ || required > capacity) return false;
-        if (required <= allocated_) return true;
-        const size_t size = std::min(capacity, std::max(required, allocated_ * 2));
-        std::unique_ptr<Modifier[]> replacement(new (std::nothrow) Modifier[size]);
-        if (!replacement) return false;
-        std::copy_n(entries, count, replacement.get());
-        storage_ = std::move(replacement);
-        entries = storage_.get();
-        allocated_ = size;
-        return true;
+        return count <= entries.allocated() && entries.reserve(required);
     }
 
     bool assign(const Modifiers &other) {
         if (!other.valid() || !reserve(other.count)) return false;
-        if (&other != this) std::copy_n(other.entries, other.count, entries);
-        count = other.count;
+        if (&other != this) {
+            for (unsigned i = 0; i < other.count; ++i) entries[i] = other.entries[i];
+            count = other.count;
+        }
         return true;
+    }
+
+    void takeFrom(Modifiers &other) {
+        if (this == &other) return;
+        entries.takeFrom(other.entries);
+        count = std::exchange(other.count, 0);
     }
 
     static bool validItem(const Modifier &item) {
@@ -128,15 +172,15 @@ public:
         return size < 2 || first.geometry() != EffectGeometry::Instant || first.start != 0 || last.end != 1000;
     }
 
-    static bool valid(const Modifier *items, size_t size) {
-        if (size > capacity || (size && !items)) return false;
+    static bool valid(const Entries &items, size_t size) {
+        if (size > capacity || size > items.allocated()) return false;
         for (size_t i = 0; i < size; ++i) {
             if (!validItem(items[i]) || (i && !ordered(items[i-1],items[i]))) return false;
         }
         return !size || validSeam(items[0],items[size-1],size);
     }
 
-    bool valid() const { return count <= allocated_ && valid(entries, count); }
+    bool valid() const { return valid(entries, count); }
 };
 
 inline const Modifiers &noModifiers() {

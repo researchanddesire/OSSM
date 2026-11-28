@@ -92,7 +92,7 @@ void toggleWiredPattern() {
     SavedPattern value;
     std::unique_ptr<drawn_pattern::Modifiers> effects(new (std::nothrow) drawn_pattern::Modifiers);
     if (effects && getSavedPattern(value, selectedPatternSlot, effects.get())) {
-        startDrawnPattern(value.samples, value.length, value.periodMs, revision, true, value.format(), *effects);
+        startOwnedDrawnPattern(value.samples, value.length, value.periodMs, revision, true, value.format(), std::move(effects));
     }
 }
 }  // namespace streaming

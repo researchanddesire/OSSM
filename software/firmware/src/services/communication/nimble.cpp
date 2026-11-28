@@ -52,14 +52,14 @@ void noteBleMotionCommand(uint16_t connHandle, const std::string& command) {
 
 streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
                                        size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format,
-                                       const drawn_pattern::Modifiers &modifiers) {
+                                       std::unique_ptr<drawn_pattern::Modifiers> modifiers) {
     std::lock_guard<std::mutex> guard(motionOwnerLock);
     // A request already in the server task may race a disconnect.
     if (!pServer || connection == motion_link::kNoConnection ||
         ble_gap_conn_find(connection, nullptr) != 0)
         return streaming::PatternStart::NotReady;
-    const auto result = streaming::startDrawnPattern(samples, length, periodMs,
-                                  getMotorSafetyStatus().controlRevision, false, format, modifiers);
+    const auto result = streaming::startOwnedDrawnPattern(samples, length, periodMs,
+                                  getMotorSafetyStatus().controlRevision, false, format, std::move(modifiers));
     if (result == streaming::PatternStart::Accepted) {
         motionOwner.onMotionCommand(connection);
         lostConnectionTime = 0;

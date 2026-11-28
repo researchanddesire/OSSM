@@ -7,6 +7,20 @@
 #include "../../src/ossm/streaming/pattern_speed_json.h"
 #include "pattern_modifier_upload.h"
 
+namespace {
+bool refuseNextMarkerPage = false;
+}
+
+// Inject failure only into the next 64-record marker page, leaving ArduinoJson
+// and the rest of the native record/storage implementation unchanged.
+void *operator new(std::size_t bytes, const std::nothrow_t &) noexcept {
+    if (refuseNextMarkerPage && bytes == 64 * sizeof(drawn_pattern::Modifier)) {
+        refuseNextMarkerPage = false;
+        return nullptr;
+    }
+    return ::operator new(bytes);
+}
+
 using namespace streaming;
 namespace {
 std::map<std::string, std::vector<uint8_t>> flash;
@@ -440,6 +454,55 @@ void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input(
     TEST_ASSERT_TRUE(bool(upload.take(1, 12, args)));
 }
 
+void test_dense_24_record_packets_retry_allocation_and_move_without_copying_pages() {
+    using namespace drawn_pattern;
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    const auto args = doc.to<JsonObject>();
+    args["key"] = 42;
+    bool outOfMemory = false;
+    const uint16_t special[] = {1, 30000, 32767, 32768, 60000};
+    for (unsigned offset = 0; offset < 1000; offset += 24) {
+        std::string data;
+        const auto end = std::min(offset + 24, 1000u);
+        for (unsigned i = offset; i < end; ++i) {
+            char hex[13];
+            const unsigned ms = i < 5 ? special[i] : 1 + i * 97 % 60000;
+            snprintf(hex, sizeof(hex), "%04x%04x%04x", i, i, ms);
+            data += hex;
+        }
+        args["offset"] = offset;
+        args["data"] = data;
+        if (offset == 768) {
+            refuseNextMarkerPage = true;
+            TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args, &outOfMemory));
+            TEST_ASSERT_TRUE(outOfMemory);
+            TEST_ASSERT_FALSE(refuseNextMarkerPage);
+            args["data"] = "030003000000";
+            TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args, &outOfMemory));
+            TEST_ASSERT_FALSE(outOfMemory);
+            args["data"] = data;
+        }
+        TEST_ASSERT_EQUAL_UINT(end, upload.append(1, 12, args, &outOfMemory));
+        TEST_ASSERT_FALSE(outOfMemory);
+        TEST_ASSERT_EQUAL_UINT(end, upload.append(1, 12, args));
+    }
+    args["modifierKey"] = 42;
+    args["modifierCount"] = 1000;
+    auto uploaded = upload.take(1, 12, args);
+    TEST_ASSERT_NOT_NULL(uploaded.get());
+    const auto *page = &uploaded->entries[768];
+    Modifiers owned;
+    owned.takeFrom(*uploaded);
+    TEST_ASSERT_EQUAL_PTR(page, &owned.entries[768]);
+    TEST_ASSERT_EQUAL_UINT(1000, owned.count);
+    TEST_ASSERT_EQUAL_UINT(0, uploaded->count);
+    TEST_ASSERT_TRUE(uploaded->reserve(5));
+    TEST_ASSERT_EQUAL_UINT(60000, owned.entries[4].holdMs);
+    TEST_ASSERT_EQUAL_UINT(1 + 999 * 97 % 60000, owned.entries[999].holdMs);
+    TEST_ASSERT_TRUE(owned.valid());
+}
+
 void test_v1_upload_supports_typed_ranges_and_long_pauses_with_stable_ids() {
     using namespace drawn_pattern;
     PatternModifierUpload upload;
@@ -520,7 +583,8 @@ void test_sparse_and_dense_reboots_keep_range_tags_and_long_pause_boundaries() {
         TEST_ASSERT_EQUAL_UINT8(0x35, blob[1]);
         TEST_ASSERT_TRUE(library.load(readRecord));
         TEST_ASSERT_TRUE(library.get(saved, slot, &loaded));
-        TEST_ASSERT_EQUAL_MEMORY(markers.entries, loaded.entries, count * sizeof(Modifier));
+        for (unsigned i = 0; i < count; ++i)
+            TEST_ASSERT_EQUAL_MEMORY(&markers.entries[i], &loaded.entries[i], sizeof(Modifier));
         // The exact same bytes under an old V4 header are malformed.
         blob[1] = 0x34;
         TEST_ASSERT_TRUE(library.load(readRecord));
@@ -575,7 +639,8 @@ void test_modified_slots_round_trip_and_keep_original_on_failure() {
     SavedPattern saved;
     Modifiers retrieved;
     TEST_ASSERT_TRUE(restored.get(saved, selectedPatternSlot, &retrieved));
-    TEST_ASSERT_EQUAL_MEMORY(effects.entries, retrieved.entries, 2*sizeof(drawn_pattern::Modifier));
+    for (unsigned i = 0; i < effects.count; ++i)
+        TEST_ASSERT_EQUAL_MEMORY(&effects.entries[i], &retrieved.entries[i], sizeof(drawn_pattern::Modifier));
     const int committed = writes;
     TEST_ASSERT_TRUE(restored.save(1, nullptr, 0, waveform, writeRecord, effects));
     TEST_ASSERT_EQUAL_INT(committed, writes);
@@ -787,6 +852,7 @@ int main() {
     RUN_TEST(test_corrupt_implicit_first_slot_cannot_redirect_wired_recall_to_its_neighbor);
     RUN_TEST(test_all_four_slots_store_and_update_every_tick_independently);
     RUN_TEST(test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries);
+    RUN_TEST(test_dense_24_record_packets_retry_allocation_and_move_without_copying_pages);
     RUN_TEST(test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input);
     RUN_TEST(test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply);
     RUN_TEST(test_modified_slots_round_trip_and_keep_original_on_failure);

@@ -514,9 +514,9 @@ PatternStart drawnPatternStartStatus(uint64_t revision) {
     return startStatusLocked(revision, caps);
 }
 
-PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t revision,
-                               bool localControl, drawn_pattern::SampleFormat format,
-                               const drawn_pattern::Modifiers &modifiers) {
+static PatternStart startPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t revision,
+                                 bool localControl, drawn_pattern::SampleFormat format,
+                                 const drawn_pattern::Modifiers &modifiers, drawn_pattern::Modifiers *owned) {
     drawn_pattern::Waveform incoming;
     if (!modifiers.valid() || !incoming.decode(hex, length, periodMs, format)) return PatternStart::Invalid;
     std::lock_guard<std::mutex> guard(lock);
@@ -526,8 +526,10 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     std::unique_ptr<Marking> marks;
     if (modifiers.count) {
         marks.reset(new (std::nothrow) Marking);
-        if (!marks || !marks->authored.assign(modifiers) ||
-            !marks->index.reset(marks->authored, incoming.authoredStart())) return PatternStart::Busy;
+        if (!marks) return PatternStart::Busy;
+        if (owned) marks->authored.takeFrom(*owned);
+        else if (!marks->authored.assign(modifiers)) return PatternStart::Busy;
+        if (!marks->index.reset(marks->authored, incoming.authoredStart())) return PatternStart::Busy;
     }
     if (caps.serial) {
         pending.reset(new (std::nothrow) frame_plan::Frame);
@@ -571,6 +573,19 @@ PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs
     lastAppliedPeriod = acceptedFrames = 0;
     stage = Stage::Waiting;
     return PatternStart::Accepted;
+}
+
+PatternStart startDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t revision,
+                               bool localControl, drawn_pattern::SampleFormat format,
+                               const drawn_pattern::Modifiers &modifiers) {
+    return startPattern(hex, length, periodMs, revision, localControl, format, modifiers, nullptr);
+}
+
+PatternStart startOwnedDrawnPattern(const char *hex, size_t length, uint32_t periodMs, uint64_t revision,
+                                    bool localControl, drawn_pattern::SampleFormat format,
+                                    std::unique_ptr<drawn_pattern::Modifiers> modifiers) {
+    const auto &items = modifiers ? *modifiers : drawn_pattern::noModifiers();
+    return startPattern(hex, length, periodMs, revision, localControl, format, items, modifiers.get());
 }
 
 bool stoppedPatternWork(PatternWork &out) {
