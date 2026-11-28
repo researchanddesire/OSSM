@@ -113,7 +113,7 @@ void submitPrepared(drawn_pattern::PulseBatch &batch, drawn_pattern::PreparedPul
                 // waits within this one hardware command.
                 return submitPatternFrame(target.position, revision, false, target.crossing,
                                           target.followingHolds, false);
-            }, stillRequested, patternServiceMicros);
+            }, stillRequested, patternServiceMicros, now);
         } else {
             batch.controlsChanged = true;
         }

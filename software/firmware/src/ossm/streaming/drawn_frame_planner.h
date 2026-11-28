@@ -239,7 +239,9 @@ public:
 
     void successors(drawn_pattern::PreparedPulses &out, unsigned maximum) {
         std::lock_guard<RingMutex> guard(mux_);
-        if (warmed_ && !positivePending_) rows_.successors(out, maximum);
+        if (!warmed_) return;
+        rows_.successors(out, maximum);
+        if (positivePending_ && retained_ <= out.count) out.rateBoundary = retained_;
     }
 
     bool hasPreparedFrame() {

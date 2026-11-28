@@ -441,12 +441,12 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         }
         recordPlan(frame);
         const uint32_t submitStart = patternServiceMicros();
-        const bool steady = rawClockStarted && rawPlanner && !softwareEntry && !zero &&
-            !rawPlanner->positivePending() && stampedGoal == speedStatus.phaseRateHz &&
-            lastAppliedPeriod == speedStatus.periodMs;
+        const bool prepared = rawClockStarted && rawPlanner && !softwareEntry && !zero &&
+            (rawPlanner->positivePending() ||
+             (stampedGoal == speedStatus.phaseRateHz && lastAppliedPeriod == speedStatus.periodMs));
         drawn_pattern::PreparedPulses successors;
         drawn_pattern::PreparedPulses::Target first{frame.target, frame.crossing, 0, frame.from == frame.target};
-        if (steady && remaining > 1 &&
+        if (prepared && remaining > 1 &&
             (!activeMarkers || (lastStampedStrength == caps.strength &&
              frame.vibration.gain.goal() == vibration.gain.goal() &&
              !reconfigureAfterFade && (!reserveVibration || requestedVibration)))) {
@@ -518,38 +518,52 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
                              acceptedFrames - firstOrdinal + committed == allowance) &&
                             result.queuedUs < drawn_pattern::refillBelowUs;
         }
-        for (unsigned consumed = 1; consumed < result.frames; ++consumed) {
-            // Only this locked consumer can remove or invalidate these rows.
-            // Each interval has already been accepted by FAS.
-            rawPlanner->pop();
-            next = rawPlanner->front();
-            recordPlan(*next);
-            ++acceptedFrames;
-        }
-        const auto &accepted = *next;
+        bool retainedGoal = false;
         const bool entryToRaw = softwareEntry &&
             (result.timing == drawn_pattern::FrameTiming::Prefill ||
              result.timing == drawn_pattern::FrameTiming::Started ||
              result.timing == drawn_pattern::FrameTiming::Running);
-        const bool retainedGoal = rawPlanner && rawPlanner->retainedFront();
-        const auto &applied = retainedGoal ? rawPlanner->previousSpeed : speedStatus;
-        if (entryToRaw || stampedGoal != applied.phaseRateHz || lastAppliedPeriod != applied.periodMs ||
-            (activeMarkers &&
-              (lastStampedStrength != caps.strength || vibration.gain.goal() != accepted.vibration.gain.goal())))
-            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, accepted.vibration.gain.goal(), entryToRaw, applied);
+        for (unsigned consumed = 0; consumed < result.frames; ++consumed) {
+            if (consumed) {
+                next = rawPlanner->front();
+                recordPlan(*next);
+            }
+            const auto &accepted = *next;
+            const bool boundary = successors.count && consumed == successors.rateBoundary;
+            retainedGoal = rawPlanner && rawPlanner->retainedFront();
+            const auto &applied = retainedGoal ? rawPlanner->previousSpeed : speedStatus;
+            if ((consumed == 0 || boundary) &&
+                (entryToRaw || stampedGoal != applied.phaseRateHz || lastAppliedPeriod != applied.periodMs ||
+                (activeMarkers && (lastStampedStrength != caps.strength ||
+                                   vibration.gain.goal() != accepted.vibration.gain.goal())))) {
+                // A single guarded refill can cross a live rate boundary.
+                // Its exact logical ordinal, incoming cursor and acceptance
+                // time remain distinct even if more rows then reach FAS.
+                const auto at = boundary ? batch.rateAcceptedAtMs : pattern_motor::now();
+                recordRateGoal(at, result.timing, caps.strength, accepted.vibration.gain.goal(), entryToRaw, applied);
+            }
+            const bool finalRow = consumed + 1 == result.frames;
+            if (finalRow || (successors.count && consumed + 1 == successors.rateBoundary)) {
+                // Only a law boundary and the final cursor need full state
+                // copies. Ordinary steady bursts still copy it once.
+                motionPhase = accepted.phase;
+                vibration = accepted.vibration;
+            }
+            if (finalRow) {
+                const bool settled = zero && accepted.phase.clock.secondsToGoal() == 0 &&
+                    accepted.phase.clock.rate() == 0 && accepted.vibration.gain.atZero() && accepted.from == accepted.target;
+                stationaryFrames = settled ? stationaryFrames + 1 : 0;
+                committedTarget = accepted.target;
+            }
+            ++acceptedFrames;
+            if (rawPlanner) rawPlanner->pop();
+            else frame.valid = false;
+        }
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
         if (result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
-        const bool settled = zero && accepted.phase.clock.secondsToGoal() == 0 &&
-            accepted.phase.clock.rate() == 0 && accepted.vibration.gain.atZero() && accepted.from == accepted.target;
-        stationaryFrames = settled ? stationaryFrames + 1 : 0;
-        committedTarget = accepted.target;
-        work.frames = ++acceptedFrames;
-        motionPhase = accepted.phase;
-        vibration = accepted.vibration;
+        work.frames = acceptedFrames;
         committedTargetValid = true;
-        if (rawPlanner) rawPlanner->pop();
-        else frame.valid = false;
         lastProgressAt = lastFrameAt = now;
         if (batch.revoked) return stopLocked("guard", pattern_motor::now());
         if (last.state == pattern_motor::Frame::Rejected)

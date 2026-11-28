@@ -555,6 +555,44 @@ void test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authorit
     TEST_ASSERT_TRUE(crossings == std::vector<uint16_t>({32768,32768,21000,32768}));
 }
 
+void test_positive_rate_boundary_is_timed_at_its_own_accepted_write() {
+    using namespace drawn_pattern;
+    // Eight queued holds may belong to two different Speed settings.
+    // In particular the first new row can be the first or the last row.
+    static uint32_t clockMs;
+    for (unsigned seam = 0; seam <= PreparedPulses::capacity; ++seam) {
+        for (unsigned mode = 0; mode < 3; ++mode) {
+            PreparedPulses::Target first{-142,32768,0,true};
+            PreparedPulses rows;
+            rows.count = rows.capacity;
+            rows.rateBoundary = seam;
+            for (auto &row : rows.targets) row = first;
+            rows.groupWaits(first);
+            PulseBatch burst;
+            unsigned accepted = 0;
+            uint32_t expectedTime = 0;
+            clockMs = 100;
+            // Mode 1 declines the first new row, mode 2 revokes authority
+            // after the retained prefix. Neither may publish a speed stamp.
+            if (mode != 2 || seam != 0) {
+                burst.submit(first, rows, [&](PreparedPulses::Target row) -> FrameResult {
+                    clockMs += 2;
+                    if (mode == 1 && accepted == seam) return {Frame::Retry, "pulse_append", 4};
+                    const uint8_t count = row.followingHolds ? 2 : 1;
+                    if (accepted < seam) TEST_ASSERT_LESS_OR_EQUAL_UINT(seam, accepted + count);
+                    if (accepted == seam) expectedTime = clockMs;
+                    accepted += count;
+                    return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 4000, count};
+                }, [&] { return mode != 2 || accepted != seam; },
+                [] { return clockMs * 1000; }, [] { return clockMs; });
+            }
+            TEST_ASSERT_EQUAL_UINT(mode == 0 ? rows.count + 1 : seam, accepted);
+            TEST_ASSERT_EQUAL_UINT32(expectedTime, burst.rateAcceptedAtMs);
+            TEST_ASSERT_EQUAL(mode == 0, expectedTime != 0);
+        }
+    }
+}
+
 void test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix() {
     using namespace drawn_pattern;
     PulseBatch batch;
@@ -1190,6 +1228,7 @@ int main() {
     RUN_TEST(test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation);
     RUN_TEST(test_prepared_refill_limits_ownership_and_releases_on_the_first_decline);
     RUN_TEST(test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authority);
+    RUN_TEST(test_positive_rate_boundary_is_timed_at_its_own_accepted_write);
     RUN_TEST(test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix);
     RUN_TEST(test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);

@@ -25,6 +25,8 @@ bool compactHolds = false;
 size_t stopAtFrame = 0;
 size_t guardTripAfter = SIZE_MAX;
 size_t expireAfter = SIZE_MAX;
+unsigned timedWriteCostMs = 0;
+std::vector<uint32_t> acceptedAtMs;
 uint32_t reserveThrough = 0;
 uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
@@ -91,6 +93,10 @@ FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, uns
         if (reserveThrough + 2 > clockMs + 16) return {Frame::Retry, "pulse_full"};
         reserveThrough += 2;
         frames.push_back(target);
+        if (timedWriteCostMs) {
+            clockMs += timedWriteCostMs;
+            acceptedAtMs.push_back(clockMs);
+        }
         const auto queuedUs = static_cast<uint16_t>((reserveThrough - clockMs) * 1000);
         if (frames.size() == expireAfter) clockMs += drawn_pattern::leaseMs;
         return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0,
@@ -132,6 +138,8 @@ void setUp() {
     timedPulses = simulateReserve = compactHolds = false;
     stopAtFrame = 0;
     guardTripAfter = expireAfter = SIZE_MAX;
+    timedWriteCostMs = 0;
+    acceptedAtMs.clear();
     nextPulseAt = 0;
     settings = {};
     bleState = {};
@@ -352,6 +360,57 @@ void test_steady_raw_recharges_with_ready_frames_without_a_live_edit() {
     TEST_ASSERT_FALSE(drawnPatternActive());
     TEST_ASSERT_EQUAL_UINT(last, frames.size());
     TEST_ASSERT_EQUAL_STRING("pulse_underrun", drawnPatternStatus().lastStop.reason);
+}
+
+void test_real_slow_to_fast_boundary_commits_its_actual_frame_clock_during_refill() {
+    // Actual Q8, 30.6 mm travel, 5% Sensation and 1 -> 18% Speed.
+    // The retained 1% law ends before row 406. At this phase the next
+    // dozen targets can be identical, although their clocks differ.
+    const char brake[] = "000103060b11181f28313b46515c6874808b97a3aeb9c4ced7e0e7eef4f9fcfe"
+                         "fffefcf9f4eee7e0d7cec4b9aea3978b8074685c51463b31281f18110b060301";
+    motor.from = -612;
+    motor.to = 0;
+    motor.speed = 200;
+    motor.acceleration = 50000;
+    motor.strength = .05;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+                          int(startDrawnPattern(brake, sizeof(brake)-1, 18850, revision, true)));
+    stopAtFrame = 398;
+    while (frames.size() < stopAtFrame && clockMs < 3000) tick();
+    TEST_ASSERT_EQUAL_UINT(398, frames.size());
+    PatternRateStamp old{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, old));
+    auto expected = motionPhase;
+    const drawn_pattern::PhaseLimits oldLimits{goalRate, clockAcceleration, clockJerk};
+    for (unsigned i = 0; i < 8; ++i) expected.advance(.002, oldLimits, unmarked, motor.strength);
+    motor.speed = 3600;
+    stopAtFrame = 402;
+    while (frames.size() < stopAtFrame && clockMs < 3000) tick();
+    TEST_ASSERT_EQUAL_UINT(402, frames.size());
+    PatternRateStamp pendingStamp{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, pendingStamp));
+    TEST_ASSERT_EQUAL_UINT32(old.sequence, pendingStamp.sequence);
+
+    stopAtFrame = 0;
+    simulateReserve = true;
+    timedWriteCostMs = 1;
+    reserveThrough = clockMs + 5;
+    tick();
+    TEST_ASSERT_EQUAL_UINT(410, frames.size());
+    PatternRateStamp changed{};
+    TEST_ASSERT_TRUE(drawnPatternRateStamp(0, changed));
+    TEST_ASSERT_EQUAL_UINT32(old.sequence + 1, changed.sequence);
+    TEST_ASSERT_EQUAL_UINT32(406, changed.frameIndex);
+    TEST_ASSERT_EQUAL_UINT32(acceptedAtMs[4], changed.atMs);
+    TEST_ASSERT_LESS_THAN_UINT32(acceptedAtMs.back(), changed.atMs);
+    TEST_ASSERT_FLOAT_WITHIN(1.e-7f, expected.phase, changed.phase);
+    TEST_ASSERT_FLOAT_WITHIN(1.e-7f, expected.clock.rate(), changed.rateHz);
+    // Reproduce the recorded 6.701ms interruption after healthy refilling.
+    timedWriteCostMs = 0;
+    clockMs += 6;
+    tick();
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(16, reserveThrough - clockMs);
 }
 
 void test_steady_recharge_rechecks_guard_before_its_next_prepared_row() {
@@ -1427,6 +1486,7 @@ int main() {
     RUN_TEST(test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing);
     RUN_TEST(test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest_boundary);
     RUN_TEST(test_steady_raw_recharges_with_ready_frames_without_a_live_edit);
+    RUN_TEST(test_real_slow_to_fast_boundary_commits_its_actual_frame_clock_during_refill);
     RUN_TEST(test_steady_recharge_rechecks_guard_before_its_next_prepared_row);
     RUN_TEST(test_guard_is_rechecked_before_extra_handoff_recharge_row);
     RUN_TEST(test_owner_lease_expiring_at_a_ready_pulse_boundary_stops_at_last_accepted_row);

@@ -17,11 +17,15 @@ struct PreparedPulses {
     };
     Target targets[capacity]{};
     unsigned count = 0;
+    // Index of the first row calculated with a pending positive Speed edit.
+    // Keep its hardware acceptance independently timestampable.
+    unsigned rateBoundary = capacity + 1;
 
     void groupWaits(Target &first) {
         // Two adjacent stationary intervals can share one hardware WAIT.
         // Do not coalesce through a changing position, gain or law.
         for (unsigned i = count; i > 0; --i) {
+            if (i == rateBoundary) continue;
             auto &row = i == 1 ? first : targets[i - 2];
             const auto &next = targets[i - 1];
             if (row.stationary && next.stationary && row.position == next.position)

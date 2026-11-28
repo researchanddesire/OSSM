@@ -90,6 +90,7 @@ struct PulseBatch {
     };
     Attempt attempts[1 + PreparedPulses::capacity]{};
     unsigned count = 0;
+    uint32_t rateAcceptedAtMs = 0;
     bool revoked = false, controlsChanged = false;
 
     void revoke(uint32_t nowUs) {
@@ -104,7 +105,7 @@ struct PulseBatch {
 
     template<class Write, class Allowed, class Clock>
     void submit(PreparedPulses::Target first, const PreparedPulses &next, Write write,
-                Allowed allowed, Clock clock) {
+                Allowed allowed, Clock clock, uint32_t (*millisAtBoundary)() = nullptr) {
         auto target = first;
         unsigned consumed = 0;
         for (;;) {
@@ -112,6 +113,8 @@ struct PulseBatch {
             attempt.result = write(target);
             attempt.atUs = clock();
             if (attempt.result.state != Frame::Accepted) return;
+            if (consumed == next.rateBoundary && millisAtBoundary)
+                rateAcceptedAtMs = millisAtBoundary();
             consumed += attempt.result.frames;
             if (consumed > next.count || attempt.result.timing != FrameTiming::Running ||
                 attempt.result.queuedUs >= refillBelowUs) return;
