@@ -44,11 +44,11 @@ void recordPulseSubmit(const drawn_pattern::FrameResult &result, uint32_t frame,
     if (result.state == drawn_pattern::Frame::Accepted && result.queuedUs != UINT16_MAX) {
         const auto previousQueued = feedGap.queuedUs;
         const auto previousInterval = feedGap.frame ? atUs - lastAppendUs : 0;
-        const auto pairs = feedGap.pairedHoldAppends + (result.frames == 2);
+        const auto pairs = feedGap.combinedHoldFrames + result.frames - 1;
         feedGap = {};
         feedGap.previousQueuedUs = previousQueued;
         feedGap.previousAppendIntervalUs = previousInterval;
-        feedGap.pairedHoldAppends = pairs;
+        feedGap.combinedHoldFrames = pairs;
         feedGap.frame = frame;
         feedGap.queuedUs = result.queuedUs;
         if (result.driverResult > 0) {
@@ -419,11 +419,11 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         }
         recordPlan(frame);
         const uint32_t submitStart = patternServiceMicros();
-        const bool pair = rawClockStarted && rawPlanner && !activeMarkers && !zero &&
-                          !softwareEntry && frame.from == frame.target &&
-                          stampedGoal == speedStatus.phaseRateHz && lastAppliedPeriod == speedStatus.periodMs &&
-                          rawPlanner->followingFrameHolds(frame.target);
-        const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, pair);
+        const bool mayGroup = rawClockStarted && rawPlanner && !activeMarkers && !zero &&
+                              !softwareEntry && frame.from == frame.target &&
+                              stampedGoal == speedStatus.phaseRateHz && lastAppliedPeriod == speedStatus.periodMs;
+        const unsigned following = mayGroup ? rawPlanner->followingHolds(frame.target) : 0;
+        const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, following);
         const uint32_t submitUs = patternServiceMicros() - submitStart;
         if (!serial) recordPulseSubmit(result, acceptedFrames + result.frames, submitStart + submitUs);
         work.lastService.commandGateUs = std::max(work.lastService.commandGateUs, result.commandGateUs);
@@ -458,9 +458,9 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
                 work.minRunningUs = std::min(work.minRunningUs, result.queuedUs);
             lowAfterBatch = i + 1 == pulseFramesPerTurn && result.queuedUs < drawn_pattern::refillBelowUs;
         }
-        if (result.frames == 2) {
-            // Only this locked consumer can remove or invalidate the second
-            // prepared row. Both stationary intervals are already in FAS.
+        for (unsigned consumed = 1; consumed < result.frames; ++consumed) {
+            // Only this locked consumer can remove or invalidate these rows.
+            // The stationary intervals are already committed to FAS.
             rawPlanner->pop();
             next = rawPlanner->front();
             recordPlan(*next);

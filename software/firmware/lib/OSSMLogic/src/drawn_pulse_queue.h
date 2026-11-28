@@ -138,7 +138,7 @@ public:
     template <class Command, class Driver, class CanExtend = MayExtend>
     FrameResult submit(Driver &driver, int32_t target, uint32_t frameTicks,
                        uint16_t firstCrossing, uint16_t minCommandTicks,
-                       int8_t movedFromEmpty, bool consecutiveHolds = false, CanExtend canExtend = {}) {
+                       int8_t movedFromEmpty, unsigned followingHolds = 0, CanExtend canExtend = {}) {
         const bool first = !owned();
         const bool running = stage_.load() == Stage::Running;
         if (running && !driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
@@ -158,7 +158,7 @@ public:
         // Two midpoint-to-midpoint waits have no STEP edge or DIR change
         // between them. One native wait emits the same next edge with half
         // the append and interrupt load. Prefer a single wait near capacity.
-        const bool paired = consecutiveHolds && running && delta == 0 && upcoming == 0 &&
+        const bool paired = followingHolds && running && delta == 0 && upcoming == 0 &&
                             pendingOffset_ == offset && !tickResidual_ &&
                             frameTicks >= minHold &&
                             queued + 2 * frameTicks <= queuedLimit;
@@ -221,22 +221,29 @@ public:
         }
         if (result.state == Frame::Accepted) {
             result.frames = paired ? 2 : 1;
-            if (consecutiveHolds && running && std::abs(delta) == 1 && !upcoming && !tickResidual_ &&
+            if (followingHolds && running && std::abs(delta) == 1 && !upcoming && !tickResidual_ &&
                 frameTicks >= minHold &&
-                driver.queueEntries() < pulseQueueFrames && driver.ticksInQueue() + frameTicks <= queuedLimit) {
+                driver.queueEntries() < pulseQueueFrames) {
                 // The first command emitted the preceding row's single step.
                 // Append its known stationary successor without a second
                 // controller turn. Keep the original pulse width, time and
                 // direction, even when its two intervals cannot fit one wait.
+                const auto queuedTicks = driver.ticksInQueue();
+                const unsigned available = (queuedLimit - std::min(queuedTicks, queuedLimit)) / frameTicks;
+                const auto tailFrames = std::min({followingHolds, available, 2u});
+                if (!tailFrames) {
+                    result.queuedUs = static_cast<uint16_t>(queuedTicks * (1000 * pulseFrameMs) / frameTicks);
+                    return result;
+                }
                 if (!canExtend()) return {Frame::Rejected, "guard"};
                 if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
-                Command hold{static_cast<uint16_t>(frameTicks), 0, direction_};
+                Command hold{static_cast<uint16_t>(tailFrames * frameTicks), 0, direction_};
                 const auto extra = static_cast<int8_t>(driver.addQueueEntry(&hold, false));
                 if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun", extra};
                 if (extra < 0) return {Frame::Rejected, "pulse_append", extra};
                 // A busy driver accepted only the first row. Its successor
                 // is still at the software front on the next guarded turn.
-                if (extra == 0) result.frames = 2;
+                if (extra == 0) result.frames = static_cast<uint8_t>(1 + tailFrames);
                 else result.driverResult = extra;
             }
             // Read after the append/start: the interrupt may have consumed

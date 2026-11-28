@@ -80,11 +80,15 @@ public:
         return true;
     }
 
-    bool nextTwoHold(int32_t target) const {
-        if (count_ < 2) return false;
-        const auto second = advance(read_, lengths_[firstRecord_]);
-        const uint32_t same = static_cast<uint32_t>(target);
-        return storage_[second] == same && storage_[advance(second, 1)] == same;
+    unsigned followingHolds(int32_t target) const {
+        const auto same = static_cast<uint32_t>(target);
+        unsigned pos = read_;
+        const unsigned limit = std::min(3u, count_);
+        for (unsigned i = 1; i < limit; ++i) {
+            pos = advance(pos, lengths_[record(i - 1)]);
+            if (storage_[pos] != same || storage_[advance(pos, 1)] != same) return i - 1;
+        }
+        return limit ? limit - 1 : 0;
     }
 
     Frame *front() {

@@ -190,7 +190,7 @@ void announcePatternFeel(uint32_t sequence) {
     }
     Serial.printf("RAD_PATTERN_RETRY %u %u %d %u %u\n", unsigned(gap.previousQueuedUs),
                   unsigned(gap.previousAppendIntervalUs), int(gap.lastOtherDriverCode),
-                  unsigned(gap.lastOtherOffsetUs), unsigned(gap.pairedHoldAppends));
+                  unsigned(gap.lastOtherOffsetUs), unsigned(gap.combinedHoldFrames));
 }
 
 [[gnu::noinline]] void announcePatternPlanner() {

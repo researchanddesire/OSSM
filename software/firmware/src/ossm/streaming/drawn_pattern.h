@@ -74,7 +74,7 @@ struct PatternFeedGap {
     // Lifetime totals for work shared by the two cores during this Play.
     uint32_t assistAttempts = 0, assistPublished = 0, assistMaxUs = 0;
     uint16_t queuedUs = 0, previousQueuedUs = 0;
-    uint32_t previousAppendIntervalUs = 0, lastOtherOffsetUs = 0, pairedHoldAppends = 0;
+    uint32_t previousAppendIntervalUs = 0, lastOtherOffsetUs = 0, combinedHoldFrames = 0;
     int8_t lastOtherDriverCode = 0;
 };
 bool stoppedPatternFeedGap(PatternFeedGap &out);

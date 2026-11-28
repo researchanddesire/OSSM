@@ -75,11 +75,12 @@ bool position(uint64_t ticket, int32_t target, const State &caps, bool starting)
     if (!deferEntry) motor.position = target;
     return true;
 }
-FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, bool consecutiveHolds) {
+FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, unsigned followingHolds) {
     if (stopAtFrame) {
         if (!read(ticket).ready) return {Frame::Rejected, "guard"};
         if (frames.size() == stopAtFrame) return {Frame::Retry, "pulse_full"};
-        const auto count = uint8_t(compactHolds && consecutiveHolds && frames.size() + 2 <= stopAtFrame ? 2 : 1);
+        const auto extra = compactHolds ? std::min<size_t>(followingHolds, stopAtFrame - frames.size() - 1) : 0;
+        const auto count = static_cast<uint8_t>(1 + extra);
         frames.insert(frames.end(), count, target);
         return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000, count};
     }
@@ -1279,12 +1280,12 @@ void test_paired_holds_commit_every_cursor_and_stop_at_the_same_phase() {
         if (compact) {
             TEST_ASSERT_TRUE(frames == plain);
             TEST_ASSERT_EQUAL_DOUBLE(finalPhase,phase);
-            TEST_ASSERT_GREATER_THAN_UINT32(1500,gap.pairedHoldAppends);
+            TEST_ASSERT_GREATER_THAN_UINT32(1500,gap.combinedHoldFrames);
             TEST_ASSERT_LESS_THAN_UINT32(stopAtFrame-1000,costs.submissions);
         } else {
             plain = frames;
             finalPhase = phase;
-            TEST_ASSERT_EQUAL_UINT32(0,gap.pairedHoldAppends);
+            TEST_ASSERT_EQUAL_UINT32(0,gap.combinedHoldFrames);
         }
         tick(10);
         TEST_ASSERT_EQUAL_UINT32(stopAtFrame,frames.size());
@@ -1303,7 +1304,7 @@ void test_feed_gap_retains_driver_retry_after_a_single_accepted_edge() {
     TEST_ASSERT_EQUAL_UINT32(1, feedGap.otherRetries);
     TEST_ASSERT_EQUAL_UINT32(2450, feedGap.lastOtherOffsetUs);
     TEST_ASSERT_EQUAL_INT8(4, feedGap.lastOtherDriverCode);
-    TEST_ASSERT_EQUAL_UINT32(1, feedGap.pairedHoldAppends);
+    TEST_ASSERT_EQUAL_UINT32(1, feedGap.combinedHoldFrames);
     recordPulseSubmit({io::Frame::Accepted, nullptr, 4, FrameTiming::Running, 0, 2000}, 7297, 17000);
     TEST_ASSERT_EQUAL_UINT32(1, feedGap.otherRetries);
     TEST_ASSERT_EQUAL_INT8(4, feedGap.lastOtherDriverCode);

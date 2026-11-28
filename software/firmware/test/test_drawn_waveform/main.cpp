@@ -385,20 +385,23 @@ void test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_drive
         crossing[24] = 28900;
         unsigned pairs = 0;
         for (unsigned i = 0; i < target.size();) {
-            const bool same = i + 1 < target.size() && target[i] == target[i + 1] &&
-                              (i == 0 || target[i] == target[i - 1]);
+            unsigned following = 0;
+            if (compact && (i == 0 || target[i] == target[i-1])) {
+                while (following < 2 && i + following + 1 < target.size() &&
+                       target[i + following + 1] == target[i]) ++following;
+            }
             const auto count = driver.journal.size();
-            auto result = queue.submit<PulseCommand>(driver, target[i], 32000, crossing[i], 3200, 7, compact && same);
+            auto result = queue.submit<PulseCommand>(driver, target[i], 32000, crossing[i], 3200, 7, following);
             TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(result.state));
             if (compact && i == 4) {
                 // Real edge and its first unchanged successor within the same motor call.
-                TEST_ASSERT_EQUAL_UINT8(2, result.frames);
+                TEST_ASSERT_EQUAL_UINT8(3, result.frames);
                 TEST_ASSERT_EQUAL_UINT(count + 2, driver.journal.size());
                 TEST_ASSERT_EQUAL_UINT8(1, driver.journal[count].steps);
                 TEST_ASSERT_EQUAL_UINT16(32648, driver.journal[count].ticks);
-                TEST_ASSERT_EQUAL_UINT16(32000, driver.journal[count + 1].ticks);
+                TEST_ASSERT_EQUAL_UINT16(64000, driver.journal[count + 1].ticks);
             }
-            pairs += result.frames == 2;
+            pairs += result.frames - 1;
             i += result.frames;
         }
         std::vector<uint32_t> edgeTimes;

@@ -25,7 +25,7 @@ void setSensation(uint8_t value);
 uint32_t now();
 bool current(uint64_t revision);
 bool position(uint64_t revision, int32_t target, const State &limits, bool starting);
-FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing, bool consecutiveHolds);
+FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing, unsigned followingHolds);
 #ifdef ARDUINO
 bool pulseClockRunning();
 #else
