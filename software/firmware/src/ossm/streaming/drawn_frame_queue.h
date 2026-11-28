@@ -38,6 +38,7 @@ public:
 
     bool hasStorage() const { return static_cast<bool>(storage_); }
     unsigned size() const { return count_; }
+    const Cursor &committed() const { return cursors_[frontIndex_ ^ 1]; }
     bool full() const {
         return count_ == capacity || storageWords - used_ < maxRecordWords;
     }

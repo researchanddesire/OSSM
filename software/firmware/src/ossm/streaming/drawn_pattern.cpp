@@ -204,6 +204,10 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
         work.emptyTurns = counts.emptyTurns;
         work.maxPrepared = counts.peakDepth;
         work.plannerStackFree = counts.stackFree;
+        work.pauseComputed = counts.pauseComputed;
+        work.pauseAdopted = counts.pauseAdopted;
+        work.pauseChanges = counts.pauseChanges;
+        work.pauseMaxUs = counts.pauseMaxUs;
         feedGap.assistAttempts = counts.assistAttempts;
         feedGap.assistPublished = counts.assistPublished;
         feedGap.assistMaxUs = counts.assistMaxUs;
@@ -337,8 +341,10 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     if (stage == Stage::Paused) return;
     const bool requestedVibration = !zero && markerIndex.hasVibration && caps.strength > 0;
     const bool reserve = markerIndex.hasVibration;
+    const bool startRawPause = zero && lastSpeed > 0 && rawClockStarted && rawPlanner &&
+        committedTargetValid && !pendingPositive && !strengthChanged && caps.acceleration == lastAcceleration;
     if (zero && lastSpeed != 0) {
-        invalidateFrames();
+        if (!startRawPause) invalidateFrames();
         lastSpeed = 0;
     }
     const bool refreshVibration = !pendingPositive && (reserve != reserveVibration ||
@@ -444,7 +450,8 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     const auto cursor = [&]() {
         return frame_plan::Cursor{motionPhase, vibration, committedTarget, committedTargetValid};
     };
-    if (rawPlanner && !rawPlanner->configured()) rawPlanner->configure(inputs(), cursor());
+    if (startRawPause) rawPlanner->pause(inputs(), cursor());
+    else if (rawPlanner && !rawPlanner->configured()) rawPlanner->configure(inputs(), cursor());
 
     const unsigned firstOrdinal = acceptedFrames;
     for (unsigned i = 0; i < (serial ? 1u : pulseFramesPerTurn); ++i) {
@@ -496,7 +503,9 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         }
 
         drawn_pattern::PulseBatch batch;
-        if (successors.count) {
+        // An urgent first braking row can arrive before its successors. It
+        // still rechecks the live controls inside the actual hardware gate.
+        if (successors.count || (zero && rawClockStarted && prepared)) {
             pattern_motor::submitPrepared(batch, first, successors, owner, caps, mayContinueBurst);
         } else {
             batch.count = 1;
@@ -890,7 +899,7 @@ void setDrawnPatternReady(uint64_t revision, bool enabled, const char *exitReaso
 }
 namespace {
 bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned frameLimit,
-                 bool continuing, unsigned &allowance, bool &recharge) {
+                 bool continuing, unsigned &allowance, bool &recharge, bool &mayResumePause) {
     recharge = false;
     if (refillNow) *refillNow = false;
     const uint32_t callUs = patternServiceMicros();
@@ -926,8 +935,18 @@ bool serviceTurn(uint64_t revision, uint32_t wakeUs, bool *refillNow, unsigned f
     haveServiceEnd = true;
     turn.serviceUs = lastServiceEnd - acquiredUs;
     if (turn.intervalUs() >= work.longestService.intervalUs()) work.longestService = turn;
+    // When a zero edit found no prepared braking row, the worker or the
+    // assisting feeder can publish it while this mailbox is unlocked.
+    // Return directly to a fresh guarded admission in the same task wake.
+    // At most one empty attempt per visit gets this extra opportunity.
+    const bool retryPause = mayResumePause && low && speedStatus.speedPct == 0 && rawPlanner &&
+        (assist || (acceptedFrames == turn.frame && rawPlanner->hasPreparedFrame()));
     guard.unlock();
     if (assist) assist->assist([] {});
+    if (retryPause) {
+        mayResumePause = false;
+        recharge = true;
+    }
     return true;
 }
 } // namespace
@@ -939,12 +958,13 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     constexpr unsigned maximumBatch = drawn_pattern::queuedDurationMs / drawn_pattern::pulseFrameMs;
     bool recharge = false;
     unsigned allowance = maximumBatch;
-    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, allowance, recharge);
+    bool mayResumePause = true;
+    const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, allowance, recharge, mayResumePause);
     // Refill below the watermark during steady motion as well as at a live
     // retarget. Yield after one bounded visit, at the 14 ms refill
     // watermark, at the first declined write or on new control intent.
     while (recharge)
-        serviceTurn(revision, 0, refillNow, 1, true, allowance, recharge);
+        serviceTurn(revision, 0, refillNow, 1, true, allowance, recharge, mayResumePause);
     return active;
 }
 } // namespace streaming

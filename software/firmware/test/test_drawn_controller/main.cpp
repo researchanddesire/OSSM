@@ -43,6 +43,11 @@ void waitAtMotorGate(BlockedCommand command) {
     while (!releaseMotorGate.load()) std::this_thread::yield();
     depthAtMotorWrite = settings.depth;
 }
+constexpr char shelfQ16[] =
+        "00000285097b1400212f302640004fda5ed06c0076847d7b8000800080008000"
+        "8000800080007fff8000800080007fff80008000800080008000800080008000"
+        "80008000800080008000800080008000800080008000857f93ffa87fbfffd77f"
+        "ebfffa7ffffffc44f1d1e1c5cd3fb55d9b3d800064c24aa232c01e3a0e2e03bb";
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
 
 PatternStart start(bool local = false) { return startDrawnPattern(samples, 32, 2000, revision, local); }
@@ -258,6 +263,161 @@ void test_worker_retargets_from_last_accepted_frame_with_continuous_slider_chang
     TEST_ASSERT_GREATER_OR_EQUAL_UINT(64, stats.emptyTurns);
 }
 
+void test_pause_uses_only_exact_braking_rows_at_the_observed_5251st_cursor() {
+    using Planner = frame_plan::RawFramePlanner;
+    for (const unsigned available : {0u, 1u, Planner::pausePrefix}) {
+        frames.clear();
+        crossings.clear();
+        Planner::pumpInline = true;
+        motor.from = -2231;
+        motor.to = motor.position = -1049;
+        motor.speed = 200;
+        motor.strength = .5;
+        motor.acceleration = 500000;
+        compactHolds = true;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+            shelfQ16, sizeof(shelfQ16)-1, 12000, revision, true, drawn_pattern::SampleFormat::Q16)));
+        stopAtFrame = 2478 - Planner::retargetPrefix;
+        for (unsigned i = 0; frames.size() < stopAtFrame && i < 6000; ++i) tick();
+        TEST_ASSERT_EQUAL_UINT(stopAtFrame, frames.size());
+        motor.speed = 3000;
+        stopAtFrame = 5250;
+        for (unsigned i = 0; frames.size() < stopAtFrame && i < 6000; ++i) tick();
+        TEST_ASSERT_EQUAL_UINT(stopAtFrame, frames.size());
+        PatternRateStamp stamp;
+        TEST_ASSERT_TRUE(drawnPatternRateStamp(0, stamp));
+        TEST_ASSERT_EQUAL_UINT32(2478, stamp.frameIndex);
+        TEST_ASSERT_FLOAT_WITHIN(1e-8, .049486108f, stamp.phase);
+
+        // Accept the last positive row with the background worker suspended.
+        // A preview from the previous frame must not survive that acceptance.
+        Planner::pumpInline = false;
+        stopAtFrame = 5251;
+        tick();
+        TEST_ASSERT_EQUAL_UINT(5251, frames.size());
+        TEST_ASSERT_EQUAL_INT(int(Planner::Action::Wait), int(rawPlanner->preparePause([]{})));
+        while (rawPlanner->prepare([]{}) == Planner::Action::Produced) {}
+        for (unsigned i = 0; i < available; ++i)
+            TEST_ASSERT_EQUAL_INT(int(Planner::Action::Produced), int(rawPlanner->preparePause([]{})));
+
+        frame_plan::Inputs in;
+        in.limits = {0, clockAcceleration, clockJerk};
+        in.zero = true;
+        in.dt = .002;
+        in.lower = lower;
+        in.upper = upper;
+        frame_plan::Cursor cursor{motionPhase, vibration, committedTarget, true};
+        const float phaseBefore = cursor.phase.phase;
+        frame_plan::Frame expected[Planner::pausePrefix + 1];
+        for (auto &row : expected) {
+            frame_plan::calculate(in, cursor, row, curve, nullptr);
+            cursor = row;
+        }
+        stopAtFrame = 0;
+        feedback = {io::Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 8000};
+        motor.speed = 0;
+        tick();
+        TEST_ASSERT_GREATER_OR_EQUAL_UINT(5251 + std::max(1u,available), frames.size());
+        TEST_ASSERT_LESS_OR_EQUAL_UINT(5251 + Planner::pausePrefix + 1, frames.size());
+        for (unsigned i = 0; i < frames.size()-5251; ++i) {
+            TEST_ASSERT_EQUAL_INT(expected[i].target, frames[5251+i]);
+            TEST_ASSERT_EQUAL_UINT(expected[i].crossing, crossings[i]);
+        }
+        TEST_ASSERT_TRUE(drawnPatternRateStamp(0, stamp));
+        TEST_ASSERT_EQUAL_UINT32(5251, stamp.frameIndex);
+        TEST_ASSERT_EQUAL_FLOAT(phaseBefore, stamp.phase);
+        TEST_ASSERT_EQUAL_DOUBLE(0., stamp.goalRateHz);
+        cancelDrawnPattern();
+        PatternWork stats;
+        TEST_ASSERT_TRUE(stoppedPatternWork(stats));
+        TEST_ASSERT_EQUAL_UINT(1, stats.pauseChanges);
+        TEST_ASSERT_EQUAL_UINT(available, stats.pauseAdopted);
+    }
+}
+
+void test_inflight_braking_prediction_cannot_cross_a_control_or_owner_change() {
+    using Planner = frame_plan::RawFramePlanner;
+    enum class Change { Resume, Sensation, Stop, Guard, Lease, Geometry };
+    for (auto change : {Change::Resume, Change::Sensation, Change::Stop, Change::Guard,
+                        Change::Lease, Change::Geometry}) {
+        clockMs = 0;
+        frames.clear();
+        Planner::pumpInline = true;
+        motor.from = -1182;
+        motor.to = motor.position = 0;
+        motor.speed = 3000;
+        motor.strength = .5;
+        motor.acceleration = 500000;
+        motor.ready = true;
+        drawn_pattern::Modifiers marks;
+        marks.entries[marks.count++] = {0,800,0};
+        marks.entries[marks.count++] = {875,875,30000};
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
+            shelfQ16, sizeof(shelfQ16)-1, 12000, revision, false, drawn_pattern::SampleFormat::Q16, marks)));
+        compactHolds = true;
+        stopAtFrame = 500;
+        for (unsigned i = 0; frames.size() < stopAtFrame && i < 2000; ++i) tick();
+        Planner::pumpInline = false;
+        stopAtFrame = 501;
+        tick();
+        TEST_ASSERT_EQUAL_UINT(stopAtFrame, frames.size());
+        auto *planner = rawPlanner;
+        while (planner->prepare([]{}) == Planner::Action::Produced) {}
+        TEST_ASSERT_EQUAL_INT(int(Planner::Action::Produced), int(planner->preparePause([]{})));
+        // Hold a real background solve outside its ring lock. The feeder
+        // may consume the first exact marked braking row or cancel without
+        // granting this unfinished second row access to the new generation.
+        std::atomic<bool> captured{false}, resume{false};
+        planner->retainForTest();
+        std::thread worker([&] {
+            planner->preparePause([&] {
+                captured = true;
+                while (!resume.load()) std::this_thread::yield();
+            });
+            planner->releaseForTest();
+        });
+        while (!captured.load()) std::this_thread::yield();
+        const auto before = frames.size();
+        stopAtFrame = before + 1;
+        if (change == Change::Guard) motor.ready = false;
+        if (change == Change::Lease) clockMs += drawn_pattern::leaseMs;
+        if (change == Change::Geometry) motor.from += 20;
+        if (change == Change::Stop) cancelDrawnPattern();
+        motor.speed = 0;
+        if (change == Change::Sensation) motor.strength = 1;
+        tick();
+        const bool active = drawnPatternActive();
+        const auto after = frames.size();
+        PatternRateStamp stamp{};
+        if (active) {
+            drawnPatternRateStamp(0, stamp);
+            motor.speed = 1700;
+            tick();
+        }
+        resume = true;
+        worker.join();
+        if (change == Change::Resume || change == Change::Sensation) {
+            TEST_ASSERT_TRUE(active);
+            TEST_ASSERT_EQUAL_UINT(before + 1, after);
+            TEST_ASSERT_EQUAL_UINT32(before, stamp.frameIndex);
+            TEST_ASSERT_EQUAL_DOUBLE(0, stamp.goalRateHz);
+            Planner::pumpInline = true;
+            stopAtFrame = before + 4;
+            tick(5);
+            TEST_ASSERT_TRUE(drawnPatternRateStamp(0, stamp));
+            TEST_ASSERT_EQUAL_UINT32(after, stamp.frameIndex);
+            TEST_ASSERT_GREATER_THAN_DOUBLE(0, stamp.goalRateHz);
+            cancelDrawnPattern();
+        } else {
+            TEST_ASSERT_FALSE(active);
+            TEST_ASSERT_EQUAL_UINT(before, after);
+        }
+        PatternWork stats;
+        TEST_ASSERT_TRUE(stoppedPatternWork(stats));
+        TEST_ASSERT_EQUAL_UINT(change == Change::Resume ? 1u : 0u, stats.pauseAdopted);
+    }
+}
+
 void test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on_real_exhaustion() {
     using Planner = frame_plan::RawFramePlanner;
     Planner::pumpInline = false;
@@ -390,11 +550,7 @@ void test_saved_marked_speed_change_refills_through_the_first_fading_gain_comman
     using namespace drawn_pattern;
     // Actual 23.95 mm saved Q16 trial, before the vibration window.
     // The 1% path was still active when a 16% Speed edit began its fade.
-    constexpr char wire[] =
-        "00000285097b1400212f302640004fda5ed06c0076847d7b8000800080008000"
-        "8000800080007fff8000800080007fff80008000800080008000800080008000"
-        "80008000800080008000800080008000800080008000857f93ffa87fbfffd77f"
-        "ebfffa7ffffffc44f1d1e1c5cd3fb55d9b3d800064c24aa232c01e3a0e2e03bb";
+
     Modifiers marks;
     marks.entries[marks.count++] = {200,625,0};
     marks.entries[marks.count++] = {875,875,30000};
@@ -404,7 +560,7 @@ void test_saved_marked_speed_change_refills_through_the_first_fading_gain_comman
     motor.strength = 1;
     motor.acceleration = 500000;
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(startDrawnPattern(
-        wire, sizeof(wire)-1, 12000, revision, true, SampleFormat::Q16, marks)));
+        shelfQ16, sizeof(shelfQ16)-1, 12000, revision, true, SampleFormat::Q16, marks)));
     compactHolds = true;
     stopAtFrame = 443;
     while (frames.size() < stopAtFrame && clockMs < 3000) tick();
@@ -1811,6 +1967,8 @@ int main() {
     RUN_TEST(test_worker_allocation_failure_leaves_motor_and_serial_available);
     RUN_TEST(test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop);
     RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);
+    RUN_TEST(test_inflight_braking_prediction_cannot_cross_a_control_or_owner_change);
+    RUN_TEST(test_pause_uses_only_exact_braking_rows_at_the_observed_5251st_cursor);
     RUN_TEST(test_live_clock_survives_observed_22ms_without_background_rows_and_stops_on_real_exhaustion);
     RUN_TEST(test_two_planners_publish_one_ordinal_and_an_explicit_stop_during_assist_retains_nothing);
     RUN_TEST(test_live_positive_retarget_recharges_low_peripheral_and_stamps_only_latest_boundary);

@@ -107,6 +107,7 @@ class RawFramePlanner {
 public:
     static constexpr unsigned capacity = FrameQueue::capacity;
     static constexpr unsigned warmupRows = 12;
+    static constexpr unsigned pausePrefix = 4;
     // Only a positive Speed-to-Speed edit may finish this already-planned
     // prefix. At 2 ms/frame it gives the new law at most 16 ms of software
     // handoff. A second edit cannot extend the boundary.
@@ -120,6 +121,7 @@ public:
     drawn_pattern::VibrationBudget previousBudget;
     struct Counters {
         uint32_t produced = 0, discarded = 0, emptyTurns = 0, peakDepth = 0;
+        uint32_t pauseComputed = 0, pauseAdopted = 0, pauseChanges = 0, pauseMaxUs = 0;
         uint32_t stackFree = 0, assistAttempts = 0, assistPublished = 0, assistMaxUs = 0;
     };
 
@@ -139,6 +141,9 @@ public:
 #else
         if (!workerAvailable) return false;
 #endif
+        // Optional speculation must never take memory needed for the normal
+        // planner queue or its task stack. The first configure publishes it.
+        pauseRows_.reset(new (std::nothrow) Frame[pausePrefix]);
         return true;
     }
 
@@ -170,6 +175,7 @@ public:
     void invalidate(bool warmup = false) {
         std::lock_guard<RingMutex> guard(mux_);
         ++generation_;
+        pauseCount_ = 0;
         counters_.discarded += rows_.size();
         rows_.clear(tail_);
         configured_ = false;
@@ -184,12 +190,46 @@ public:
     void retarget(drawn_pattern::VibrationClock &boundaryVibration) {
         std::lock_guard<RingMutex> guard(mux_);
         ++generation_;
+        pauseCount_ = 0;
         const unsigned before = rows_.size();
         retained_ = rows_.truncate(positivePending_ ? retained_ : retargetPrefix, tail_);
         counters_.discarded += before - retained_;
         if (retained_) boundaryVibration = tail_.vibration;
         positivePending_ = true;
         configured_ = false;
+    }
+
+    // Switch at the last hardware-accepted positive row. Any precomputed
+    // braking rows start at exactly that cursor. No positive suffix survives.
+    void pause(const Inputs &in, const Cursor &accepted) {
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            ++generation_;
+            counters_.discarded += rows_.size();
+            configured_ = false;
+            retained_ = 0;
+            positivePending_ = false;
+            ++counters_.pauseChanges;
+        }
+        // The motor mailbox serializes the consumer. Both producers now
+        // see an unconfigured queue and stale calculations cannot publish.
+        // Encode the prefix with interrupts enabled, then release it once.
+        rows_.clear(accepted);
+        tail_ = accepted;
+        for (unsigned i = 0; i < pauseCount_; ++i) {
+            rows_.push(pauseRows_[i], tail_);
+            tail_ = pauseRows_[i];
+        }
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            tailOrdinal_ += pauseCount_;
+            counters_.produced += pauseCount_;
+            counters_.pauseAdopted += pauseCount_;
+            pauseCount_ = 0;
+            inputs_ = in;
+            configured_ = true;
+        }
+        wake();
     }
 
     // Only the serialized motor consumer reads or changes these two fields.
@@ -201,6 +241,42 @@ public:
     template<class AfterSnapshot>
     Action prepare(AfterSnapshot afterSnapshot) {
         return prepareRow(workerLane_, capacity - 1, false, afterSnapshot);
+    }
+
+    // Same worker and private polynomial cache as normal production. Start
+    // an optional braking solve only when the normal queue is already full.
+    // Recheck after each row. A pop, retarget or Stop cancels a stale solve.
+    template<class AfterSnapshot>
+    Action preparePause(AfterSnapshot afterSnapshot) {
+        auto &lane = workerLane_;
+        uint32_t generation, committed;
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            if (closed_) return Action::Exit;
+            if (!configured_ || !warmed_ || inputs_.zero || positivePending_ || !rows_.full() ||
+                !pauseRows_ || pauseCount_ == pausePrefix || !rows_.committed().targetKnown)
+                return Action::Wait;
+            generation = generation_;
+            committed = committedOrdinal_;
+            lane.start = pauseCount_ ? static_cast<const Cursor &>(pauseRows_[pauseCount_ - 1])
+                                     : rows_.committed();
+            lane.inputs = inputs_;
+            lane.inputs.zero = true;
+            lane.inputs.limits.rate = 0;
+            lane.inputs.vibrationEnabled = false;
+            lane.reloadInputs = true;
+        }
+        afterSnapshot();
+        calculate(lane.inputs, lane.start, lane.row, lane.model, marking ? &marking->index : nullptr);
+        {
+            std::lock_guard<RingMutex> guard(mux_);
+            if (closed_) return Action::Exit;
+            ++counters_.pauseComputed;
+            counters_.pauseMaxUs = std::max(counters_.pauseMaxUs, lane.row.planUs);
+            if (generation == generation_ && committed == committedOrdinal_)
+                pauseRows_[pauseCount_++] = lane.row;
+        }
+        return Action::Produced;
     }
 
     // Called with playback ownership still held. A helper holds a lifetime
@@ -230,7 +306,10 @@ public:
     // the front slot, even while the motor is retrying its previous submit.
     Frame *front() {
 #ifndef ARDUINO
-        if (pumpInline) while (prepare([] {}) == Action::Produced) {}
+        if (pumpInline) {
+            while (prepare([] {}) == Action::Produced) {}
+            while (preparePause([] {}) == Action::Produced) {}
+        }
 #endif
         std::lock_guard<RingMutex> guard(mux_);
         if (warmed_ && rows_.size()) return rows_.front();
@@ -262,6 +341,8 @@ public:
             else positivePending_ = false;
             const bool full = rows_.full();
             rows_.pop();
+            ++committedOrdinal_;
+            pauseCount_ = 0;
             if (decodeNext) next = rows_.front();
             refill = full && !rows_.full();
         }
@@ -286,12 +367,16 @@ private:
         Inputs inputs;
         Cursor start;
         Frame row;
-        uint32_t generation = UINT32_MAX;
+        uint32_t generation = 0;
+        bool reloadInputs = true;
     };
     Lane workerLane_, assistLane_;
     Inputs inputs_;
     Cursor tail_;
     FrameQueue rows_;
+    std::unique_ptr<Frame[]> pauseRows_;
+    uint32_t committedOrdinal_ = 0;
+    unsigned pauseCount_ = 0;
     Counters counters_;
     unsigned assistAtDepth_ = 0, retained_ = 0;
     uint32_t generation_ = 0, tailOrdinal_ = 0;
@@ -306,7 +391,8 @@ private:
             if (!configured_ || rows_.full() || rows_.size() > maximumReady) return Action::Wait;
             ordinal = tailOrdinal_;
             lane.start = tail_;
-            if (lane.generation != generation_) {
+            if (lane.reloadInputs || lane.generation != generation_) {
+                lane.reloadInputs = false;
                 lane.generation = generation_;
                 lane.inputs = inputs_;
             }
@@ -340,7 +426,8 @@ private:
         unsigned batch = 0;
         TickType_t measuredAt = xTaskGetTickCount() - pdMS_TO_TICKS(1000);
         for (;;) {
-            const auto action = self->prepare([] {});
+            auto action = self->prepare([] {});
+            if (action == Action::Wait) action = self->preparePause([] {});
             if (action == Action::Exit) break;
             if (action == Action::Wait) {
                 const auto now = xTaskGetTickCount();

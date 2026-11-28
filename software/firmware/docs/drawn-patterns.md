@@ -126,6 +126,17 @@ after initial warmup. Maximum depth is measured in software frames. The last
 field is the worker's minimum unused stack in bytes as last sampled. Zero
 indicates no reading. Both the worker and its ring are released after Stop.
 
+When the positive STEP/DIR queue is full, the same planner can use idle
+capacity to prepare up to four 2 ms braking frames from the last accepted
+position and phase. Every newly accepted positive frame or control change
+retires this prediction. A Speed change to zero uses the current prediction
+or computes the first braking row on demand. Stop and the motor guard still
+revoke immediately. After Stop, `patternpause` returns
+`RAD_PATTERN_PAUSE computed adopted changes maximumComputeUs`. Computed
+includes speculative rows overtaken by a new cursor. Adopted counts rows
+copied into the braking plan before motor admission. Changes counts the
+eligible positive-to-zero transitions during this Play.
+
 ## Experimental sensation modifiers
 
 A drawing can contain vibration ranges and pause points. Their locations are fractions of the drawing's original cycle, so starting playback at the first minimum keeps every marker attached to its drawn position.

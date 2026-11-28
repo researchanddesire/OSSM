@@ -77,6 +77,7 @@ struct PatternWork {
     uint64_t movingPlanTotalUs = 0;
     uint32_t maxMovingPlanUs = 0, immediateTurns = 0, lowWaterYields = 0;
     uint32_t prepared = 0, discarded = 0, emptyTurns = 0, maxPrepared = 0, plannerStackFree = 0;
+    uint32_t pauseComputed = 0, pauseAdopted = 0, pauseChanges = 0, pauseMaxUs = 0;
     uint16_t lastQueuedUs = 0, minRunningUs = UINT16_MAX, maxQueuedUs = 0;
 };
 bool stoppedPatternWork(PatternWork &out);

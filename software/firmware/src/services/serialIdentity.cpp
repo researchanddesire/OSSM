@@ -193,6 +193,16 @@ void announcePatternFeel(uint32_t sequence) {
                   unsigned(gap.lastOtherOffsetUs), unsigned(gap.combinedHoldFrames));
 }
 
+[[gnu::noinline]] void announcePatternPause() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_PAUSE unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_PAUSE %u %u %u %u\n", unsigned(work.pauseComputed),
+                  unsigned(work.pauseAdopted), unsigned(work.pauseChanges), unsigned(work.pauseMaxUs));
+}
+
 [[gnu::noinline]] void announcePatternPlanner() {
     streaming::PatternWork work;
     if (!streaming::stoppedPatternWork(work)) {
@@ -260,6 +270,7 @@ void console(void*) {
             else if (strcmp(command, "patternwork") == 0) announcePatternWork();
             else if (serialIdentity::unsignedArgument(command, "patternsched", argument))
                 announcePatternSchedule(argument);
+            else if (strcmp(command, "patternpause") == 0) announcePatternPause();
             else if (strcmp(command, "patternplanner") == 0) announcePatternPlanner();
             else if (strcmp(command, "patterngap") == 0) announcePatternGap();
             else if (strcmp(command, "patternretry") == 0) announcePatternRetry();
