@@ -1,6 +1,7 @@
 #ifndef OSSM_UTILS_BOUNDED_QUEUE_H
 #define OSSM_UTILS_BOUNDED_QUEUE_H
 
+#include <algorithm>
 #include <cstddef>
 #include <deque>
 #include <mutex>
@@ -50,6 +51,13 @@ class BoundedQueue {
         if (items_.empty()) return false;
         out = items_.front();
         return true;
+    }
+
+    // Retire only work belonging to the lost/superseded authority.
+    template <class Predicate>
+    void removeIf(Predicate predicate) {
+        std::lock_guard<std::mutex> guard(lock_);
+        items_.erase(std::remove_if(items_.begin(), items_.end(), predicate), items_.end());
     }
 
     void clear() {

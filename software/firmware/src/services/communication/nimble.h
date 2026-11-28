@@ -69,6 +69,7 @@ extern NimBLEServer* pServer;
 // arrived on `connHandle` (0xffff when the sender is unknown). Motion
 // commands make that link the motion owner and cancel a running disconnect
 // ramp-down.
+bool enqueueLegacyBleCommand(uint16_t connection, const std::string &command);
 void noteBleMotionCommand(uint16_t connHandle, const std::string& command);
 
 streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
