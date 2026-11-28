@@ -367,6 +367,14 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
     if (started == PatternStart::Accepted) return patternStatus();
     if (started == PatternStart::Busy)
         return radble::Result::failure("busy", "Stop the current pattern before playing another");
+    if (started == PatternStart::MarkerMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern markers");
+    if (started == PatternStart::PlannerMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern planner");
+    if (started == PatternStart::QueueMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern queue");
+    if (started == PatternStart::WorkerMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern worker");
     if (started == PatternStart::Invalid)
         return radble::Result::failure("invalid_value", "Invalid pattern");
     return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");

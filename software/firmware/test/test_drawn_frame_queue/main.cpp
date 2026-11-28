@@ -7,6 +7,37 @@ using namespace streaming::frame_plan;
 using namespace drawn_pattern;
 
 namespace {
+size_t refuseArraySize = 0;
+}
+
+void *operator new[](size_t size, const std::nothrow_t &) noexcept {
+    if (size == refuseArraySize) return nullptr;
+    return ::operator new[](size);
+}
+
+namespace {
+void test_startup_buffers_fail_without_changing_old_markers_or_a_new_queue() {
+    Modifiers marks;
+    TEST_ASSERT_TRUE(marks.reserve(Modifiers::capacity));
+    for (uint16_t i = 0; i < Modifiers::capacity; ++i) marks.entries[marks.count++] = {i, i, uint16_t(i + 1)};
+    MarkerIndex index;
+    TEST_ASSERT_TRUE(index.reset(marks, 0.));
+    refuseArraySize = 2000;
+    TEST_ASSERT_FALSE(index.tryCompactFullPauseGrid(marks, .25));
+    uint16_t duration = 0;
+    TEST_ASSERT_EQUAL_DOUBLE(.999, index.upcoming(.9985, duration));
+    TEST_ASSERT_EQUAL_UINT16(1000, duration);
+    refuseArraySize = 3840;
+    FrameQueue refused;
+    TEST_ASSERT_FALSE(refused.hasStorage());
+    refuseArraySize = 0;
+    FrameQueue retry;
+    TEST_ASSERT_TRUE(retry.hasStorage());
+    TEST_ASSERT_TRUE(index.tryCompactFullPauseGrid(marks, .25));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-12, .749, index.upcoming(.7485, duration));
+    TEST_ASSERT_EQUAL_UINT16(1000, duration);
+}
+
 void equalCursor(const Cursor &expected, const Cursor &actual) {
     TEST_ASSERT_EQUAL_MEMORY(&expected.phase, &actual.phase, sizeof(MarkedPhase));
     TEST_ASSERT_EQUAL_MEMORY(&expected.vibration, &actual.vibration, sizeof(VibrationClock));
@@ -181,11 +212,12 @@ void test_fully_populated_markers_survive_queue_clear_and_new_generation() {
 }
 }
 
-void setUp() {}
+void setUp() { refuseArraySize = 0; }
 void tearDown() {}
 
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_startup_buffers_fail_without_changing_old_markers_or_a_new_queue);
     RUN_TEST(test_retries_wrap_marks_and_retained_boundary_match_uncompressed_rows);
     RUN_TEST(test_complete_literal_rows_and_full_queue_refusal_are_lossless);
     RUN_TEST(test_fully_populated_markers_survive_queue_clear_and_new_generation);

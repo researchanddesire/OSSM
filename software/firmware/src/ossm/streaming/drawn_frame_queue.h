@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <new>
 #include <type_traits>
 
 #include "drawn_modifier_motion.h"
@@ -33,6 +35,7 @@ public:
     static constexpr unsigned capacity = 64;
     static constexpr unsigned maxRetained = 8;
 
+    bool hasStorage() const { return static_cast<bool>(storage_); }
     unsigned size() const { return count_; }
     bool full() const {
         return count_ == capacity || storageWords - used_ < maxRecordWords;
@@ -159,7 +162,9 @@ private:
 
     Cursor accepted_;
     Frame front_;
-    uint32_t storage_[storageWords];
+    // Allocate before starting the worker. The unchanged 64-row ring and
+    // controller can occupy separate heap blocks on a fragmented ESP32.
+    std::unique_ptr<uint32_t[]> storage_{new (std::nothrow) uint32_t[storageWords]};
     uint8_t lengths_[capacity];
     unsigned firstRecord_ = 0, count_ = 0, read_ = 0, write_ = 0, used_ = 0;
     bool decoded_ = false;

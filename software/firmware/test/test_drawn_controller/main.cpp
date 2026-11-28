@@ -141,7 +141,7 @@ void test_worker_allocation_failure_leaves_motor_and_serial_available() {
     using Planner = frame_plan::RawFramePlanner;
     Planner::workerAvailable = false;
     motor.speed = 250;
-    TEST_ASSERT_EQUAL_INT(int(PatternStart::Busy), int(start()));
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::WorkerMemory), int(start()));
     TEST_ASSERT_FALSE(drawnPatternActive());
     TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
     TEST_ASSERT_EQUAL_UINT(0, stops);
@@ -1022,29 +1022,37 @@ void test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause() {
     TEST_ASSERT_FALSE(activeMarkers);
 }
 
-void test_full_pause_grid_transfers_owned_pages_and_stops_on_both_backends() {
+void test_full_pause_grid_releases_decoded_pages_and_survives_zero_on_both_backends() {
     using namespace drawn_pattern;
     for (bool serial : {false, true}) {
         motor.serial = serial;
-        motor.speed = 450;
+        motor.speed = 0;
         motor.stepsPerMm = 20;
         motor.strength = 1.;
         auto effects = std::make_unique<Modifiers>();
         TEST_ASSERT_TRUE(effects->reserve(1000));
         effects->count = 1000;
         for (uint16_t i = 0; i < 1000; ++i) effects->entries[i] = {i, i, uint16_t(i + 1)};
-        const auto *last = &effects->entries[999];
+
         TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
                               int(startOwnedDrawnPattern(samples, 32, 2000, revision, true,
                                                          SampleFormat::Q8, std::move(effects))));
         TEST_ASSERT_NULL(effects.get());
-        TEST_ASSERT_EQUAL_PTR(last, &activeMarkers->authored.entries[999]);
+        TEST_ASSERT_EQUAL_UINT(0, activeMarkers->authored.count);
+        TEST_ASSERT_EQUAL_UINT(4, activeMarkers->authored.entries.allocated());
         uint16_t duration;
         TEST_ASSERT_DOUBLE_WITHIN(1e-10, .999, activeMarkers->index.upcoming(.9985, duration));
         TEST_ASSERT_EQUAL_UINT16(1000, duration);
         TEST_ASSERT_DOUBLE_WITHIN(1e-10, 1., activeMarkers->index.upcoming(.9995, duration));
         TEST_ASSERT_EQUAL_UINT16(1, duration);
-        tick(25);
+        const auto sent = frames.size();
+        const auto entries = entrySubmissions;
+        tick(6000);
+        TEST_ASSERT_EQUAL_UINT(sent, frames.size());
+        TEST_ASSERT_EQUAL_INT(entries, entrySubmissions);
+        motor.speed = 450;
+        tick(100);
+        TEST_ASSERT_GREATER_THAN_UINT(sent, frames.size());
         TEST_ASSERT_TRUE(drawnPatternActive());
         cancelDrawnPattern();
         TEST_ASSERT_FALSE(drawnPatternActive());
@@ -1414,7 +1422,7 @@ int main() {
     RUN_TEST(test_retry_reuses_frame_but_replans_for_live_inputs_and_safety);
     RUN_TEST(test_refill_turn_is_bounded_and_retains_work_only_after_stop);
     RUN_TEST(test_remote_long_hold_keeps_lease_stop_and_guard_live_on_both_backends);
-    RUN_TEST(test_full_pause_grid_transfers_owned_pages_and_stops_on_both_backends);
+    RUN_TEST(test_full_pause_grid_releases_decoded_pages_and_survives_zero_on_both_backends);
     RUN_TEST(test_high_ordinal_markers_survive_controller_copy_and_give_exact_pause);
     RUN_TEST(test_modifier_zero_reproduces_each_original_target_and_strength_writes_obey_ownership);
     RUN_TEST(test_marked_plateau_streams_six_hz_through_both_backends_and_hard_stop);

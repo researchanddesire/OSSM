@@ -14,6 +14,25 @@ namespace drawn_pattern {
     // copy only the clock/cursor, never the authored marker list.
     class MarkerIndex {
       public:
+        // A full pause grid has a point at every authored tick. Its tick is its
+        // array index, leaving only the 16-bit duration to own during playback.
+        bool tryCompactFullPauseGrid(const Modifiers &items, double firstMinimum) {
+            if (items.count != Modifiers::capacity) return false;
+            for (unsigned i = 0; i < items.count; ++i) {
+                const auto &m = items.entries[i];
+                if (!m.isPause() || m.start != i) return false;
+            }
+            std::unique_ptr<uint16_t[]> durations(new (std::nothrow) uint16_t[Modifiers::capacity]);
+            if (!durations) return false;
+            for (unsigned i = 0; i < items.count; ++i) durations[i] = items.entries[i].holdMs;
+            pauseData = std::move(durations);
+            holds = items.count;
+            offset = firstMinimum;
+            hasVibration = false;
+            markers = nullptr;
+            return true;
+        }
+
         bool reset(const Modifiers &items, double firstMinimum) {
             markers = &items;
             offset = firstMinimum;
@@ -26,14 +45,14 @@ namespace drawn_pattern {
             // If every marker is a pause its lookup index is its own ordinal.
             // A fully occupied pause grid needs no second 2,000-byte allocation.
             if (holds == items.count) {
-                extraPauses.reset();
+                pauseData.reset();
                 return true;
             }
-            extraPauses.reset(holds > inlineCapacity ? new (std::nothrow)
+            pauseData.reset(holds > inlineCapacity ? new (std::nothrow)
                                                            uint16_t[holds]
                                                      : nullptr);
-            if (holds > inlineCapacity && !extraPauses) return false;
-            uint16_t *out = extraPauses ? extraPauses.get() : inlinePauses;
+            if (holds > inlineCapacity && !pauseData) return false;
+            uint16_t *out = pauseData ? pauseData.get() : inlinePauses;
             for (unsigned i = 0; i < items.count; ++i)
                 if (items.entries[i].isPause()) *out++ = static_cast<uint16_t>(i);
             return true;
@@ -61,11 +80,20 @@ namespace drawn_pattern {
 
         // First pause at/after a threshold in unwrapped playback coordinates.
         double upcoming(double threshold, uint16_t &duration) const {
-            const uint16_t *pauses = nullptr;
-            if (holds != markers->count) pauses = extraPauses ? extraPauses.get() : inlinePauses;
             const double t = threshold + offset;
             double cycle = std::floor(t);
             const double at = (t - cycle) * 1000;
+            if (!markers) {
+                unsigned tick = static_cast<unsigned>(std::ceil(at - 1e-10));
+                if (tick == Modifiers::capacity) {
+                    tick = 0;
+                    ++cycle;
+                }
+                duration = pauseData[tick];
+                return cycle + tick / 1000.0 - offset;
+            }
+            const uint16_t *pauses = nullptr;
+            if (holds != markers->count) pauses = pauseData ? pauseData.get() : inlinePauses;
             unsigned lo = 0, hi = holds;
             while (lo < hi) {
                 const unsigned k = (lo + hi) / 2;
@@ -91,7 +119,8 @@ namespace drawn_pattern {
         double offset = 0;
         static constexpr unsigned inlineCapacity = 4;
         uint16_t inlinePauses[inlineCapacity]{};
-        std::unique_ptr<uint16_t[]> extraPauses;
+        std::unique_ptr<uint16_t[]> pauseData;
+
     };
 
     struct PhaseLimits {

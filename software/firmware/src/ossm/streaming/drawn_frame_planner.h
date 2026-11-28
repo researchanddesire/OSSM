@@ -125,7 +125,10 @@ public:
     RawFramePlanner(const drawn_pattern::Waveform &source, std::unique_ptr<Marking> markers)
         : marking(std::move(markers)), workerLane_(source), assistLane_(source) {}
 
+    bool hasQueueStorage() const { return rows_.hasStorage(); }
+
     bool start() {
+        if (!hasQueueStorage()) return false;
 #ifdef ARDUINO
         ++references_;
         if (xTaskCreatePinnedToCore(workerMain, "drawnPlan", stackBytes, this, 8, &worker_, 0) != pdPASS) {

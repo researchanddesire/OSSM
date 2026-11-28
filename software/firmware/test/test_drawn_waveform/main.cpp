@@ -959,6 +959,34 @@ void test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength
     TEST_ASSERT_GREATER_THAN_DOUBLE(0, motion.phase);
 }
 
+void test_compact_pause_grid_matches_every_authored_boundary_and_wrap() {
+    using namespace drawn_pattern;
+    Modifiers marks;
+    TEST_ASSERT_TRUE(marks.reserve(Modifiers::capacity));
+    for (uint16_t i = 0; i < Modifiers::capacity; ++i)
+        marks.entries[marks.count++] = {i, i, static_cast<uint16_t>(1 + (i * 97u) % 60000u)};
+    marks.entries[0] = {0, 0, 60000};
+    marks.entries[999] = {999, 999, 32768};
+    for (double offset : {0., .3125, .999}) {
+        MarkerIndex compact, sparse;
+        TEST_ASSERT_TRUE(sparse.reset(marks, offset));
+        TEST_ASSERT_TRUE(compact.tryCompactFullPauseGrid(marks, offset));
+        for (int i = -1000; i <= 2000; ++i) {
+            for (double d : {-1e-12, -1e-14, 0., 1e-14, 1e-12, .000499}) {
+                const double phase = i / 1000.0 + d - offset;
+                uint16_t originalDuration, compactDuration;
+                TEST_ASSERT_EQUAL_DOUBLE(sparse.upcoming(phase, originalDuration),
+                                         compact.upcoming(phase, compactDuration));
+                TEST_ASSERT_EQUAL_UINT16(originalDuration, compactDuration);
+            }
+        }
+        TEST_ASSERT_NULL(compact.range(.25));
+    }
+    --marks.count;
+    MarkerIndex incomplete;
+    TEST_ASSERT_FALSE(incomplete.tryCompactFullPauseGrid(marks, 0));
+}
+
 void test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks() {
     using namespace drawn_pattern;
     Modifiers items;
@@ -1002,6 +1030,7 @@ int main() {
     RUN_TEST(test_deliberate_raw_park_requires_positive_tail_and_verified_empty_anchor);
     RUN_TEST(test_stationary_entry_requires_untouched_empty_driver_and_matching_position);
     RUN_TEST(test_crossing_clock_projection_matches_full_clock_during_retargets);
+    RUN_TEST(test_compact_pause_grid_matches_every_authored_boundary_and_wrap);
     RUN_TEST(test_cached_pause_horizon_matches_exact_braking_on_both_frame_clocks);
     RUN_TEST(test_long_stationary_intervals_use_real_time_at_full_half_and_live_strength);
     RUN_TEST(test_live_sensation_changes_the_duration_of_the_current_pause);

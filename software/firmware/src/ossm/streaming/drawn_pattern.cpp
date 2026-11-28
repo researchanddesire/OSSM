@@ -557,23 +557,34 @@ static PatternStart startPattern(const char *hex, size_t length, uint32_t period
     std::unique_ptr<Marking> marks;
     if (modifiers.count) {
         marks.reset(new (std::nothrow) Marking);
-        if (!marks) return PatternStart::Busy;
-        if (owned) marks->authored.takeFrom(*owned);
-        else if (!marks->authored.assign(modifiers)) return PatternStart::Busy;
-        if (!marks->index.reset(marks->authored, incoming.authoredStart())) return PatternStart::Busy;
+        if (!marks) return PatternStart::MarkerMemory;
+        if (marks->index.tryCompactFullPauseGrid(modifiers, incoming.authoredStart())) {
+            if (owned) {
+                // Release the decoded slot's pages before allocating the planner.
+                drawn_pattern::Modifiers released;
+                released.takeFrom(*owned);
+            }
+        } else {
+            // A serial backend can still play the already-owned pages even
+            // if a contiguous compact duration table did not fit.
+            if (owned) marks->authored.takeFrom(*owned);
+            else if (!marks->authored.assign(modifiers)) return PatternStart::MarkerMemory;
+            if (!marks->index.reset(marks->authored, incoming.authoredStart())) return PatternStart::MarkerMemory;
+        }
     }
     if (caps.serial) {
         pending.reset(new (std::nothrow) frame_plan::Frame);
-        if (!pending) return PatternStart::Busy;
+        if (!pending) return PatternStart::QueueMemory;
         serialMarkers = std::move(marks);
         activeMarkers = serialMarkers.get();
     } else {
         auto *planner = new (std::nothrow) RawFramePlanner(incoming, std::move(marks));
-        if (!planner) return PatternStart::Busy;
+        if (!planner) return PatternStart::PlannerMemory;
         if (!planner->start()) {
+            const auto result = planner->hasQueueStorage() ? PatternStart::WorkerMemory : PatternStart::QueueMemory;
             RawFramePlanner::Counters unused;
             planner->close(unused);
-            return PatternStart::Busy;
+            return result;
         }
         rawPlanner = planner;
         activeMarkers = planner->marking.get();
