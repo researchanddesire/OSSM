@@ -497,6 +497,28 @@ void test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocatio
     }
 }
 
+void test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix() {
+    using namespace drawn_pattern;
+    PulseBatch batch;
+    batch.count = 1;
+    batch.attempts[0] = {{Frame::Retry, "pulse_full"}, 100};
+    batch.revoke(105);
+    TEST_ASSERT_TRUE(batch.revoked);
+    TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(batch.attempts[0].result.state));
+    TEST_ASSERT_EQUAL_STRING("guard", batch.attempts[0].result.reason);
+    TEST_ASSERT_EQUAL_UINT32(105, batch.attempts[0].atUs);
+
+    PulseBatch prefix;
+    prefix.count = 2;
+    prefix.attempts[0] = {{Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 1698}, 100};
+    prefix.attempts[1] = {{Frame::Retry, "pulse_append", 4}, 103};
+    prefix.revoke(105);
+    TEST_ASSERT_TRUE(prefix.revoked);
+    TEST_ASSERT_EQUAL_UINT(2, prefix.count);
+    TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(prefix.attempts[0].result.state));
+    TEST_ASSERT_EQUAL_INT8(4, prefix.attempts[1].result.driverResult);
+}
+
 void test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance() {
     using namespace drawn_pattern;
     // Captured 30.60 mm Q8 brake: accepted row 729 generated a 27,180-tick
@@ -1108,6 +1130,7 @@ int main() {
     RUN_TEST(test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives);
     RUN_TEST(test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_driver);
     RUN_TEST(test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation);
+    RUN_TEST(test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix);
     RUN_TEST(test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);
     RUN_TEST(test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets);

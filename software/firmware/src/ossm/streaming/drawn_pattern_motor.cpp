@@ -119,11 +119,7 @@ void submitPrepared(drawn_pattern::PulseBatch &batch, drawn_pattern::PreparedPul
     if (!authorized) {
         // The safety owner can revoke before this lock or during the final
         // append. Its immediate physical cut supersedes the whole session.
-        batch.revoked = true;
-        if (!batch.count) {
-            batch.count = 1;
-            batch.attempts[0] = {{Frame::Rejected, "guard"}, patternServiceMicros()};
-        }
+        batch.revoke(patternServiceMicros());
     }
     batch.attempts[0].result.commandGateUs = authorized ? gateUs : micros() - start;
 }

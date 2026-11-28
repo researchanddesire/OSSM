@@ -89,6 +89,16 @@ struct PulseBatch {
     unsigned count = 0;
     bool revoked = false, controlsChanged = false;
 
+    void revoke(uint32_t nowUs) {
+        revoked = true;
+        if (!count || attempts[0].result.state != Frame::Accepted) {
+            // No accepted prefix exists. A simultaneous full-queue Retry
+            // must never defer a definitive guard or ownership revocation.
+            count = 1;
+            attempts[0] = {{Frame::Rejected, "guard"}, nowUs};
+        }
+    }
+
     template<class Write, class Allowed, class Clock>
     void submit(PreparedPulses::Target first, const PreparedPulses &next, Write write,
                 Allowed allowed, Clock clock) {
