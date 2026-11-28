@@ -45,7 +45,7 @@ inline void submitPrepared(drawn_pattern::PulseBatch &batch, drawn_pattern::Prep
         return;
     }
     batch.submit(first, next, [&](auto target) {
-        return submit(target.position, revision, false, target.crossing, 0);
+        return submit(target.position, revision, false, target.crossing, target.followingHolds);
     }, mayContinue, patternServiceMicros);
 }
 // The host backend sets this observation when replaying a peripheral stop.

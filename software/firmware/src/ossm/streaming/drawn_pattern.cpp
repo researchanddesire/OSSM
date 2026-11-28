@@ -444,24 +444,22 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         const bool steady = rawClockStarted && rawPlanner && !softwareEntry && !zero &&
             !rawPlanner->positivePending() && stampedGoal == speedStatus.phaseRateHz &&
             lastAppliedPeriod == speedStatus.periodMs;
-        const bool mayGroupWaits = steady && !activeMarkers && frame.from == frame.target;
-        const unsigned following = mayGroupWaits
-            ? std::min(remaining - 1, rawPlanner->followingHolds(frame.target)) : 0;
         drawn_pattern::PreparedPulses successors;
-        if (steady && !following && remaining > 1 &&
+        drawn_pattern::PreparedPulses::Target first{frame.target, frame.crossing, 0, frame.from == frame.target};
+        if (steady && remaining > 1 &&
             (!activeMarkers || (lastStampedStrength == caps.strength &&
              frame.vibration.gain.goal() == vibration.gain.goal() &&
              !reconfigureAfterFade && (!reserveVibration || requestedVibration)))) {
             rawPlanner->successors(successors, remaining - 1);
+            if (!activeMarkers) successors.groupWaits(first);
         }
 
         drawn_pattern::PulseBatch batch;
         if (successors.count) {
-            pattern_motor::submitPrepared(batch, {frame.target, frame.crossing}, successors,
-                                          owner, caps, mayContinueBurst);
+            pattern_motor::submitPrepared(batch, first, successors, owner, caps, mayContinueBurst);
         } else {
             batch.count = 1;
-            batch.attempts[0].result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, following);
+            batch.attempts[0].result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, 0);
             batch.attempts[0].atUs = patternServiceMicros();
         }
 
@@ -850,8 +848,8 @@ bool serviceDrawnPattern(uint64_t revision, uint32_t wakeUs, bool *refillNow) {
     unsigned allowance = maximumBatch;
     const bool active = serviceTurn(revision, wakeUs, refillNow, ordinaryBatch, false, allowance, recharge);
     // Refill below the watermark during steady motion as well as at a live
-    // retarget. A burst yields the mailbox after at most three individually
-    // guarded rows. Stop on no progress or at the 14 ms refill watermark.
+    // retarget. Yield after one bounded visit, at the 14 ms refill
+    // watermark, at the first declined write or on new control intent.
     while (recharge)
         serviceTurn(revision, 0, refillNow, 1, true, allowance, recharge);
     return active;

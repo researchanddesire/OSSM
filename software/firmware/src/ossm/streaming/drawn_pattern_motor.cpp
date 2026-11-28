@@ -109,7 +109,10 @@ void submitPrepared(drawn_pattern::PulseBatch &batch, drawn_pattern::PreparedPul
             batch.submit(first, next, [&](auto target) {
                 // Each write checks the current owner, live guard, backend and
                 // actual remaining peripheral time and queue slots.
-                return submitPatternFrame(target.position, revision, false, target.crossing, 0);
+                // The burst itself admits the next write. Only combine true
+                // waits within this one hardware command.
+                return submitPatternFrame(target.position, revision, false, target.crossing,
+                                          target.followingHolds, false);
             }, stillRequested, patternServiceMicros);
         } else {
             batch.controlsChanged = true;

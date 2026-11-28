@@ -497,6 +497,64 @@ void test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocatio
     }
 }
 
+void test_prepared_refill_limits_ownership_and_releases_on_the_first_decline() {
+    using namespace drawn_pattern;
+    PreparedPulses rows;
+    rows.count = rows.capacity;
+    for (unsigned i = 0; i < rows.count; ++i) rows.targets[i] = {int32_t(i + 1), uint16_t(5000 + i)};
+
+    // A waiting Stop or user edit can arrive at any of the eight calls.
+    // Only already authorized writes may precede it. There is no spin on
+    // a full motor, a stopped clock or a low reserve after the eighth row.
+    for (unsigned permitted = 1; permitted <= rows.count + 1; ++permitted) {
+        for (bool decline : {false, true}) {
+            PulseBatch burst;
+            unsigned writes = 0;
+            uint32_t clock = 0;
+            burst.submit({0,32768}, rows, [&](PreparedPulses::Target row) -> FrameResult {
+                TEST_ASSERT_EQUAL_INT32(int32_t(writes), row.position);
+                ++writes;
+                clock += 705; // injected wall time per admitted individual write
+                if (decline && writes == permitted) return {Frame::Retry, "pulse_append", 4};
+                return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 1698};
+            }, [&] { return decline || writes < permitted; }, [&] { return clock; });
+            TEST_ASSERT_EQUAL_UINT(permitted, writes);
+            TEST_ASSERT_EQUAL_UINT(permitted, burst.count);
+            TEST_ASSERT_EQUAL_UINT32(permitted * 705, burst.attempts[burst.count - 1].atUs);
+        }
+    }
+    unsigned writes = 0;
+    PulseBatch highWater;
+    highWater.submit({0,32768}, rows, [&](auto) -> FrameResult {
+        ++writes;
+        return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, uint16_t(8000 + 2000 * writes)};
+    }, [] { return true; }, [] { return 0; });
+    TEST_ASSERT_EQUAL_UINT(3, writes);
+}
+
+void test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authority() {
+    using namespace drawn_pattern;
+    PreparedPulses::Target first{-9, 32768, 0, true};
+    PreparedPulses rows{{{-9,32768,0,true}, {-9,32768,0,true}, {-10,21000}, {-10,32768,0,true}}, 4};
+    rows.groupWaits(first);
+    TEST_ASSERT_EQUAL_UINT8(2, first.followingHolds);
+    TEST_ASSERT_EQUAL_UINT8(1, rows.targets[0].followingHolds);
+    TEST_ASSERT_EQUAL_UINT8(0, rows.targets[1].followingHolds);
+    PulseBatch burst;
+    std::vector<int32_t> submitted;
+    std::vector<uint16_t> crossings;
+    unsigned guardChecks = 0;
+    burst.submit(first, rows, [&](PreparedPulses::Target row) -> FrameResult {
+        submitted.push_back(row.position);
+        crossings.push_back(row.crossing);
+        return {Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 3600,
+                uint8_t(row.followingHolds ? 2 : 1)};
+    }, [&] { ++guardChecks; return true; }, [] { return 0; });
+    TEST_ASSERT_EQUAL_UINT(3, guardChecks);
+    TEST_ASSERT_TRUE(submitted == std::vector<int32_t>({-9,-9,-10,-10}));
+    TEST_ASSERT_TRUE(crossings == std::vector<uint16_t>({32768,32768,21000,32768}));
+}
+
 void test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix() {
     using namespace drawn_pattern;
     PulseBatch batch;
@@ -1130,6 +1188,8 @@ int main() {
     RUN_TEST(test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives);
     RUN_TEST(test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_driver);
     RUN_TEST(test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation);
+    RUN_TEST(test_prepared_refill_limits_ownership_and_releases_on_the_first_decline);
+    RUN_TEST(test_ready_wait_pairs_reach_a_moving_successor_once_under_the_same_authority);
     RUN_TEST(test_motor_revocation_ends_a_retry_immediately_and_retains_an_accepted_prefix);
     RUN_TEST(test_prepared_pulse_burst_preserves_real_moving_edges_and_partial_acceptance);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);

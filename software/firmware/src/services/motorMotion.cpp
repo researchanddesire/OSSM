@@ -155,7 +155,7 @@ public:
         }
         return 0;
     }
-    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial, uint16_t crossing, unsigned followingHolds) {
+    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial, uint16_t crossing, unsigned followingHolds, bool appendSeparateTail) {
         using drawn_pattern::Frame;
         if (!motorSafetyEventCurrent(owner) || !motorSafetyCanEnableOutputs() ||
             serialSelected() != serial) return {Frame::Rejected, "guard"};
@@ -193,7 +193,7 @@ public:
                 TICKS_PER_S / 1000 * drawn_pattern::pulseFrameMs, crossing, MIN_CMD_TICKS,
                 static_cast<int8_t>(MOVE_TIMED_EMPTY), followingHolds, [&] {
                     return motorSafetyEventCurrent(owner) && motorSafetyCanEnableOutputs() && !serialSelected();
-                });
+                }, appendSeparateTail);
             if (result.state == Frame::Accepted) primingPulse_ = false;
             return result;
         }
@@ -574,8 +574,8 @@ MotorMotionStatus getMotorMotionStatus() { return axis.status(); }
 FastAccelStepper *getMotorPulseStepper() { return pulseEngine; }
 
 
-drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing, unsigned followingHolds) {
-    return axis.patternFrame(target, revision, serial, crossing, followingHolds);
+drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing, unsigned followingHolds, bool appendSeparateTail) {
+    return axis.patternFrame(target, revision, serial, crossing, followingHolds, appendSeparateTail);
 }
 drawn_pattern::Park parkPatternMotion(uint64_t owner, int32_t target, bool draining) {
     return axis.parkPattern(owner, target, draining);

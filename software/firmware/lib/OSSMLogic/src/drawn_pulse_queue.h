@@ -80,6 +80,9 @@ public:
     }
 };
 
+static_assert(PreparedPulses::capacity + 1 == queuedDurationMs / pulseFrameMs,
+              "a prepared burst cannot exceed the existing service visit");
+
 struct PulseBatch {
     struct Attempt {
         FrameResult result{Frame::Rejected, "guard"};
@@ -103,18 +106,20 @@ struct PulseBatch {
     void submit(PreparedPulses::Target first, const PreparedPulses &next, Write write,
                 Allowed allowed, Clock clock) {
         auto target = first;
+        unsigned consumed = 0;
         for (;;) {
             auto &attempt = attempts[count++];
             attempt.result = write(target);
             attempt.atUs = clock();
-            if (count > next.count || attempt.result.state != Frame::Accepted ||
-                attempt.result.timing != FrameTiming::Running || attempt.result.frames != 1 ||
+            if (attempt.result.state != Frame::Accepted) return;
+            consumed += attempt.result.frames;
+            if (consumed > next.count || attempt.result.timing != FrameTiming::Running ||
                 attempt.result.queuedUs >= refillBelowUs) return;
             if (!allowed()) {
                 controlsChanged = true;
                 return;
             }
-            target = next.targets[count - 1];
+            target = next.targets[consumed - 1];
         }
     }
 };
@@ -178,7 +183,8 @@ public:
     template <class Command, class Driver, class CanExtend = MayExtend>
     FrameResult submit(Driver &driver, int32_t target, uint32_t frameTicks,
                        uint16_t firstCrossing, uint16_t minCommandTicks,
-                       int8_t movedFromEmpty, unsigned followingHolds = 0, CanExtend canExtend = {}) {
+                       int8_t movedFromEmpty, unsigned followingHolds = 0, CanExtend canExtend = {},
+                       bool appendSeparateTail = true) {
         const bool first = !owned();
         const bool running = stage_.load() == Stage::Running;
         if (running && !driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
@@ -261,7 +267,7 @@ public:
         }
         if (result.state == Frame::Accepted) {
             result.frames = paired ? 2 : 1;
-            if (followingHolds && running && std::abs(delta) == 1 && !upcoming && !tickResidual_ &&
+            if (appendSeparateTail && followingHolds && running && std::abs(delta) == 1 && !upcoming && !tickResidual_ &&
                 frameTicks >= minHold &&
                 driver.queueEntries() < pulseQueueFrames) {
                 // The first command emitted the preceding row's single step.

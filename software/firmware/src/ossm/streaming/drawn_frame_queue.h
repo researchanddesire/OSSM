@@ -85,17 +85,6 @@ public:
         return true;
     }
 
-    unsigned followingHolds(int32_t target) const {
-        const auto same = static_cast<uint32_t>(target);
-        unsigned pos = read_;
-        const unsigned limit = std::min(3u, count_);
-        for (unsigned i = 1; i < limit; ++i) {
-            pos = advance(pos, lengths_[record(i - 1)]);
-            if (storage_[pos] != same || storage_[advance(pos, 1)] != same) return i - 1;
-        }
-        return limit ? limit - 1 : 0;
-    }
-
     // Read only the two-word motor projection of successive immutable
     // rows. A gain-goal change needs its own accepted-frame timestamp.
     void successors(drawn_pattern::PreparedPulses &out, unsigned maximum) const {
@@ -110,6 +99,7 @@ public:
             const uint32_t bits = storage_[advance(pos, 1)];
             std::memcpy(&target.position, &bits, sizeof(bits));
             target.crossing = static_cast<uint16_t>(flags);
+            target.stationary = storage_[pos] == bits;
         }
     }
 

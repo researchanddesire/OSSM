@@ -237,11 +237,6 @@ public:
         return nullptr;
     }
 
-    unsigned followingHolds(int32_t target) {
-        std::lock_guard<RingMutex> guard(mux_);
-        return warmed_ && !positivePending_ ? rows_.followingHolds(target) : 0;
-    }
-
     void successors(drawn_pattern::PreparedPulses &out, unsigned maximum) {
         std::lock_guard<RingMutex> guard(mux_);
         if (warmed_ && !positivePending_) rows_.successors(out, maximum);

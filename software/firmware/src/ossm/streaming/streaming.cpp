@@ -163,7 +163,7 @@ void startStreaming() {
     auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
     if (!revision) return;
     // Keep radio callbacks off the timed refill core. HAT sampling and the
-    // pulse driver can still preempt every three-frame service batch.
+    // pulse driver can preempt the feeder even during a low-water refill.
     if (!Tasks::startOperation(startStreamingTask, "startStreamingTask",
                                stackSize, nullptr, revision, Tasks::stepperCore,
                                Tasks::streamingPriority)) {
