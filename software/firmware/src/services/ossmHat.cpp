@@ -603,13 +603,23 @@ void reader(void *) {
             !awaiting && Serial2.available()) {
             decoder.reset();
         }
-        while (uartReady && Serial2.available()) {
-            const int byte = Serial2.read();
-            if (byte < 0) break;
+        // Serial2.read(buffer, n) is nonblocking. After detecting an external
+        // master, drain buffered input in bursts on the core that feeds STEP.
+        // Each byte still reaches the same parser and interlocks in order.
+        uint8_t bytes[32];
+        size_t next = 0, count = 0;
+        while (uartReady) {
+            if (next == count) {
+                if (!Serial2.available()) break;
+                count = Serial2.read(bytes, status.passive ? sizeof(bytes) : 1);
+                if (count == 0) break;
+                next = 0;
+            }
+            const uint8_t byte = bytes[next++];
             now = millis();
             lastByteAt = now;
-            const bool lateOwn = latePositionReply.push(static_cast<uint8_t>(byte), now);
-            const uint8_t events = decoder.push(static_cast<uint8_t>(byte), now);
+            const bool lateOwn = latePositionReply.push(byte, now);
+            const uint8_t events = decoder.push(byte, now);
             ++bytesSinceSample;
             if (events & ossm_hat::Decoder::Telemetry) {
                 bytesSinceSample = 0;
