@@ -3,12 +3,25 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include "drawn_sample_format.h"
 #include "drawn_modifiers.h"
 
 namespace motion_link { class Owner; }
 
 namespace streaming {
+// Take the producer mailbox before the knob lock when publishing a range edit.
+// The motor task can then finish or cancel its previous window before the new
+// coordinates become visible, even if it was waiting on the driver mutex.
+class DrawnWindowEdit {
+public:
+    DrawnWindowEdit();
+    ~DrawnWindowEdit();
+    void set(float strokePercent, float depthPercent);
+private:
+    std::unique_lock<std::mutex> guard_;
+};
+
 struct PatternReferenceLost { uint64_t revision; };
 bool patternOwnerCurrent(const PatternReferenceLost &event);
 enum class PatternStart {

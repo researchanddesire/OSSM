@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <vector>
+#include <thread>
 #include "../../src/ossm/state/ble.cpp"
 #include "../../src/ossm/state/settings.cpp"
 #include "../../src/services/communication/leased_speed.h"
@@ -32,6 +33,16 @@ uint32_t nextPulseAt = 0;
 std::vector<int32_t> frames;
 std::vector<uint16_t> crossings;
 io::FrameResult feedback;
+enum class BlockedCommand { None, Entry, Frame };
+BlockedCommand blockedCommand;
+std::atomic<bool> atMotorGate{false}, releaseMotorGate{false};
+float depthAtMotorWrite, depthAtStop;
+void waitAtMotorGate(BlockedCommand command) {
+    if (command != blockedCommand) return;
+    atMotorGate.store(true);
+    while (!releaseMotorGate.load()) std::this_thread::yield();
+    depthAtMotorWrite = settings.depth;
+}
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
 
 PatternStart start(bool local = false) { return startDrawnPattern(samples, 32, 2000, revision, local); }
@@ -72,6 +83,7 @@ uint32_t now() { return clockMs; }
 bool current(uint64_t ticket) { return ticket == revision; }
 bool position(uint64_t ticket, int32_t target, const State &caps, bool starting) {
     if (!read(ticket).ready) return false;
+    waitAtMotorGate(BlockedCommand::Entry);
     if (starting) ++entrySubmissions;
     else ++entryUpdates;
     entrySpeed = caps.speed;
@@ -80,6 +92,7 @@ bool position(uint64_t ticket, int32_t target, const State &caps, bool starting)
     return true;
 }
 FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, unsigned followingHolds) {
+    waitAtMotorGate(BlockedCommand::Frame);
     if (stopAtFrame) {
         if (!read(ticket).ready) return {Frame::Rejected, "guard"};
         if (frames.size() == stopAtFrame) return {Frame::Retry, "pulse_full"};
@@ -119,7 +132,12 @@ Park park(uint64_t ticket, int32_t target, bool) {
     if (parkState == Park::Parked) motor.position = target;
     return parkState;
 }
-void stop(uint64_t ticket) { if (ticket == revision) ++stops; }
+void stop(uint64_t ticket) {
+    if (ticket == revision) {
+        ++stops;
+        depthAtStop = settings.depth;
+    }
+}
 }
 
 void setUp() {
@@ -146,6 +164,8 @@ void setUp() {
     acceptedAtMs.clear();
     nextPulseAt = 0;
     settings = {};
+    blockedCommand = BlockedCommand::None;
+    atMotorGate = releaseMotorGate = false;
     bleState = {};
     feedback = {io::Frame::Accepted};
     setDrawnPatternReady(revision, true);
@@ -1624,8 +1644,77 @@ void test_paused_remote_lease_and_finite_entry_remain_guarded() {
     TEST_ASSERT_FALSE(drawnPatternActive());
 }
 
+void test_window_edit_serializes_with_finite_and_timed_driver_admission() {
+    const auto waitFor = [](auto ready) {
+        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!ready() && std::chrono::steady_clock::now() < until) std::this_thread::yield();
+        return ready();
+    };
+    for (bool serial : {false, true}) {
+        for (auto command : {BlockedCommand::Entry, BlockedCommand::Frame}) {
+            motor.serial = serial;
+            motor.rail = 2000;
+            motor.speed = 1000;
+            motor.from = -2000;
+            motor.to = -1000;
+            settings.stroke = 50;
+            settings.depth = 100;
+            TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+            if (command == BlockedCommand::Frame) tick();
+            blockedCommand = command;
+            atMotorGate = releaseMotorGate = false;
+            std::thread feeder([] { for (int i = 0; i < 40 && !atMotorGate.load(); ++i) tick(); });
+            if (!waitFor([] { return atMotorGate.load(); })) {
+                releaseMotorGate = true;
+                feeder.join();
+                TEST_FAIL_MESSAGE("Expected a real driver admission");
+            }
+            std::thread control([] { DrawnWindowEdit edit; edit.set(100, 20); });
+            const bool editPending = waitFor([] { return streaming::pendingControl.load() != 0; });
+            releaseMotorGate = true;
+            feeder.join();
+            control.join();
+            blockedCommand = BlockedCommand::None;
+            TEST_ASSERT_TRUE(editPending);
+            TEST_ASSERT_EQUAL_FLOAT(100, depthAtMotorWrite);
+            TEST_ASSERT_EQUAL_FLOAT(100, depthAtStop);
+            TEST_ASSERT_EQUAL_FLOAT(20, settings.depth);
+            TEST_ASSERT_FALSE(drawnPatternActive());
+            TEST_ASSERT_EQUAL_STRING("window_changed", drawnPatternStatus().lastStop.reason);
+            const auto count = frames.size();
+            tick(50);
+            TEST_ASSERT_EQUAL_UINT(count, frames.size());
+        }
+    }
+}
+
+void test_window_edits_at_zero_wait_for_deliberate_motion_and_preserve_equal_step_bounds() {
+    motor.rail = 100;
+    settings.stroke = 100;
+    settings.depth = 100;
+    TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+    { DrawnWindowEdit edit; edit.set(25, 10); }
+    tick(20);
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
+    motor.from = -10;
+    motor.to = -8;
+    motor.speed = 1000;
+    tick(10);
+    { DrawnWindowEdit edit; edit.set(26, 10); }
+    TEST_ASSERT_TRUE(drawnPatternActive());
+    { DrawnWindowEdit edit; edit.set(0, 10); }
+    TEST_ASSERT_FALSE(drawnPatternActive());
+    TEST_ASSERT_EQUAL_STRING("limits_zero", drawnPatternStatus().lastStop.reason);
+    { DrawnWindowEdit edit; edit.set(25, 10); }
+    tick(20);
+    TEST_ASSERT_FALSE(drawnPatternActive());
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_window_edit_serializes_with_finite_and_timed_driver_admission);
+    RUN_TEST(test_window_edits_at_zero_wait_for_deliberate_motion_and_preserve_equal_step_bounds);
     RUN_TEST(test_worker_allocation_failure_leaves_motor_and_serial_available);
     RUN_TEST(test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop);
     RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);

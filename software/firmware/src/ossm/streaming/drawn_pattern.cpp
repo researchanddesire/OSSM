@@ -12,7 +12,9 @@
 #include <new>
 
 #include "drawn_pattern_motor.h"
+#include "streaming_logic.h"
 #include "../state/ble.h"
+#include "../state/settings.h"
 #include "../../services/communication/motion_link.h"
 
 namespace streaming {
@@ -86,6 +88,7 @@ uint32_t lastServiceEnd = 0;
 bool haveServiceEnd = false;
 uint32_t startedAt = 0, renewedAt = 0, lastFrameAt = 0, lastProgressAt = 0, effectivePeriod = 0;
 int32_t lower = 0, upper = 0, entry = 0;
+float windowRail = 0;
 using frame_plan::Marking;
 using frame_plan::RawFramePlanner;
 std::unique_ptr<Marking> serialMarkers;
@@ -365,6 +368,7 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
         if (caps.moving || caps.queued) return stopLocked("entry_busy", now);
         lower = caps.from;
         upper = caps.to;
+        windowRail = caps.rail;
         entry = curve.nativeTarget(0, lower, upper);
         motionPhase = {};
         // The finite approach API takes whole steps per second. At a
@@ -633,6 +637,28 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     }
 }
 } // namespace
+
+DrawnWindowEdit::DrawnWindowEdit() : guard_(lock, std::defer_lock) {
+    ++pendingControl;
+    guard_.lock();
+}
+
+DrawnWindowEdit::~DrawnWindowEdit() { --pendingControl; }
+
+void DrawnWindowEdit::set(float stroke, float depth) {
+    if (!std::isfinite(stroke) || !std::isfinite(depth) ||
+        stroke < 0 || stroke > 100 || depth < 0 || depth > 100) return;
+    if (settings.stroke == stroke && settings.depth == depth) return;
+    if (stage != Stage::Idle && stage != Stage::Waiting) {
+        const int32_t span = streaming_logic::calculateMaxStroke(stroke, depth, windowRail);
+        const int32_t offset = streaming_logic::calculateDepthOffset(windowRail, span, depth);
+        if (!span) stopLocked("limits_zero", pattern_motor::now());
+        else if (-offset - span != lower || -offset != upper)
+            stopLocked("window_changed", pattern_motor::now());
+    }
+    settings.stroke = stroke;
+    settings.depth = depth;
+}
 
 bool patternOwnerCurrent(const PatternReferenceLost &event) {
     return pattern_motor::current(event.revision);
