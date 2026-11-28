@@ -3,6 +3,7 @@
 #include "ossm/streaming/saved_pattern.h"
 
 #include <mutex>
+#include <optional>
 
 #include "Strings.h"
 #include "constants/Menu.h"
@@ -53,10 +54,22 @@ static float &controlSetting(PlayControls pc) {
 static std::mutex remoteControlMutex;
 static uint32_t remoteControlRevision = 0;
 
+static bool isWindowControl(PlayControls control) {
+    return control == PlayControls::STROKE || control == PlayControls::DEPTH;
+}
+
+static void setWindow(streaming::DrawnWindowEdit &edit, PlayControls control, float value) {
+    edit.set(control == PlayControls::STROKE ? value : settings.stroke,
+             control == PlayControls::DEPTH ? value : settings.depth);
+}
+
 void setRemoteControl(PlayControls control, float value) {
+    std::optional<streaming::DrawnWindowEdit> edit;
+    if (isWindowControl(control)) edit.emplace();
     std::lock_guard<std::mutex> lock(remoteControlMutex);
     session.playControl = control;
-    controlSetting(control) = value;
+    if (edit) setWindow(*edit, control, value);
+    else controlSetting(control) = value;
     ++remoteControlRevision;
 }
 
@@ -135,6 +148,7 @@ static void drawPlayControlsTask(void *pvParameters) {
         // while the speed-pot read is in progress. Restore the current setting
         // after a click, and commit the sample only while its control owns it.
         PlayControls loopControl;
+        std::optional<float> windowValue;
         {
             std::lock_guard<std::mutex> lock(remoteControlMutex);
             loopControl = session.playControl;
@@ -150,9 +164,22 @@ static void drawPlayControlsTask(void *pvParameters) {
                 if (encoderClick.unchangedAndIdle(click) && isInCorrectState() &&
                     session.playControl == loopControl) {
                     shouldUpdateDisplay |= value != encoderValue;
-                    value = encoderValue;
+                    if (isWindowControl(loopControl)) {
+                        if (value != encoderValue) windowValue = encoderValue;
+                    } else {
+                        value = encoderValue;
+                    }
                 }
             }
+        }
+        if (windowValue) {
+            // A BLE write or click may win while acquiring the mailbox.
+            // Revalidate the sample under the knob lock in that same order.
+            streaming::DrawnWindowEdit edit;
+            std::lock_guard<std::mutex> lock(remoteControlMutex);
+            if (remoteControlRevision == lastRemoteControl && session.playControl == loopControl &&
+                encoderClick.unchangedAndIdle(click) && isInCorrectState())
+                setWindow(edit, loopControl, *windowValue);
         }
 
         shouldUpdateDisplay =

@@ -16,6 +16,12 @@ are ignored and replies are rate-limited to four per second. There is one input
 reader for identity and the existing development-only screen commands. Identity
 does not wait for a host, change saved settings or control actuators.
 
+The read-only `identitystack` command returns
+`RAD_ID_STACK <allocatedBytes> <minimumFreeBytes>`. The second value is the
+lowest free stack space observed for the serial console task since it started.
+Read it after HAT polling or development screen capture to check the headroom
+those operations left.
+
 Lab reads identity after its existing ROM hardware inspection, verifies the MAC
 and measured flash against that inspection, and labels the board with the
 reported model/version. Old firmware without this protocol remains usable.

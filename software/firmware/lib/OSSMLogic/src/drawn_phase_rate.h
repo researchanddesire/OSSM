@@ -60,6 +60,33 @@ public:
         }
         return distance;
     }
+    // Crossing probes only need displacement. Within a single ramp segment
+    // use the same integral as advance() without changing the clock.
+    double distanceAt(double seconds) const {
+        if (index_ == size_) return rate_ * seconds;
+        const auto &s = segments_[index_];
+        if (seconds <= s.seconds)
+            return seconds * (rate_ + seconds * (.5 * acceleration_ + seconds * s.jerk / 6));
+        auto clock = *this;
+        return clock.advance(seconds);
+    }
+    // A single constant-jerk segment has linear acceleration. Its smallest
+    // endpoint acceleration bounds the rate loss over the entire frame.
+    bool forwardDuring(double seconds) const {
+        if (seconds < 0 || rate_ < 0) return false;
+        if (index_ == size_) return true;
+        const auto &segment = segments_[index_];
+        if (seconds > segment.seconds) return false;
+        const double endAcceleration = acceleration_ + seconds * segment.jerk;
+        const double minimumAcceleration = std::min({0., acceleration_, endAcceleration});
+        return rate_ + seconds * minimumAcceleration >= 0;
+    }
+
+    double secondsToGoal() const {
+        double time = 0;
+        for (unsigned i = index_; i < size_; ++i) time += segments_[i].seconds;
+        return time;
+    }
     double rate() const { return rate_; }
     double acceleration() const { return acceleration_; }
 
@@ -72,18 +99,54 @@ private:
         if (seconds > 0) segments_[size_++]={seconds,jerk};
     }
 };
-// Locate the first change of the integer STEP position within the frame.
-// The serializer groups subsequent same-direction edges until the next
-// frame's first crossing. Eleven bisections resolve a 2 ms frame to 1 µs.
+// The STEP serializer uses the midpoint of an adjacent pair on the
+// original 2,048-interval grid. Keep its rounding identical on every path.
+constexpr unsigned crossingGrid = 2048;
+inline uint16_t encodeStepCrossing(unsigned low) {
+    return static_cast<uint16_t>(((2 * low + 1) * 65535u + crossingGrid) / (2 * crossingGrid));
+}
+
+template <class BeforeEdge>
+unsigned bisectStepCrossing(unsigned low, unsigned high, const BeforeEdge &beforeEdge) {
+    while (high - low > 1) {
+        const unsigned middle = (low + high) / 2;
+        if (beforeEdge(middle)) low = middle;
+        else high = middle;
+    }
+    return low;
+}
+
+// Preserve the original search order for arbitrary, possibly reversing motion.
 template <class PositionAt>
 uint16_t firstStepCrossing(int32_t from, int32_t to, const PositionAt &positionAt) {
-    if (from==to) return 32768;
-    unsigned lo=0, hi=2048;
-    while (hi-lo>1) {
-        const auto middle=(lo+hi)/2;
-        if (positionAt(middle/2048.)==from) lo=middle;
-        else hi=middle;
+    if (from == to) return 32768;
+    return encodeStepCrossing(bisectStepCrossing(0, crossingGrid, [&](unsigned index) {
+        return positionAt(double(index) / crossingGrid) == from;
+    }));
+}
+
+// On a monotone interval all samples before the first edge are one contiguous
+// prefix. A prediction can shorten the search, but never determines the result.
+template <class BeforeEdge>
+unsigned predictedStepCrossing(unsigned guess, const BeforeEdge &beforeEdge) {
+    unsigned low = 0, high = crossingGrid;
+    if (guess == 0 || beforeEdge(guess)) {
+        low = guess;
+        if (low + 1 == high || !beforeEdge(low + 1)) return low;
+        ++low;
+        const unsigned nearby = std::min(high, low + 8);
+        if (nearby < high) {
+            if (beforeEdge(nearby)) low = nearby;
+            else high = nearby;
+        }
+    } else {
+        high = guess;
+        const unsigned nearby = high > 8 ? high - 8 : 0;
+        if (nearby > 0) {
+            if (beforeEdge(nearby)) low = nearby;
+            else high = nearby;
+        }
     }
-    return static_cast<uint16_t>(((lo+hi)*65535u+2048u)/4096u);
+    return bisectStepCrossing(low, high, beforeEdge);
 }
 } // namespace drawn_pattern

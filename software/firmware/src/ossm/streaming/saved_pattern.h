@@ -5,7 +5,7 @@
 namespace streaming {
 
 void loadSavedPattern();
-bool getSavedPattern(SavedPattern &out, int slot = selectedPatternSlot);
+bool getSavedPattern(SavedPattern &out, int slot = selectedPatternSlot, drawn_pattern::Modifiers *effects = nullptr);
 bool hasSavedPattern();
 PatternCatalog getPatternCatalog();
 
@@ -15,6 +15,7 @@ struct SavePattern {
     int slot = selectedPatternSlot;
     const char *name = nullptr;
     size_t nameLength = 0;
+    const drawn_pattern::Modifiers &modifiers = drawn_pattern::noModifiers();
 };
 struct SelectPattern {
     int slot;

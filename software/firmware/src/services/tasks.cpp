@@ -17,12 +17,12 @@ namespace Tasks {
 }
 
 bool Tasks::startOperation(TaskFunction_t task, const char *name,
-                           uint32_t stackSize, TaskHandle_t *handle, void *context) {
+                           uint32_t stackSize, TaskHandle_t *handle, void *context,
+                           BaseType_t core, UBaseType_t priority) {
     for (int attempt = 0; attempt < 20; attempt++) {
         if (attempt > 0) vTaskDelay(pdMS_TO_TICKS(250));
         if (xTaskCreatePinnedToCore(task, name, stackSize, context,
-                                    configMAX_PRIORITIES - 1, handle,
-                                    operationTaskCore) == pdPASS) {
+                                    priority, handle, core) == pdPASS) {
             return true;
         }
     }

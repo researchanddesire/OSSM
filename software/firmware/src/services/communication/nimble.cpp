@@ -5,7 +5,6 @@
 #include <services/board.h>
 #include <services/tasks.h>
 
-#include <atomic>
 #include <mutex>
 #include <queue>
 
@@ -14,6 +13,8 @@
 #include "config.hpp"
 #include "gpio.hpp"
 #include "motion_link.h"
+#include "disconnect_speed.h"
+#include "ossm/state/ble.h"
 #include "services/motorSafety.h"
 #include "services/radHil.h"
 #include "ossm/OSSM.h"
@@ -33,35 +34,77 @@ NimBLECharacteristic* pSpeedKnobConfigCharacteristic = nullptr;
 NimBLECharacteristic* pLatencyCompensationConfigCharacteristic = nullptr;
 NimBLECharacteristic* pCommandCharacteristic = nullptr;
 
-// Set by the BLE host task (disconnects), read by nimbleLoop.
-static std::atomic<long> lostConnectionTime{0};
-static std::atomic<int> speedOnLostConnection{0};
-static const unsigned long RAMP_DURATION_MS =
-    2000;  // Duration for speed ramp to zero
-
-// Host task (legacy writes, disconnects) and RAD BLE task (motion requests).
+// Host task, queued legacy dispatch and RAD BLE actions share this ownership boundary.
 static std::mutex motionOwnerLock;
 static motion_link::Owner motionOwner;
+static motion_link::DisconnectSpeed disconnectSpeed;
 
-void noteBleMotionCommand(uint16_t connHandle, const std::string& command) {
+static bool clearQueuedSpeeds() {
+    bool lastWasZero = false;
+    messageQueue.removeIf([&](const String &command) {
+        if (!command.startsWith("set:speed:")) return false;
+        lastWasZero = commandFromString(command).value == 0;
+        return true;
+    });
+    return lastWasZero;
+}
+
+static void noteCommandLocked(uint16_t connection, const std::string &command) {
+    if (!motionOwner.takeCommand(connection, command, streaming::cancelDrawnPattern)) return;
+    disconnectSpeed.cancel();
+}
+
+void noteBleMotionCommand(uint16_t connection, const std::string &command) {
     std::lock_guard<std::mutex> guard(motionOwnerLock);
-    if (!motionOwner.takeCommand(connHandle, command, streaming::cancelDrawnPattern)) return;
-    // Someone is driving again: the disconnect ramp must not fight them.
-    lostConnectionTime = 0;
+    if (motionOwner.owner() != connection && motion_link::isMotionCommand(command)) clearQueuedSpeeds();
+    noteCommandLocked(connection, command);
+}
+
+bool enqueueLegacyBleCommand(uint16_t connection, const std::string &command) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    // A rejected overflow does not take ownership or alter queued speed.
+    if (command != "go:menu" && messageQueue.size() >= MessageQueue::capacity) return false;
+    if (motionOwner.owner() != connection && motion_link::isMotionCommand(command)) clearQueuedSpeeds();
+    const String value(command.c_str());
+    if (!messageQueue.push(value)) {
+        if (command != "go:menu") return false;
+        messageQueue.replaceAll(value);
+    }
+    noteCommandLocked(connection, command);
+    return true;
+}
+
+static bool runNextLegacyCommand() {
+    String command;
+    {
+        std::lock_guard<std::mutex> guard(motionOwnerLock);
+        if (!messageQueue.pop(command)) return false;
+        if (command.startsWith("set:speed:")) {
+            // Same validated legacy parser and setter as OSSM::ble_click;
+            // never run an SML action while holding this ownership lock.
+            const auto parsed = commandFromString(command);
+            if (parsed.command == Commands::setSpeed) writeBleSpeed(parsed.value, true);
+            return true;
+        }
+    }
+    ossm->ble_click(command);
+    return true;
 }
 
 streaming::PatternStart startBlePattern(uint16_t connection, const char *samples,
-                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format) {
+                                       size_t length, uint32_t periodMs, drawn_pattern::SampleFormat format,
+                                       std::unique_ptr<drawn_pattern::Modifiers> modifiers) {
     std::lock_guard<std::mutex> guard(motionOwnerLock);
     // A request already in the server task may race a disconnect.
     if (!pServer || connection == motion_link::kNoConnection ||
         ble_gap_conn_find(connection, nullptr) != 0)
         return streaming::PatternStart::NotReady;
-    const auto result = streaming::startDrawnPattern(samples, length, periodMs,
-                                  getMotorSafetyStatus().controlRevision, false, format);
+    const auto result = streaming::startOwnedDrawnPattern(samples, length, periodMs,
+                                  getMotorSafetyStatus().controlRevision, false, format, std::move(modifiers));
     if (result == streaming::PatternStart::Accepted) {
         motionOwner.onMotionCommand(connection);
-        lostConnectionTime = 0;
+        clearQueuedSpeeds();
+        disconnectSpeed.cancel();
     }
     return result;
 }
@@ -71,7 +114,19 @@ bool setLeasedBleSpeed(uint16_t connection, float value, bool selectBleSource) {
     if (!pServer || connection == motion_link::kNoConnection ||
         ble_gap_conn_find(connection, nullptr) != 0) return false;
     if (!streaming::applyLeasedBleSpeed(motionOwner, connection, value, selectBleSource)) return false;
-    lostConnectionTime = 0;
+    clearQueuedSpeeds();
+    disconnectSpeed.cancel();
+    return true;
+}
+
+bool setLeasedBleSensation(uint16_t connection, uint8_t value) {
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    if (!pServer || connection == motion_link::kNoConnection ||
+        ble_gap_conn_find(connection, nullptr) != 0) return false;
+    const bool changesOwner = motionOwner.owner() != connection;
+    if (!streaming::applyLeasedBleSensation(motionOwner, connection, value)) return false;
+    if (changesOwner) clearQueuedSpeeds();
+    disconnectSpeed.cancel();
     return true;
 }
 
@@ -96,10 +151,6 @@ void restartAdvertisingWithCurrentName() {
     NimBLEDevice::setDeviceName(deviceName);
     ESP_LOGI(NIMBLE_TAG, "Advertising as: %s", deviceName.c_str());
     advertising->start();
-}
-
-double easeInOutSine(double t) {
-    return 0.5 * (1 + sin(3.1415926 * (t - 0.5)));
 }
 
 class StateCallbacks : public NimBLECharacteristicCallbacks {
@@ -145,8 +196,7 @@ class ServerCallbacks : public NimBLEServerCallbacks {
             ossm->setBLEConnectionStatus(true);
         }
         radBleServer.onConnect(connInfo.getConnHandle());
-
-        lostConnectionTime = 0;
+        // Reconnection by itself does not claim motion or end a shutdown.
     }
 
     void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo,
@@ -163,7 +213,14 @@ class ServerCallbacks : public NimBLEServerCallbacks {
             std::lock_guard<std::mutex> guard(motionOwnerLock);
             stopMotion = motionOwner.onDisconnect(connInfo.getConnHandle(),
                                                   remaining);
-            if (stopMotion) streaming::cancelRemoteDrawnPattern();
+            if (stopMotion) {
+                const bool pendingZero = clearQueuedSpeeds();
+                if (pendingZero) writeBleSpeed(0, true);
+                streaming::cancelRemoteDrawnPattern();
+                if (ossm && disconnectSpeed.start(millis(), ossm->getSpeed(), settings.speedBLE)) {
+                    writeBleSpeed(0, true);
+                }
+            }
         }
 
         // Set BLE connection status to false when no connections remain
@@ -178,11 +235,6 @@ class ServerCallbacks : public NimBLEServerCallbacks {
                          "Motion owner disconnected (%d links remain); stopping",
                          remaining);
             ossm->ble_click("go:menu");
-            // Capture current speed when connection is lost
-            speedOnLostConnection = ossm->getSpeed();
-            ESP_LOGI(NIMBLE_TAG, "Speed on disconnect: %d",
-                     speedOnLostConnection.load());
-            lostConnectionTime = millis();
         }
         radBleServer.onDisconnect(connInfo.getConnHandle());
 
@@ -263,62 +315,33 @@ class FTSCallbacks : public NimBLECharacteristicCallbacks {
 // One step of the 2 s ease-out of the BLE speed after a motion link dropped
 // (the first second waits). Ends by setting speed 0.
 static void stepLostConnectionRamp() {
-    const long lost = lostConnectionTime.load();
-    if (lost <= 0 || ossm == nullptr) return;
-    const int fromSpeed = speedOnLostConnection.load();
-    // Skip ramp-down if speed was already zero when connection was lost
-    if (fromSpeed <= 0) {
-        lostConnectionTime = 0;
-        return;
-    }
-
-    const unsigned long elapsed = millis() - (unsigned long)lost;
-    // Wait 1 second before starting easing
-    if (elapsed < 1000) return;
-
-    if (elapsed > 1000 + RAMP_DURATION_MS) {
-        ESP_LOGI(NIMBLE_TAG, "Speed ramp duration exceeded, setting speed to 0");
-        lostConnectionTime = 0;
-        speedOnLostConnection = 0;
-        ossm->ble_click("set:speed:0");
-        return;
-    }
-
-    // Calculate easing factor (0 to 1) over ramp duration
-    const double progress =
-        constrain((elapsed - 1000) / (double)RAMP_DURATION_MS, 0.0, 1.0);
-    const double t = easeInOutSine(progress);
-
-    // Ramp from current speed to zero
-    const int targetSpeed = (int)(fromSpeed * (1.0 - t));
-    ESP_LOGI(NIMBLE_TAG, "Target speed: %d (from %d, progress: %.2f)",
-             targetSpeed, fromSpeed, progress);
-    ossm->ble_click("set:speed:" + String(targetSpeed));
-
-    // Stop processing when easing is complete
-    if (t >= 1) lostConnectionTime = 0;
+    std::lock_guard<std::mutex> guard(motionOwnerLock);
+    const auto next = disconnectSpeed.next(millis(), settings.speedBLE);
+    if (next) writeBleSpeed(*next, true);
 }
 
 void nimbleLoop(void* pvParameters) {
     NimBLEServer* pServer = (NimBLEServer*)pvParameters;
     /** Loop here and send notifications to connected peers */
 
-    String lastState = "";
+    String lastState, fingerprint;
     int lastConnCount = 0;
-    int lastMessageTime = 0;
+    uint32_t lastMessageTime = 0, lastStatusCheck = 0;
     uint32_t lastRampStepMs = 0;
     while (true) {
         // Ramp the BLE speed down after the link that drove motion dropped.
         // This also runs while other centrals stay connected (see
         // ServerCallbacks::onDisconnect); a new motion command cancels it.
-        const bool ramping = lostConnectionTime.load() > 0;
+        const bool ramping = disconnectSpeed.active();
         if (ramping && millis() - lastRampStepMs >= 50) {
             lastRampStepMs = millis();
             stepLostConnectionRamp();
         }
 
         // Check if we should be advertising (no connections)
-        if (pServer->getConnectedCount() == 0) {
+        const int currentConnCount = pServer->getConnectedCount();
+        if (currentConnCount == 0) {
+            lastConnCount = 0;
             // If not advertising and no connections, restart advertising
             if (!pServer->getAdvertising()) {
                 ESP_LOGI(NIMBLE_TAG,
@@ -327,11 +350,9 @@ void nimbleLoop(void* pvParameters) {
                 restartAdvertisingWithCurrentName();
             }
 
-            vTaskDelay(pdMS_TO_TICKS(lostConnectionTime.load() > 0 ? 50 : 200));
+            vTaskDelay(pdMS_TO_TICKS(disconnectSpeed.active() ? 50 : 200));
             continue;
         }
-
-        int currentConnCount = pServer->getConnectedCount();
 
         // Clear last state when connection count changes
         if (currentConnCount != lastConnCount) {
@@ -339,25 +360,17 @@ void nimbleLoop(void* pvParameters) {
             lastConnCount = currentConnCount;
         }
 
-        NimBLEService* pSvc = pServer->getServiceByUUID(SERVICE_UUID);
-        if (!pSvc) {
+        // Cached when the service is created, before this task is started.
+        if (!pStateCharacteristic) {
             lastState = "";
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
 
-        NimBLECharacteristic* pChr =
-            pSvc->getCharacteristic(CHARACTERISTIC_STATE_UUID);
-        if (!pChr) {
-            lastState = "";
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
-        }
-
-        // mannage message queue
-        String cmd;
-        while (messageQueue.pop(cmd)) {
-            ossm->ble_click(cmd);
+        // Commands and disconnect handling retain their per-tick service.
+        bool handledCommand = false;
+        while (runNextLegacyCommand()) {
+            handledCommand = true;
 
             // Trigger LED communication pulse for command processing
             pulseForCommunication();
@@ -365,28 +378,24 @@ void nimbleLoop(void* pvParameters) {
             vTaskDelay(1);
         }
 
-        int currentTime = millis();
-        String fingerprint = ossm->getStateFingerprint();
-        bool stateChanged = fingerprint != lastState;
-        bool timeElapsed = (currentTime - lastMessageTime) > 1000;
-
-        if (!stateChanged && !timeElapsed) {
+        const uint32_t currentTime = millis();
+        if (!handledCommand && lastState.length() && currentTime - lastStatusCheck < 20) {
             vTaskDelay(1);
             continue;
         }
-        lastMessageTime = currentTime;
-        lastState = fingerprint;
-
-        String currentState = ossm->getCurrentState();
+        lastStatusCheck = currentTime;
+        ossm->writeStateFingerprint(fingerprint);
+        const bool stateChanged = fingerprint != lastState;
         if (stateChanged) {
+            lastState = fingerprint;
+            String currentState = ossm->getCurrentState();
             ESP_LOGD(NIMBLE_TAG, "State changed to: %s", currentState.c_str());
             radBleServer.publishStateNotification(currentState);
         }
-
-        // Trigger LED communication pulse for state update
-        pulseForCommunication();
-
-        lastState = fingerprint;
+        if (stateChanged || currentTime - lastMessageTime > 1000) {
+            lastMessageTime = currentTime;
+            pulseForCommunication();
+        }
         vTaskDelay(1);
     }
 }

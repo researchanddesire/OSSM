@@ -234,6 +234,16 @@ stopped/contact checks. `motor.guardFault` and USB fault logs freeze the last
 accepted sample, interval and both speed estimates at a live fault. A fault
 restored from NVS can lack that in-memory sample detail.
 
+On the classic board, a stale shared-bus trip also freezes the UART reader's
+progress. The stopped fault reporter prints `RAD_GUARD_RX`. Its uptime fields
+`tripAt`, `pollAt`, `byteAt` and `publishAt` give the monitor's fault time,
+the reader's last loop entry, its latest software byte read and its most
+recent snapshot publication, in milliseconds. `bytesSinceSample` and
+`crcSinceSample` count decoded bytes and CRC rejections since the most recent
+accepted telemetry frame. The counters are sampled during draining and at
+publication. Physical byte arrival and UART hardware overruns require
+separate measurements.
+
 Each commanded homing approach and retreat also starts an encoder-progress
 watchdog. Under-threshold current cannot hide a stalled axis: absent directional
 progress of 0.25 mm trips within 100 ms. Only one contact-qualified retreat marker
@@ -273,6 +283,11 @@ Homing selects RS-485 current when the HAT is detected. Its separate
 `Config::Hat::sensorlessCurrentLimitAmps` is initially 1.5 A; the legacy threshold
 is six ADC percentage points and is not interchangeable. Contact requires three
 distinct loaded samples over at least 30 ms with less than 0.25 mm encoder travel.
+At the backed-off zero, homing waits for at least three fresh encoder readings
+spanning 60 ms with less than half a native step of shaft movement before
+recording the physical origin. Stroke and Depth use this origin. A failed
+final zero reference requires a new home.
+
 Homing requires samples no older than 100 ms, supply at least 20 V, and no fatal
 alarm (AIM battery warning `0x10` is permitted). Lost feedback stops pulses and
 disables output, including during retreat and final reposition. The independent

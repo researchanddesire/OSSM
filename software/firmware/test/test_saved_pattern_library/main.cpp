@@ -4,6 +4,22 @@
 #include <vector>
 #include "saved_pattern_library.h"
 #include "pattern_catalog_json.h"
+#include "../../src/ossm/streaming/pattern_speed_json.h"
+#include "pattern_modifier_upload.h"
+
+namespace {
+bool refuseNextMarkerPage = false;
+}
+
+// Inject failure only into the next 64-record marker page, leaving ArduinoJson
+// and the rest of the native record/storage implementation unchanged.
+void *operator new(std::size_t bytes, const std::nothrow_t &) noexcept {
+    if (refuseNextMarkerPage && bytes == 64 * sizeof(drawn_pattern::Modifier)) {
+        refuseNextMarkerPage = false;
+        return nullptr;
+    }
+    return ::operator new(bytes);
+}
 
 using namespace streaming;
 namespace {
@@ -12,11 +28,13 @@ bool failWrite;
 int writes;
 const char samples[] = "00081b335a8ee4ffffc4a75d3c3c1603";
 
-bool readRecord(const char *key, void *out, size_t size) {
+size_t readRecord(const char *key, void *out, size_t size) {
     const auto it = flash.find(key);
-    if (it == flash.end() || it->second.size() != size) return false;
+    if (it == flash.end()) return 0;
+    if (!out) return it->second.size();
+    if (it->second.size() != size) return 0;
     std::memcpy(out, it->second.data(), size);
-    return true;
+    return size;
 }
 bool writeRecord(const char *key, const void *ptr, size_t size) {
     ++writes;
@@ -195,7 +213,11 @@ void test_sparse_samples_cover_one_cycle_and_survive_named_save_and_reboot() {
             TEST_ASSERT_TRUE(waveform.phaseDerivative(phase, 2) == 0);
         }
     }
-    TEST_ASSERT_GREATER_OR_EQUAL_UINT32(60000, waveform.safePeriodMs(100, 1000, 10000));
+    TEST_ASSERT_EQUAL_UINT32(60000, recovered.periodMs);
+    const auto full = waveform.pace(100, 1000, 10000, 1., 2);
+    const auto quarter = waveform.pace(100, 1000, 10000, .25, 2);
+    TEST_ASSERT_TRUE(full.rate > 0 && full.peak <= 1000);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-10, full.rate * .25, quarter.rate);
 }
 
 void test_invalid_numeric_and_overlapping_formats_are_rejected_at_the_ble_boundary() {
@@ -370,8 +392,474 @@ void test_index_uses_storage_only_for_explicit_requests_and_failed_io_preserves_
     TEST_ASSERT_EQUAL_UINT(3, reads);
 }
 
+void test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries() {
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    auto args = doc.to<JsonObject>();
+    args["key"] = 7;
+    args["offset"] = 0;
+    args["data"] = "006400c80000"; // 10–20% vibration
+    TEST_ASSERT_EQUAL_UINT(1, upload.append(3, 44, args));
+    TEST_ASSERT_EQUAL_UINT(1, upload.append(3, 44, args));
+    args["offset"] = 1;
+    args["data"] = "0096009603e8"; // pause inside vibration
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(3, 44, args));
+    args["data"] = "00c800c803e8"; // pause on vibration boundary
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(3, 44, args));
+    args["data"] = "00c8012c00000190019003e8";
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(3, 45, args));
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(4, 44, args));
+    TEST_ASSERT_EQUAL_UINT(3, upload.append(3, 44, args));
+    TEST_ASSERT_EQUAL_UINT(3, upload.append(3, 44, args));
+    args["modifierKey"] = 7;
+    args["modifierCount"] = 2;
+    TEST_ASSERT_FALSE(bool(upload.take(3, 44, args)));
+    args["modifierCount"] = 3;
+    TEST_ASSERT_FALSE(bool(upload.take(3, 45, args)));
+    const auto complete = upload.take(3, 44, args);
+    TEST_ASSERT_TRUE(bool(complete));
+    TEST_ASSERT_EQUAL_UINT(1000, complete->entries[2].holdMs);
+    TEST_ASSERT_FALSE(bool(upload.take(3, 44, args)));
+}
+
+void test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input() {
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    auto args = doc.to<JsonObject>();
+    args["key"] = 99;
+    char hex[13];
+    for (unsigned offset = 0; offset < 1000; offset += 32) {
+        std::string data;
+        for (unsigned i = offset; i < std::min(1000u, offset + 32); ++i) {
+            snprintf(hex, sizeof(hex), "%04x%04x0001", i, i);
+            data += hex;
+        }
+        args["offset"] = offset;
+        args["data"] = data;
+        TEST_ASSERT_EQUAL_UINT(std::min(1000u, offset + 32), upload.append(1, 12, args));
+    }
+    args["offset"] = 1000;
+    args["data"] = "008000800001";
+    TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
+    args["offset"] = 0;
+    args["key"] = 10;
+    for (const auto bad : {"", "000000000000", "00g000080000", "000100000005",
+                           "000000000002000203e80000", "03e803e80001",
+                           "00640064ea61", "00640064ffff", "ffff03e80000", "000000010001", "0000002a0000002900290001"}) {
+        args["data"] = bad;
+        TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args));
+    }
+    args["modifierKey"] = 99;
+    args["modifierCount"] = 1000;
+    TEST_ASSERT_TRUE(bool(upload.take(1, 12, args)));
+}
+
+void test_dense_24_record_packets_retry_allocation_and_move_without_copying_pages() {
+    using namespace drawn_pattern;
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    const auto args = doc.to<JsonObject>();
+    args["key"] = 42;
+    bool outOfMemory = false;
+    const uint16_t special[] = {1, 30000, 32767, 32768, 60000};
+    for (unsigned offset = 0; offset < 1000; offset += 24) {
+        std::string data;
+        const auto end = std::min(offset + 24, 1000u);
+        for (unsigned i = offset; i < end; ++i) {
+            char hex[13];
+            const unsigned ms = i < 5 ? special[i] : 1 + i * 97 % 60000;
+            snprintf(hex, sizeof(hex), "%04x%04x%04x", i, i, ms);
+            data += hex;
+        }
+        args["offset"] = offset;
+        args["data"] = data;
+        if (offset == 768) {
+            refuseNextMarkerPage = true;
+            TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args, &outOfMemory));
+            TEST_ASSERT_TRUE(outOfMemory);
+            TEST_ASSERT_FALSE(refuseNextMarkerPage);
+            args["data"] = "030003000000";
+            TEST_ASSERT_EQUAL_UINT(0, upload.append(1, 12, args, &outOfMemory));
+            TEST_ASSERT_FALSE(outOfMemory);
+            args["data"] = data;
+        }
+        TEST_ASSERT_EQUAL_UINT(end, upload.append(1, 12, args, &outOfMemory));
+        TEST_ASSERT_FALSE(outOfMemory);
+        TEST_ASSERT_EQUAL_UINT(end, upload.append(1, 12, args));
+    }
+    args["modifierKey"] = 42;
+    args["modifierCount"] = 1000;
+    auto uploaded = upload.take(1, 12, args);
+    TEST_ASSERT_NOT_NULL(uploaded.get());
+    const auto *page = &uploaded->entries[768];
+    Modifiers owned;
+    owned.takeFrom(*uploaded);
+    TEST_ASSERT_EQUAL_PTR(page, &owned.entries[768]);
+    TEST_ASSERT_EQUAL_UINT(1000, owned.count);
+    TEST_ASSERT_EQUAL_UINT(0, uploaded->count);
+    TEST_ASSERT_TRUE(uploaded->reserve(5));
+    TEST_ASSERT_EQUAL_UINT(60000, owned.entries[4].holdMs);
+    TEST_ASSERT_EQUAL_UINT(1 + 999 * 97 % 60000, owned.entries[999].holdMs);
+    TEST_ASSERT_TRUE(owned.valid());
+}
+
+void test_v1_upload_supports_typed_ranges_and_long_pauses_with_stable_ids() {
+    using namespace drawn_pattern;
+    PatternModifierUpload upload;
+    JsonDocument doc;
+    auto args = doc.to<JsonObject>();
+    args["key"] = 12;
+    args["offset"] = 0;
+    args["data"] = "0000000a0000001400147530001e001eea60";
+    TEST_ASSERT_EQUAL_UINT(3, upload.append(1, 2, args));
+    args["modifierKey"] = 12;
+    args["modifierCount"] = 3;
+    auto items = upload.take(1, 2, args);
+    TEST_ASSERT_NOT_NULL(items.get());
+    TEST_ASSERT_TRUE(items->entries[0].geometry() == EffectGeometry::TimeRange);
+    TEST_ASSERT_TRUE(items->entries[0].range().kind == TimeRangeEffect::Kind::Vibration);
+    TEST_ASSERT_TRUE(items->entries[1].geometry() == EffectGeometry::Instant);
+    TEST_ASSERT_TRUE(items->entries[1].point().kind == InstantEffect::Kind::Pause);
+    TEST_ASSERT_EQUAL_UINT16(30000, items->entries[1].point().maximumMs);
+    TEST_ASSERT_EQUAL_UINT16(60000, items->entries[2].point().maximumMs);
+    for (uint16_t id : {33, 65, 257, 1025, 2047, 2049}) {
+        const Modifier range(TimeRangeEffect{static_cast<TimeRangeEffect::Kind>(id), 0, 2});
+        const Modifier point(InstantEffect{static_cast<InstantEffect::Kind>(id), 0, 30000});
+        TEST_ASSERT_EQUAL_UINT16(id <= 2047 ? id : 0, uint16_t(range.range().kind));
+        TEST_ASSERT_EQUAL_UINT16(id <= 2047 ? id : 0, uint16_t(point.point().kind));
+        TEST_ASSERT_FALSE(range.valid());
+        TEST_ASSERT_FALSE(range.isVibration());
+        TEST_ASSERT_FALSE(point.valid());
+        TEST_ASSERT_FALSE(point.isPause());
+    }
+    TEST_ASSERT_FALSE(Modifier::fromV1(1, 1024 + 2, 0).valid());
+}
+
+void test_every_dense_word_has_one_meaning_and_v4_rejects_long_pauses() {
+    using namespace drawn_pattern;
+    using V = StoredModifiers::Version;
+    unsigned pauses = 0, ranges = 0, legacy = 0;
+    Modifier item;
+    for (uint32_t word = 0; word <= UINT16_MAX; ++word) {
+        if (StoredModifiers::decodeWord(0, word, V::V4, item)) ++legacy;
+        if (!StoredModifiers::decodeWord(0, word, V::V5, item)) continue;
+        TEST_ASSERT_EQUAL_UINT16(word, StoredModifiers::denseWord(item));
+        if (item.isVibration()) ++ranges;
+        if (item.isPause()) ++pauses;
+    }
+    TEST_ASSERT_EQUAL_UINT(1000, ranges);
+    TEST_ASSERT_EQUAL_UINT(60000, pauses);
+    TEST_ASSERT_EQUAL_UINT(11000, legacy);
+    for (uint32_t ms = 1; ms <= 60000; ++ms) {
+        Modifier authored{250, 250, uint16_t(ms)};
+        TEST_ASSERT_TRUE(StoredModifiers::decodeWord(250, StoredModifiers::denseWord(authored), V::V5, item));
+        if (!item.isPause() || item.holdMs != ms) TEST_FAIL_MESSAGE("dense pause duration changed");
+    }
+    for (uint16_t word : {0, 0x8000, 61002, 65535})
+        TEST_ASSERT_FALSE(StoredModifiers::decodeWord(0, word, V::V5, item));
+    TEST_ASSERT_FALSE(StoredModifiers::decodeWord(600, 0x8000 | 600, V::V5, item));
+}
+
+void test_sparse_and_dense_reboots_keep_range_tags_and_long_pause_boundaries() {
+    using namespace drawn_pattern;
+    const uint16_t ms[] = {1, 2400, 10000, 10001, 30000, 32767, 32768, 33768, 33769, 60000};
+    SavedPatternLibrary library;
+    const auto pattern = curve(2200);
+    Modifiers markers, loaded;
+    SavedPattern saved;
+    TEST_ASSERT_TRUE(markers.reserve(1000));
+    unsigned slot = 0;
+    for (uint16_t count : {333, 334, 1000}) {
+        markers.count = count;
+        for (uint16_t i = 0; i < count; ++i)
+            markers.entries[i] = {i, i, ms[i % 10]};
+        // At 1,000 occupied starts there is no free tick between a range end
+        // and adjacent pauses. Exercise a genuine range in the two mixed slots.
+        if (count < 1000) markers.entries[count - 1] = {uint16_t(count), 999, 0};
+        TEST_ASSERT_TRUE(library.save(slot, "Mixed", 5, pattern, writeRecord, markers));
+        const auto key = std::string("slot4_") + std::to_string(slot);
+        auto &blob = flash.at(key);
+        TEST_ASSERT_EQUAL_UINT(304 + std::min<unsigned>(6 * count, 2000), blob.size());
+        TEST_ASSERT_EQUAL_UINT8(0x35, blob[1]);
+        TEST_ASSERT_TRUE(library.load(readRecord));
+        TEST_ASSERT_TRUE(library.get(saved, slot, &loaded));
+        for (unsigned i = 0; i < count; ++i)
+            TEST_ASSERT_EQUAL_MEMORY(&markers.entries[i], &loaded.entries[i], sizeof(Modifier));
+        // The exact same bytes under an old V4 header are malformed.
+        blob[1] = 0x34;
+        TEST_ASSERT_TRUE(library.load(readRecord));
+        TEST_ASSERT_FALSE(library.get(saved, slot, &loaded));
+        blob[1] = 0x35;
+        TEST_ASSERT_TRUE(library.load(readRecord));
+        ++slot;
+    }
+    markers.count = 2;
+    markers.entries[0] = {0, 10, 0};
+    markers.entries[1] = {200, 200, 2400};
+    TEST_ASSERT_TRUE(library.save(3, "Short", 5, pattern, writeRecord, markers));
+    const auto &blob = flash.at("slot4_3");
+    const uint16_t legacyWords[] = {0, 10, 0, 200, 200, 2400};
+    TEST_ASSERT_EQUAL_UINT8(0x34, blob[1]);
+    TEST_ASSERT_EQUAL_MEMORY(legacyWords, blob.data() + 304, sizeof(legacyWords));
+}
+
+void test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply() {
+    JsonDocument reply;
+    addModifierCapabilities(reply);
+    TEST_ASSERT_EQUAL_UINT(1, reply["modifierVersion"].as<unsigned>());
+    TEST_ASSERT_EQUAL_UINT(1000, reply["maxModifiers"].as<unsigned>());
+    TEST_ASSERT_EQUAL_UINT(60000, reply["maxPauseMs"].as<unsigned>());
+    reply["lastStop"]["reason"] = "scheduler_gap";
+    reply["diagnostic"] = std::string(279,'x');
+    addModifierCapabilities(reply);
+    TEST_ASSERT_TRUE(reply["maxModifiers"].isUnbound());
+    TEST_ASSERT_TRUE(reply["maxPauseMs"].isUnbound());
+    TEST_ASSERT_EQUAL_STRING("scheduler_gap", reply["lastStop"]["reason"].as<const char*>());
+    TEST_ASSERT_LESS_OR_EQUAL_UINT(347, measureJson(reply));
+}
+
+void test_modified_slots_round_trip_and_keep_original_on_failure() {
+    using drawn_pattern::Modifiers;
+    SavedPatternLibrary library;
+    const auto waveform = curve(3000);
+    TEST_ASSERT_TRUE(library.save(0, "Base", 4, waveform, writeRecord));
+    const auto legacy = flash.at("libraryV3");
+    Modifiers effects;
+    effects.count = 2;
+    effects.entries[0] = {250, 500, 0};
+    effects.entries[1] = {750, 750, 2000};
+    TEST_ASSERT_TRUE(library.save(1, "With effects", 12, waveform, writeRecord, effects));
+    TEST_ASSERT_TRUE(library.select(1, writeRecord));
+    TEST_ASSERT_EQUAL_UINT(2, library.catalog().slots[1].modifierCount);
+    TEST_ASSERT_TRUE(legacy == flash.at("libraryV3"));
+    TEST_ASSERT_EQUAL_UINT(304 + 12, flash.at("slot4_1").size());
+    TEST_ASSERT_EQUAL_UINT(4, flash.at("selected4").size());
+    SavedPatternLibrary restored;
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    SavedPattern saved;
+    Modifiers retrieved;
+    TEST_ASSERT_TRUE(restored.get(saved, selectedPatternSlot, &retrieved));
+    for (unsigned i = 0; i < effects.count; ++i)
+        TEST_ASSERT_EQUAL_MEMORY(&effects.entries[i], &retrieved.entries[i], sizeof(drawn_pattern::Modifier));
+    const int committed = writes;
+    TEST_ASSERT_TRUE(restored.save(1, nullptr, 0, waveform, writeRecord, effects));
+    TEST_ASSERT_EQUAL_INT(committed, writes);
+    failWrite = true;
+    TEST_ASSERT_FALSE(restored.save(1, nullptr, 0, waveform, writeRecord));
+    TEST_ASSERT_EQUAL_UINT(2, restored.catalog().slots[1].modifierCount);
+    failWrite = false;
+    TEST_ASSERT_TRUE(restored.save(1, nullptr, 0, waveform, writeRecord));
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    TEST_ASSERT_TRUE(restored.get(saved, 1, &retrieved));
+    TEST_ASSERT_EQUAL_UINT(0, retrieved.count);
+    TEST_ASSERT_EQUAL_UINT(0, restored.catalog().slots[0].modifierCount);
+    flash["slot4_1"].pop_back();
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    TEST_ASSERT_FALSE(restored.get(saved, 1, &retrieved));
+    TEST_ASSERT_FALSE(restored.get(saved, selectedPatternSlot, &retrieved));
+    TEST_ASSERT_TRUE(restored.get(saved, 0, &retrieved));
+    TEST_ASSERT_FALSE(restored.save(1, nullptr, 0, waveform, writeRecord));
+    TEST_ASSERT_FALSE(restored.save(selectedPatternSlot, nullptr, 0, waveform, writeRecord));
+    const auto neighbor = flash.at("libraryV3");
+    TEST_ASSERT_TRUE(restored.save(1, "Repaired", 8, waveform, writeRecord));
+    TEST_ASSERT_TRUE(restored.load(readRecord));
+    TEST_ASSERT_TRUE(restored.get(saved, selectedPatternSlot, &retrieved));
+    TEST_ASSERT_EQUAL_STRING("Repaired", restored.catalog().slots[1].name);
+    TEST_ASSERT_TRUE(neighbor == flash.at("libraryV3"));
+}
+
+void test_all_four_slots_store_and_update_every_tick_independently() {
+    drawn_pattern::Modifiers all;
+    TEST_ASSERT_TRUE(all.reserve(1000));
+    all.count = 1000;
+    SavedPatternLibrary library;
+    const auto waveform = curve(5000);
+    for (unsigned slot = 0; slot < patternSlotCount; ++slot) {
+        for (uint16_t tick = 0; tick < all.count; ++tick) {
+            all.entries[tick] = slot % 2
+                ? drawn_pattern::Modifier{tick, uint16_t(tick+1), 0}
+                : drawn_pattern::Modifier{tick, tick, uint16_t(tick+1+slot)};
+        }
+        TEST_ASSERT_TRUE(library.save(slot, "Full grid", 9, waveform, writeRecord, all));
+    }
+    for (const auto *key : {"slot4_0", "slot4_1", "slot4_2", "slot4_3"})
+        TEST_ASSERT_EQUAL_UINT(2304, flash.at(key).size());
+    const auto beforeSelect = flash;
+    TEST_ASSERT_TRUE(library.select(3, writeRecord));
+    for (const auto &item : beforeSelect) TEST_ASSERT_TRUE(item.second == flash.at(item.first));
+    TEST_ASSERT_EQUAL_UINT(4, flash.at("selected4").size());
+    SavedPatternLibrary reboot;
+    TEST_ASSERT_TRUE(reboot.load(readRecord));
+    SavedPattern restored;
+    drawn_pattern::Modifiers read;
+    for (unsigned slot = 0; slot < patternSlotCount; ++slot) {
+        TEST_ASSERT_TRUE(reboot.get(restored, slot, &read));
+        TEST_ASSERT_EQUAL_UINT(1000, read.count);
+        for (uint16_t tick = 0; tick < read.count; ++tick) {
+            TEST_ASSERT_EQUAL_UINT(tick, read.entries[tick].start);
+            TEST_ASSERT_EQUAL_UINT(tick+(slot%2), read.entries[tick].end);
+            TEST_ASSERT_EQUAL_UINT(slot%2 ? 0 : tick+1+slot, read.entries[tick].holdMs);
+        }
+    }
+    // Keep the size and count syntactically plausible but remove one cell.
+    flash["slot4_0"][304] = flash["slot4_0"][305] = 0;
+    TEST_ASSERT_TRUE(reboot.load(readRecord));
+    TEST_ASSERT_FALSE(reboot.get(restored, 0, &read));
+    TEST_ASSERT_TRUE(reboot.get(restored, 3, &read));
+    TEST_ASSERT_EQUAL_UINT(1000, read.count);
+}
+
+void test_first_modified_save_and_selection_are_single_atomic_writes() {
+    drawn_pattern::Modifiers effects;
+    effects.count = 1;
+    effects.entries[0] = {200, 200, 300};
+    SavedPatternLibrary lib;
+    const auto s = curve(2100);
+    failWrite = true;
+    TEST_ASSERT_FALSE(lib.save(3, "First", 5, s, writeRecord, effects));
+    TEST_ASSERT_TRUE(flash.empty());
+    TEST_ASSERT_FALSE(lib.any());
+    failWrite = false;
+    TEST_ASSERT_TRUE(lib.save(3, "First", 5, s, writeRecord, effects));
+    TEST_ASSERT_EQUAL_UINT(1, flash.size());
+    TEST_ASSERT_EQUAL_UINT(1, flash.count("slot4_3"));
+    TEST_ASSERT_TRUE(lib.save(0, "Second", 6, s, writeRecord, effects));
+    SavedPatternLibrary reboot;
+    TEST_ASSERT_TRUE(reboot.load(readRecord, selectedPatternSlot));
+    TEST_ASSERT_EQUAL_UINT(3, reboot.catalog().selected);
+    SavedPattern value;
+    drawn_pattern::Modifiers restored;
+    TEST_ASSERT_TRUE(reboot.get(value, selectedPatternSlot, &restored));
+    TEST_ASSERT_EQUAL_UINT(1, restored.count);
+    TEST_ASSERT_FALSE(reboot.get(value, 0, &restored));  // Only the selected payload was retained.
+    const auto before = flash;
+    failWrite = true;
+    TEST_ASSERT_FALSE(reboot.select(0, writeRecord));
+    TEST_ASSERT_TRUE(before == flash);
+    failWrite = false;
+    TEST_ASSERT_TRUE(reboot.select(0, writeRecord));
+    TEST_ASSERT_TRUE(reboot.load(readRecord, 0));
+    TEST_ASSERT_TRUE(reboot.get(value, 0, &restored));
+    TEST_ASSERT_EQUAL_UINT(0, reboot.catalog().selected);
+}
+
+void test_corrupt_implicit_first_slot_cannot_redirect_wired_recall_to_its_neighbor() {
+    drawn_pattern::Modifiers effects;
+    effects.count = 1;
+    effects.entries[0] = {200, 300, 0};
+    SavedPatternLibrary lib;
+    auto value = curve(3500);
+    TEST_ASSERT_TRUE(lib.save(3, "Original", 8, value, writeRecord, effects));
+    TEST_ASSERT_TRUE(lib.save(0, "Neighbor", 8, value, writeRecord, effects));
+    flash["slot4_3"][0] ^= 0xff;
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_FALSE(lib.any());
+    TEST_ASSERT_FALSE(lib.catalog().selectedAvailable);
+    TEST_ASSERT_FALSE(lib.get(value, selectedPatternSlot));
+    TEST_ASSERT_TRUE(lib.get(value, 0));
+    TEST_ASSERT_TRUE(lib.select(0, writeRecord));
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_TRUE(lib.any());
+    TEST_ASSERT_TRUE(lib.get(value, selectedPatternSlot));
+}
+
+void test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_reselection() {
+    drawn_pattern::Modifiers effects;
+    effects.count = 1;
+    effects.entries[0] = {400, 400, 99};
+    SavedPatternLibrary lib;
+    const auto value = curve(3000);
+    TEST_ASSERT_TRUE(lib.save(2, "Earlier", 7, value, writeRecord));
+    TEST_ASSERT_TRUE(lib.save(0, "Marked", 6, value, writeRecord, effects));
+    TEST_ASSERT_TRUE(lib.select(0, writeRecord));
+    flash["selected4"] = {0x7f, 0};
+    const auto slot = flash.at("slot4_0");
+    SavedPattern read;
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_FALSE(lib.get(read));
+    TEST_ASSERT_TRUE(lib.get(read, 2));
+    TEST_ASSERT_TRUE(lib.select(2, writeRecord));
+    TEST_ASSERT_TRUE(lib.load(readRecord));
+    TEST_ASSERT_TRUE(lib.get(read));
+    TEST_ASSERT_EQUAL_UINT(2, lib.catalog().selected);
+    TEST_ASSERT_TRUE(slot == flash.at("slot4_0"));
+}
+
+void test_live_speed_telemetry_fits_one_heartbeat_with_legacy_fields() {
+    PatternStatus playback{};
+    playback.active = true;
+    playback.periodMs = UINT32_MAX;
+    playback.speed.state = "running";
+    playback.speed.limit = "acceleration";
+    playback.speed.speedPct = 99.987655;
+    playback.speed.nominalMmS = 999.87655;
+    playback.speed.plannedPeakMmS = 123.45678;
+    playback.speed.periodMs = playback.periodMs;
+    playback.speed.phaseRateHz = 1000.0 / UINT32_MAX;
+    JsonDocument status;
+    writePatternStatus(status, playback, false, false);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(347, measureJson(status));
+    TEST_ASSERT_EQUAL_INT(1, status["version"].as<int>());
+    TEST_ASSERT_EQUAL_INT(2, status["speedLaw"].as<int>());
+    TEST_ASSERT_TRUE(status["hasSpeedKnob"].is<bool>());
+    TEST_ASSERT_TRUE(status["stored"].is<bool>());
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, status["periodMs"].as<uint32_t>());
+    const auto plan = status["speedPlan"].as<JsonArrayConst>();
+    TEST_ASSERT_EQUAL_UINT32(5, plan.size());
+    TEST_ASSERT_FLOAT_WITHIN(.00001, playback.speed.speedPct, plan[0].as<double>());
+    TEST_ASSERT_FLOAT_WITHIN(.00001, 999.9, plan[1].as<double>());
+    TEST_ASSERT_FLOAT_WITHIN(.00001, 123.5, plan[2].as<double>());
+    TEST_ASSERT_EQUAL_STRING("running", plan[3].as<const char *>());
+    TEST_ASSERT_EQUAL_STRING("acceleration", plan[4].as<const char *>());
+}
+
+void test_paused_speed_is_indefinite_and_long_stop_keeps_its_diagnostics() {
+    PatternStatus playback{};
+    playback.active = true;
+    playback.speed.state = "paused";
+    JsonDocument heartbeat;
+    writePatternStatus(heartbeat, playback, true, true);
+    TEST_ASSERT_TRUE(heartbeat["active"].as<bool>());
+    TEST_ASSERT_EQUAL_UINT32(0, heartbeat["periodMs"].as<uint32_t>());
+    TEST_ASSERT_EQUAL_STRING("paused", heartbeat["speedPlan"][3].as<const char *>());
+
+    JsonDocument compact;
+    addPatternSpeed(compact, playback);
+    TEST_ASSERT_EQUAL_INT(4, compact["speedEnvelope"].as<int>());
+    JsonDocument detail;
+    writePatternSpeed(detail, playback.speed);
+    TEST_ASSERT_EQUAL(4, detail["speedEnvelope"].as<int>());
+    TEST_ASSERT_TRUE(detail["periodMs"].is<JsonVariantConst>());
+    TEST_ASSERT_TRUE(detail["periodMs"].isNull());
+    TEST_ASSERT_EQUAL_FLOAT(0, detail["phaseRateHz"].as<float>());
+    TEST_ASSERT_EQUAL_STRING("paused", detail["state"].as<const char *>());
+
+    playback.active = false;
+    playback.lastStop = {"pulse_underrun","positioning",UINT32_MAX,UINT32_MAX,INT8_MIN,UINT32_MAX};
+    JsonDocument stopped;
+    writePatternStatus(stopped, playback, false, false);
+    TEST_ASSERT_LESS_OR_EQUAL_UINT32(347, measureJson(stopped));
+    TEST_ASSERT_FALSE(stopped["speedPlan"].is<JsonArrayConst>());
+    TEST_ASSERT_EQUAL_STRING("pulse_underrun", stopped["lastStop"]["reason"].as<const char *>());
+    TEST_ASSERT_EQUAL_UINT32(UINT32_MAX, stopped["lastStop"]["frameGapMs"].as<uint32_t>());
+}
+
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(test_live_speed_telemetry_fits_one_heartbeat_with_legacy_fields);
+    RUN_TEST(test_paused_speed_is_indefinite_and_long_stop_keeps_its_diagnostics);
+    RUN_TEST(test_every_dense_word_has_one_meaning_and_v4_rejects_long_pauses);
+    RUN_TEST(test_sparse_and_dense_reboots_keep_range_tags_and_long_pause_boundaries);
+    RUN_TEST(test_v1_upload_supports_typed_ranges_and_long_pauses_with_stable_ids);
+    RUN_TEST(test_invalid_selector_preserves_explicit_slots_and_requires_deliberate_reselection);
+    RUN_TEST(test_first_modified_save_and_selection_are_single_atomic_writes);
+    RUN_TEST(test_corrupt_implicit_first_slot_cannot_redirect_wired_recall_to_its_neighbor);
+    RUN_TEST(test_all_four_slots_store_and_update_every_tick_independently);
+    RUN_TEST(test_modifier_chunks_are_bound_to_one_lease_and_atomic_across_retries);
+    RUN_TEST(test_dense_24_record_packets_retry_allocation_and_move_without_copying_pages);
+    RUN_TEST(test_modifier_upload_accepts_capacity_and_rejects_bad_or_conflicting_input);
+    RUN_TEST(test_capabilities_do_not_displace_stop_diagnostics_from_a_full_reply);
+    RUN_TEST(test_modified_slots_round_trip_and_keep_original_on_failure);
     RUN_TEST(test_legacy_blob_loads_without_writing_or_starting_and_survives_upgrade);
     RUN_TEST(test_first_slot_default_named_select_and_v1_aliases_survive_reboot);
     RUN_TEST(test_failed_or_repeated_transactions_preserve_selection_and_slot);

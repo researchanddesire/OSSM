@@ -36,6 +36,8 @@ motor_guard::Config guardConfig() {
 motor_guard::Guard guard(guardConfig());
 portMUX_TYPE guardMux = portMUX_INITIALIZER_UNLOCKED;
 MotorSafetyStatus published;
+uint32_t sharedRxTripAt = 0;
+OssmHatRxProgress sharedRxAtTrip{};
 std::atomic_bool initialized{false};
 std::atomic_bool rememberedHat{false};
 std::atomic_bool savedFault{false};
@@ -112,16 +114,8 @@ void revokeHomingLocked() {
 // stays on STEP/DIR with that master as the independent monitor; see
 // shared_bus_logic.h.
 shared_bus::Observation sharedBusObservation() {
-    const auto hat = getOssmHatStatus();
-    OssmHatTelemetry sample;
-    OssmHatControlSnapshot control;
-    shared_bus::Observation seen;
-    seen.hatDetected = hat.detected;
-    seen.receiveOnly = hat.passive;
+    auto seen = getOssmHatSharedBusObservation();
     seen.serialSelected = motorMotionSerialLatched();
-    seen.telemetryFresh = readOssmHatTelemetry(sample);
-    seen.controlsFresh = readOssmHatControlSnapshot(control);
-    seen.modbusEnable = control.modbusEnable;
     return seen;
 }
 
@@ -131,7 +125,8 @@ bool required() {
 #else
     // The serial guard protects serial motion. A receive-only HAT cannot send
     // any, so the shared-bus interlock below applies instead.
-    if (shared_bus::active(sharedBusObservation())) return false;
+    if (getOssmHatBusMode() == OssmHatBusMode::ReceiveOnly && !motorMotionSerialLatched())
+        return false;
     return rememberedHat || ossmHatDetected();
 #endif
 }
@@ -739,10 +734,15 @@ void monitor(void *) {
         // drive executes STEP/DIR. Without that word pulses must stop; a
         // drive in serial control would store them for a later handback.
         if (shared && digitalRead(Pins::Driver::motorEnablePin) == LOW) {
-            if (sharedInterlock == shared_bus::Interlock::MonitorSilent)
+            if (sharedInterlock == shared_bus::Interlock::MonitorSilent) {
+                if (guard.fault() == motor_guard::Fault::None) {
+                    sharedRxTripAt = now;
+                    sharedRxAtTrip = getOssmHatRxProgress();
+                }
                 guard.tripFault(motor_guard::Fault::TelemetryStale);
-            else if (sharedInterlock == shared_bus::Interlock::DriveNotStepDir)
+            } else if (sharedInterlock == shared_bus::Interlock::DriveNotStepDir) {
                 guard.tripFault(motor_guard::Fault::StopPathUnverified);
+            }
         }
         guard.tick(now);
         armed = guard.armed();
@@ -866,6 +866,14 @@ void report(void *) {
                                   detail.sequence, detail.sampleAtMs, detail.decisionAtMs,
                                   static_cast<long long>(detail.deltaCounts), detail.gapMs,
                                   detail.instantaneousMmS, detail.windowMmS, detail.windowMs);
+                portENTER_CRITICAL(&guardMux);
+                const uint32_t tripAt = sharedRxTripAt;
+                const auto rx = sharedRxAtTrip;
+                portEXIT_CRITICAL(&guardMux);
+                if (tripAt && currentState.fault == static_cast<uint8_t>(motor_guard::Fault::TelemetryStale))
+                    Serial.printf("RAD_GUARD_RX tripAt=%u pollAt=%u byteAt=%u publishAt=%u bytesSinceSample=%u crcSinceSample=%u\n",
+                                  tripAt, rx.pollAtMs, rx.byteAtMs, rx.publishAtMs,
+                                  rx.bytesSinceSample, rx.crcSinceSample);
                 if (stateMachine != nullptr)
                     stateMachine->process_event(MotorSafetyFault{currentState.controlRevision});
                 else reported = UINT8_MAX;
@@ -995,8 +1003,10 @@ const char *motorSafetyReason() {
 
 bool motorSafetyCanEnableOutputs() {
     const bool needed = required();
-    const auto hat = getOssmHatStatus();
-    const bool controls = controlsReady();
+    // Serial readiness only participates in the serial guard. A shared bus
+    // gets its own fresh mode, telemetry and control check below on every call.
+    const auto hat = needed ? getOssmHatStatus() : OssmHatStatus{};
+    const bool controls = needed && controlsReady();
     portENTER_CRITICAL(&guardMux);
     const bool fault = guard.fault() != motor_guard::Fault::None;
     const bool armed = guard.armed();
@@ -1004,7 +1014,10 @@ bool motorSafetyCanEnableOutputs() {
     if (fault || deadlineTripped || serialProbeClaimed.load()) return false;
     const auto sharedSeen = sharedBusObservation();
     if (shared_bus::active(sharedSeen)) return shared_bus::pulsesAllowed(sharedSeen);
-    if (!needed) return true;
+    // Discovery or serial selection can race the initial classification.
+    // Only the legacy board can proceed without either interlock.
+    if (!needed)
+        return !sharedSeen.hatDetected && !sharedSeen.serialSelected && !rememberedHat.load();
     return initialized.load() && armed && deadlineArmed &&
            hat.ageMs <= 100 && hat.sampleRateHz >= 30 &&
            (!localExclusive.load() || !hat.passive) && controls;
@@ -1284,6 +1297,7 @@ bool motorSafetyBeginHomingPass(uint8_t pass, MotorHomingTicket ticket) {
     if (ticketCurrentLocked(ticket) && pass == 1 &&
         guard.fault() == motor_guard::Fault::None) {
         guard.resetAfterReview();
+        sharedRxTripAt = 0;
         deadlineArmed = false;
         published.ready = false;
         publishCoreLocked(millis());
@@ -1575,6 +1589,7 @@ bool resetMotorSafetyAfterReview() {
         !guard.armed() && !serialProbeClaimed.load();
     if (cleared) {
         guard.resetAfterReview();
+        sharedRxTripAt = 0;
         deadlineTripped = false;
         deadlineArmed = false;
         ++safetyControlRevision;

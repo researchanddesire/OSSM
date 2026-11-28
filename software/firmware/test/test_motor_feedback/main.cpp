@@ -122,6 +122,22 @@ void test_invalid_contact_inputs_cannot_latch() {
     TEST_ASSERT_FALSE(detector.update(3, 160, 0, 2.0f, 1.5f, 0.0));
 }
 
+void test_home_reference_waits_for_mechanical_settling_after_last_step() {
+    motor_feedback_logic::StationaryEncoderWindow window;
+    constexpr double halfStep = motor_feedback_logic::encoderCountsPerRevolution / (2 * 800);
+    // A stock encoder still traveled 149 counts after the former home latch.
+    TEST_ASSERT_FALSE(window.update(12, 100, -14932, halfStep, 60));
+    TEST_ASSERT_FALSE(window.update(13, 120, -15001, halfStep, 60));
+    TEST_ASSERT_FALSE(window.update(14, 140, -15080, halfStep, 60));
+    TEST_ASSERT_FALSE(window.update(15, 160, -15081, halfStep, 60));
+    TEST_ASSERT_FALSE(window.update(15, 400, -15081, halfStep, 60));
+    TEST_ASSERT_FALSE(window.update(16, 180, -15080, halfStep, 60));
+    TEST_ASSERT_TRUE(window.update(17, 200, -15081, halfStep, 60));
+    window.reset();
+    TEST_ASSERT_FALSE(window.update(18, 220, -15081, halfStep, 60));
+    TEST_ASSERT_FALSE(window.update(19, 340, -15081, halfStep, 60));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_encoder_wrap_in_both_directions);
@@ -136,5 +152,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_large_sample_gap_cannot_bridge_contact_dwell);
     RUN_TEST(test_contact_dwell_handles_encoder_and_millis_wrap);
     RUN_TEST(test_invalid_contact_inputs_cannot_latch);
+    RUN_TEST(test_home_reference_waits_for_mechanical_settling_after_last_step);
     return UNITY_END();
 }

@@ -1,6 +1,8 @@
 #include "rad_ble.h"
 #include "nimble.h"
 #include "leased_speed.h"
+#include "pattern_modifier_upload.h"
+#include <mutex>
 
 #include <Preferences.h>
 #include <WiFi.h>
@@ -16,6 +18,7 @@
 #include "ossm/state/actions.h"
 #include "ossm/streaming/saved_pattern.h"
 #include "ossm/streaming/drawn_pattern.h"
+#include "ossm/streaming/pattern_speed_json.h"
 #include "ossm/state/calibration.h"
 #include "ossm/state/motion.h"
 #include "ossm/state/settings.h"
@@ -98,6 +101,7 @@ const radble::Resource RESOURCES[] = {
      "{\"min\":0,\"max\":100}"},
     {"drawn_pattern", "pattern.play", "motion", "object", "", RWS,
      R"({"version":1,"minSamples":16,"maxSamples":128,"timeUnit":"ms"})"},
+    {"pattern_speed", "pattern.speed", "motion", "object", "", R, R"({"version":2})"},
     {"pattern_library", "pattern.library", "motion", "object", "", R,
      R"({"version":1,"capacity":4,"maxNameBytes":24})"},
     {"homed", "motion.homed", "motion", "bool", "", RS, ""},
@@ -166,9 +170,12 @@ const radble::Resource RESOURCES[] = {
 };
 
 String currentStateName() {
-    JsonDocument current;
-    deserializeJson(current, ossm->getCurrentState());
-    return current["state"] | "";
+    String name;
+    OSSM::writeStateName(name);
+    // Full telemetry also invalidates a stale physical encoder reference.
+    // Preserve that observation when a client reads only the state label.
+    (void)motorPositionUsesRs485();
+    return name;
 }
 
 bool returnToMenuSafely() {
@@ -261,36 +268,35 @@ radble::Result patternLibrary(JsonObjectConst request) {
 
 radble::Result patternStatus() {
     JsonDocument status;
-    status["version"] = 1;
-    status["liveSpeed"] = true;
-    status["interpolationVersion"] = 2;
-    status["maxSampleBits"] = 16;
-    status["maxSparseSamples"] = drawn_pattern::sparseSamples;
-    status["libraryVersion"] = 1;
-    status["libraryPageSize"] = 1;
-    status["hasSpeedKnob"] = Pins::Remote::hasSpeedKnob;
-    const auto playback = streaming::drawnPatternStatus();
-    status["active"] = playback.active;
-    status["periodMs"] = playback.periodMs;
-    if (playback.lastStop.reason) {
-        auto stop = status["lastStop"].to<JsonObject>();
-        stop["reason"] = playback.lastStop.reason;
-        stop["stage"] = playback.lastStop.stage;
-        stop["atMs"] = playback.lastStop.atMs;
-        stop["elapsedMs"] = playback.lastStop.elapsedMs;
-        stop["driverResult"] = playback.lastStop.driverResult;
-        stop["frameGapMs"] = playback.lastStop.frameGapMs;
-    }
-    status["stored"] = streaming::hasSavedPattern();
+    streaming::writePatternStatus(status, streaming::drawnPatternStatus(),
+                                  Pins::Remote::hasSpeedKnob, streaming::hasSavedPattern());
     String output;
     serializeJson(status, output);
     return radble::Result::success(output);
 }
 
-radble::Result handlePatternCommand(const String &operation, JsonObjectConst args) {
+std::mutex uploadLock;
+streaming::PatternModifierUpload modifierUpload;
+
+void discardModifierUpload() {
+    std::lock_guard<std::mutex> guard(uploadLock);
+    modifierUpload.clear();
+}
+
+radble::Result handlePatternCommand(const String &operation, JsonObjectConst args, uint32_t lease) {
     using namespace streaming;
+    const auto connection = radBleServer.currentRequestConnection();
+    if (operation == "pattern.modifiers") {
+        std::lock_guard<std::mutex> guard(uploadLock);
+        bool outOfMemory = false;
+        const unsigned count = modifierUpload.append(connection, lease, args, &outOfMemory);
+        if (outOfMemory) return radble::Result::failure("busy", "Insufficient memory for modifier chunk");
+        if (!count) return radble::Result::failure("invalid_value", "Invalid or overlapping modifier chunk");
+        return radble::Result::success(String("{\"count\":") + count + "}");
+    }
     if (operation == "pattern.stop") {
         cancelDrawnPattern();
+        discardModifierUpload();
         return patternStatus();
     }
     if (operation == "pattern.keepalive") {
@@ -298,9 +304,10 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
             return radble::Result::failure("not_playing", "Pattern playback has stopped");
         return patternStatus();
     }
-    const bool save = operation == "pattern.save";
+    const bool modified = operation == "pattern.playModified" || operation == "pattern.saveModified";
+    const bool save = operation == "pattern.save" || operation == "pattern.saveModified";
     const bool select = operation == "pattern.select";
-    if (!save && !select && operation != "pattern.play")
+    if (!save && !select && !modified && operation != "pattern.play")
         return radble::Result::failure("unsupported", "Unknown pattern command");
     int slot = selectedPatternSlot;
     if (args["slot"].is<JsonVariantConst>()) {
@@ -320,35 +327,58 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
         return patternStatus();
     }
     SavedPattern value;
-    if (!save && (args.size() == 0 || (args.size() == 1 && slot != selectedPatternSlot))) {
+    std::unique_ptr<drawn_pattern::Modifiers> effects;
+    if (!modified && !save && (args.size() == 0 || (args.size() == 1 && slot != selectedPatternSlot))) {
         const auto status = drawnPatternStartStatus(getMotorSafetyStatus().controlRevision);
+        if (status == PatternStart::NoTravel)
+            return radble::Result::failure("limits_zero", "Choose a nonzero travel range with Depth and Stroke");
         if (status == PatternStart::Busy)
             return radble::Result::failure("busy", "Stop the current motion before playing a stored pattern");
         if (status != PatternStart::Accepted)
             return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");
-        if (!getSavedPattern(value, slot))
+        effects.reset(new (std::nothrow) drawn_pattern::Modifiers);
+        if (!effects) return radble::Result::failure("busy", "Insufficient memory to read the slot");
+        if (!getSavedPattern(value, slot, effects.get()))
             return radble::Result::failure("not_found", "No pattern saved in this slot");
     } else {
         const bool named = slot != selectedPatternSlot;
-        if ((named && (!save || args.size() != 4)) || !readPatternSamples(args, value))
+        const size_t fieldCount = (named ? 4u : 2u) + (modified ? 2u : 0u);
+        if ((named && !save) || args.size() != fieldCount || !readPatternSamples(args, value))
             return radble::Result::failure("invalid_value", "Expected samples, period and optional named destination");
     }
+    if (modified) {
+        std::lock_guard<std::mutex> guard(uploadLock);
+        effects = modifierUpload.take(connection, lease, args);
+        if (!effects)
+            return radble::Result::failure("invalid_value", "Upload the complete modifier set for this pattern");
+    }
+    const auto &markers = effects ? *effects : drawn_pattern::noModifiers();
     if (save) {
         const auto name = slot == selectedPatternSlot ? JsonString{} : args["name"].as<JsonString>();
         if (slot != selectedPatternSlot && (name.isNull() || !validPatternName(name.c_str(), name.size())))
             return radble::Result::failure("invalid_value", "Expected a 1..24 byte UTF-8 pattern name");
         bool written = false;
-        if (!stateMachine->process_event(SavePattern{value, written, slot, name.c_str(), name.size()}))
+        if (!stateMachine->process_event(SavePattern{value, written, slot, name.c_str(), name.size(), markers}))
             return radble::Result::failure("invalid_state", "Return to the menu to save a pattern");
         if (!written)
             return radble::Result::failure("save_failed", "The OSSM could not save the pattern");
         return patternStatus();
     }
     const auto started = startBlePattern(radBleServer.currentRequestConnection(),
-                                         value.samples, value.length, value.periodMs, value.format());
+                                         value.samples, value.length, value.periodMs, value.format(), std::move(effects));
     if (started == PatternStart::Accepted) return patternStatus();
+    if (started == PatternStart::NoTravel)
+        return radble::Result::failure("limits_zero", "Choose a nonzero travel range with Depth and Stroke");
     if (started == PatternStart::Busy)
         return radble::Result::failure("busy", "Stop the current pattern before playing another");
+    if (started == PatternStart::MarkerMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern markers");
+    if (started == PatternStart::PlannerMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern planner");
+    if (started == PatternStart::QueueMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern queue");
+    if (started == PatternStart::WorkerMemory)
+        return radble::Result::failure("resource_exhausted", "Insufficient memory for pattern worker");
     if (started == PatternStart::Invalid)
         return radble::Result::failure("invalid_value", "Invalid pattern");
     return radble::Result::failure("not_ready", "Enter Streaming with a homed device and a ready motor");
@@ -362,12 +392,26 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
     const String path = request["path"] | "";
     const JsonObjectConst args = request["args"].as<JsonObjectConst>();
 
+    if (operation == "sensor.read" && path == "pattern.modifiers") {
+        JsonDocument capabilities;
+        streaming::addModifierCapabilities(capabilities);
+        String output;
+        serializeJson(capabilities, output);
+        return radble::Result::success(output);
+    }
     if (operation == "sensor.read" && path == "pattern.library") return patternLibrary(request);
+    if (operation == "sensor.read" && path == "pattern.speed") {
+        JsonDocument status;
+        streaming::writePatternSpeed(status, streaming::drawnPatternStatus().speed);
+        String output;
+        serializeJson(status, output);
+        return radble::Result::success(output);
+    }
     if (operation == "sensor.read" && path == "pattern.play") return patternStatus();
     if (operation.startsWith("pattern.")) {
         if (!request["args"].is<JsonObjectConst>() && operation == "pattern.play")
             return radble::Result::failure("invalid_value", "Use an empty object to replay the saved pattern");
-        return handlePatternCommand(operation, args);
+        return handlePatternCommand(operation, args, request["lease"] | 0U);
     }
 
     if (operation == "ota.start" && String(args["transport"] | "") == "wifi") {
@@ -757,7 +801,11 @@ radble::Result handleCommandOnServerTask(JsonObjectConst request) {
                 return radble::Result::failure("invalid_value", "Value must be 0..100");
             if (path == "motion.stroke") command = "set:stroke:" + String(value);
             else if (path == "motion.depth") command = "set:depth:" + String(value);
-            else if (path == "motion.sensation") command = "set:sensation:" + String(value);
+            else if (path == "motion.sensation") {
+                if (!setLeasedBleSensation(radBleServer.currentRequestConnection(), value))
+                    return radble::Result::failure("disconnected", "Sensation controller disconnected");
+                return settingValue(path);
+            }
             else if (path == "motion.buffer") command = "set:buffer:" + String(value);
             else return radble::Result::failure("unknown_path", "Unknown setting path");
         }
@@ -958,18 +1006,11 @@ String snapshot(radble::Surface surface, void*) {
             // Keep the unsolicited state heartbeat and state.read response below
             // the smallest ATT payload observed on supported centrals. Detailed
             // motion values remain available through the motion.* resources.
-            JsonDocument current;
-            if (deserializeJson(current, ossm->getCurrentState()))
-                return R"({"state":"unknown"})";
-            document["state"] = current["state"] | "unknown";
+            document["state"] = currentStateName();
             break;
         }
         case radble::Surface::Essential: {
-            JsonDocument current;
-            if (deserializeJson(current, ossm->getCurrentState()))
-                document["state"] = "unknown";
-            else
-                document["state"] = current["state"] | "unknown";
+            document["state"] = currentStateName();
             float volts;
             if (readMotorVoltageVolts(volts))
                 document["powered"] = volts >= 20.0f;
@@ -1110,6 +1151,7 @@ radble::Result prepareOta(bool starting, const char*, void*) {
 
 void releaseDiagnosticOutputs(void*) {
     streaming::cancelRemoteDrawnPattern();
+    discardModifierUpload();
     setLEDOff();
 }
 

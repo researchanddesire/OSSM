@@ -1,6 +1,6 @@
 # Drawn patterns
 
-In the Dashboard pattern editor, draw or edit one cycle, preview the loop and save it to your library. Connect to an OSSM with pattern support over Web Bluetooth. Prepare the OSSM and complete its homing and Streaming preflight. Select Play to start. The speed knob, stroke, depth and sensation controls govern the physical motion. At zero speed the loop waits for the first deliberate increase. Once moving, reducing speed to zero stops it. Changing stroke or depth to a different travel window requires pressing Play again. A cycle that exceeds the velocity, acceleration or jerk limit takes longer to run.
+Draw one cycle in the Dashboard, preview it with the Speed control and save it to your library. Connect to a nearby OSSM, choose Prepare and follow its homing prompts. Press Play. On the classic OSSM the wired knob sets Speed. At zero, the pattern holds its place. Raising Speed resumes the same path. Stop ends playback. Choose a Depth and Stroke that leave at least one native step of travel before pressing Play. You may adjust a valid window while the pattern is still waiting at zero Speed before its first move. Once Speed is positive or the pattern has entered its path, changing either travel endpoint ends playback and requires a new Play. Setting the window to zero also ends an armed session.
 
 **Offline replay.** Return to the menu and select Save to OSSM in the Dashboard. The OSSM keeps four named slots across power cycles. Saving replaces the chosen slot. Select **Saved patterns** in the wired menu, turn the encoder to a name, then click to choose it. An asterisk marks the current selection. A long press or Back leaves the selector. Choosing a name returns to the menu with Streaming highlighted and the motor stopped. With the wired remote, select Streaming, complete its normal preflight and double-click the encoder to play the saved curve. Double-click again to stop. A long press returns to the menu. Booting or reconnecting leaves playback stopped. The ALT controller lacks the wired encoder and speed knob. Use the Dashboard’s saved-pattern playback with an explicit software speed on that controller.
 
@@ -10,9 +10,19 @@ The optional BLE setting `setting.afterHomingPosition` sets the parking distance
 
 Probe the OSSM with `sensor.read` at `pattern.play`. Version 1 returns `version`, `hasSpeedKnob`, `active`, `stored`, and `periodMs`. The effective period becomes available after the controller evaluates the curve against the calibrated travel and current motion limits.
 
-When status advertises `liveSpeed: true`, the controlling RAD BLE connection can change speed during a live loop. Send `setting.write` to `motion.speed` with an integer percentage from 1 to 100. The existing knob arbitration still determines the effective speed. `motion.speedBle` also accepts fractions and changes the configured BLE percentage without selecting it as the speed source. A zero write stops playback and a subsequent increase requires a new Play. Legacy text motion commands and commands that take over a wired or differently owned loop stop that loop.
+With speed law version 2, the requested peak on a classic OSSM is 1,000 mm/s at 100% Speed. The controller evaluates the curve in the actual travel window and limits its steepest part by backend speed, acceleration, jerk and sampling. Intermediate percentages select the corresponding fraction of the attainable phase rate. Saved files retain their original period for compatibility. The Speed control sets the tempo of a moving curve.
 
-Speed is a physical velocity ceiling. The cycle stretches when its path would exceed the velocity, acceleration or jerk ceiling and returns toward the authored period when the limits permit it. Two speed settings can therefore yield the same period. A positive change preserves phase and ramps the rate of future frames. Previously queued STEP/DIR frames cover up to 20 ms and knob arbitration runs on the play-controls task.
+The `speedEnvelope: 4` planner allows the jerk already present in the drawing to increase with the cube of playback Speed. Playing the same curve twice as fast requests twice the peak velocity, four times the peak acceleration and eight times the steady path jerk. The planner calculates the fastest cycle within the configured velocity and acceleration, the output update rate, and a finite limit on the acceleration change per update. It keeps a separate smoothing allowance for the additional jerk from a live Speed edit. Lowering Speed or releasing a pause preserves the current phase and rate while the clock changes tempo. The existing `speedLaw: 2` control, state and heartbeat formats are compatible. The dedicated `pattern.speed` read includes the envelope revision and `steadyJerkLimitMmS3`, the permitted steady base-path jerk at the target Speed in mm/s³.
+
+A direct or saved-slot Play with a zero-width travel range returns `limits_zero`. Even small nonzero Depth and Stroke settings can round down to zero native steps. Expanding that range leaves playback stopped.
+
+Zero Speed requests an infinite cycle time. A Play begun at zero waits in place. A running curve brakes to a stationary point, holds there under its current owner and resumes from the settled phase when Speed rises. Explicit Stop, lease expiry, disconnect and guard trips still end the session. An authored pause point scales with Sensation independently of the Speed control.
+
+Losing the controlling BLE connection cancels a remote drawing immediately. A previously explicit zero remains zero through disconnection and reconnection. A fresh connection can read status without claiming motion. During shutdown of positive legacy motion, the remote speed eases down from the lower of the current remote input and the applied speed. A fresh accepted driving command can take control.
+
+Pattern status advertises `speedLaw: 2`. An active status or `pattern.keepalive` includes `speedPlan`, an array in the order `[speedPct, nominalMmS, plannedPeakMmS, state, limit]`. The two speeds use millimetres per second rounded to one decimal place. `nominalMmS` is the Speed percentage times the configured nominal maximum. On a classic OSSM this maximum is 1,000 mm/s. `plannedPeakMmS` is the planned peak of the base drawing, before an optional vibration is added. Both describe commands. The top-level legacy numeric `periodMs` uses zero when no finite cycle is set. Read `sensor.read` at `pattern.speed` for the same named fields with version 2 and an explicitly nullable `periodMs`. Its `phaseRateHz` is the continuous target in cycles per second. Millisecond periods round up for compatibility and saturate at 4,294,967,295 ms for very small positive settings. A finite positive rate remains available in `phaseRateHz`. A long stopped diagnostic may omit the version flag from the main status. The separate read remains available. States are `idle`, `waiting`, `running`, `pausing` and `paused`. The limit identifies `speed`, `acceleration`, `jerk`, `sampling` or a `flat` path. The value `backend` identifies a lower drive or transport ceiling. Earlier envelope revisions can report `vibration` when they slow the base curve to reserve capacity for a carrier.
+
+The controlling RAD BLE connection can write `motion.speed` with an integer percentage from 0 to 100. `motion.speedBle` also accepts fractions and preserves the selected speed source. Knob arbitration determines the effective setting. Legacy text motion commands and transfers of ownership still stop the old loop. Earlier firmware advertising only `liveSpeed` applies its authored-period ceiling and ends a moving loop on a write of zero.
 
 After playback ends, the optional `lastStop` object reports the first stop reason and the stage (`waiting`, `positioning` or `playing`). `atMs` is uptime in milliseconds, `elapsedMs` is milliseconds since the accepted Play request, `frameGapMs` gives the age of the last accepted playing frame, and `driverResult` is the signed backend result when applicable. An explicit stop reports `stop`. A missed hardware refill reports `pulse_underrun`. Reading status, issuing another Stop or returning to the menu preserves the record. The next accepted Play clears it.
 
@@ -50,7 +60,7 @@ A device reporting `maxSampleBits: 16` accepts `samples16` in place of `samples`
 
 When both `maxSparseSamples: 1024` and 16-bit support are advertised, an additional exclusive field, `samples16Runs`, can preserve short features among long holds. Each eight-character entry has a four-digit inclusive end index, then a four-digit Q16 position, both unsigned big-endian hex. Starting at index zero, hold that height through the end index. Start the next run at the following index. Include one to 32 runs with strictly increasing ends and distinct adjacent heights. The final end must be `03ff` (index 1023). For example, `01ff000003ffffff` describes 512 minimum samples followed by 512 maximum samples. The same periodic quintic reconstructs between knots. The Dashboard tests the reconstructed curve against the editable source and enables transfer only inside its 1% stroke tolerance.
 
-Existing single-slot and four-slot records load at their original precision. The first successful change stores the whole library and its selected slot atomically in `libraryV3`. Upgrading leaves the previous `libraryV2` or `curveV1` snapshot intact. Downgrading therefore restores that snapshot, including any previous slot contents replaced since the upgrade. Check the displayed name and slot after changing firmware. Playback still requires a deliberate Play or wired double-click.
+Existing single-slot and four-slot records load at their original precision. An unannotated library stores ordinary edits and the selected slot atomically in `libraryV3` until its first annotated save. Upgrading leaves the previous `libraryV2` or `curveV1` snapshot intact. Downgrading therefore restores that snapshot, including any previous slot contents replaced since the upgrade. Check the displayed name and slot after changing firmware. Playback still requires a deliberate Play or wired double-click.
 
 ## Measuring the timing of a speed change
 
@@ -68,4 +78,98 @@ producer accepting the first frame at that governed rate. The final
 flag marks a known upper bound on the remaining queue delay. Serial-path
 shaft arrival requires independent measurement. The first flag identifies
 the first rate in a new Play. Read the records after Stop to measure live
-adjustments without issuing USB commands during playback.
+adjustments without issuing USB commands during playback. A stationary
+software entry followed by timed STEP output also records the first accepted
+raw frame. This record can repeat the same rate and Sensation. Its frame
+index and observed queue-start delay bracket the new hardware timing origin.
+A required finite re-prime after a hard stop can already have emitted one step.
+
+After Stop, `patternbuffer` reports
+`RAD_PATTERN_BUFFER lastQueuedUs minRunningUs maxQueuedUs immediateTurns lowWaterYields movingPlanTotalUs maxMovingPlanUs`.
+The queue durations are sampled after accepted raw pulse commands. They exclude
+the entry currently executing in the driver. A minimum of 65535 indicates no
+running-queue sample. An ordinary visit offers up to three frames. When a
+successful append leaves less than 14 ms and more prepared frames are ready,
+the feeder can offer up to five additional frames during that visit. It
+releases the control mailbox and rechecks the lease, controls and guard before
+each additional frame. The scheduler permits up to two immediate return visits
+before yielding. The driver admits at most 16 ms of queued motion and the
+stop-drain limit is 25 ms.
+Moving-plan times count wall time, including preemption, for newly planned
+frames whose target changed. Divide the total by the moving-frame count in
+`patterncost` to obtain the mean.
+
+On STEP/DIR, a separate task prepares 2 ms frames in RAM. It stores the
+changed words of the controller state exactly. The software buffer holds
+up to 64 frames, with room for at least 16 even when every word changes.
+The feeder checks ownership and safety for each hardware submission. It can
+help calculate one frame when the software buffer runs low and the peripheral
+has space covered, or when no software frame is ready. Both cores calculate
+outside the controller mailbox and publish against the same generation and
+frame number. The peripheral's lookahead and the Stop limit stay unchanged.
+
+A change from one positive Speed to another can finish up to eight prepared
+frames of the current speed law (16 ms). The new plan starts at their exact
+final position, rate and acceleration. A second positive edit during that
+handoff replaces the pending goal at the same boundary. Status and timing
+records report the applied goal when the hardware accepts its first frame.
+Zero Speed, a change to the acceleration cap, or a Sensation edit on a
+marked drawing discards the prepared prefix. Stop, guard trips and loss of ownership revoke playback immediately.
+Serial motion continues to submit one acknowledged 20 ms target at a time.
+Play reports busy when the planner or its workspace cannot be allocated.
+
+After Stop, `patternplanner` reports
+`RAD_PATTERN_PLANNER prepared discarded emptyTurns maxPrepared plannerStackFreeBytes`.
+The first two counters describe software frames published and discarded on
+changes of control. Empty turns count feeder visits with no available frame
+after initial warmup. Maximum depth is measured in software frames. The last
+field is the worker's minimum unused stack in bytes as last sampled. Zero
+indicates no reading. Both the worker and its ring are released after Stop.
+
+When the positive STEP/DIR queue is full, the same planner can use idle
+capacity to prepare up to four 2 ms braking frames from the last accepted
+position and phase. Every newly accepted positive frame or control change
+retires this prediction. A Speed change to zero uses the current prediction
+or computes the first braking row on demand. Stop and the motor guard still
+revoke immediately. After Stop, `patternpause` returns
+`RAD_PATTERN_PAUSE computed adopted changes maximumComputeUs`. Computed
+includes speculative rows overtaken by a new cursor. Adopted counts rows
+copied into the braking plan before motor admission. Changes counts the
+eligible positive-to-zero transitions during this Play.
+
+## Experimental sensation modifiers
+
+A drawing can contain vibration ranges and pause points. Their locations are fractions of the drawing's original cycle, so starting playback at the first minimum keeps every marker attached to its drawn position.
+
+- A vibration range adds a 6 Hz oscillation. It fades in and out inside the marked interval. Sensation controls its amplitude. Full strength uses up to 1% of the configured stroke or 1 mm, whichever is smaller. Available speed, acceleration, jerk and the width of the range can reduce the physical amplitude further.
+- A pause point holds the drawn position for a fraction of its configured duration. The maximum is 60 seconds. For a 30-second pause, 0%, 50% and 100% Sensation request zero, 15 and 30 seconds stationary at the marked position. Braking and resuming take additional time. The controller continues to require remote keepalives during the pause. Stop, loss of authority and safety faults can end playback immediately. While the shaft is parked, changing Sensation adjusts the total hold against the time already spent stationary. Raising it can extend the hold to its authored maximum. Lowering it below the elapsed time releases the hold. Returning Sensation to zero resumes playback. Raising it after the point has been passed, or too late to brake smoothly, applies on the next pass.
+- At zero Sensation the drawing plays through. Every drawn pattern uses the normal 50% acceleration baseline at every Sensation setting. A vibration uses only the velocity, acceleration and jerk available within its marked range. If the whole range reaches a limit, the controller checks shorter portions and smoothly reduces vibration where the base drawing consumes the available motion. Gain changes follow a 250 ms smooth ramp. Changing Sensation leaves the underlying path and its Speed timing intact. Travel, speed and backend limits still apply. The reported base period excludes time spent approaching, holding and leaving a pause.
+- A vibration range may touch another range. A pause must have its own point, including at the loop seam. A range lies within a single cycle. Place one range on either side of the seam to mark both ends.
+
+A supporting device reports `modifierVersion: 1`, `maxModifiers: 1000` and `maxPauseMs: 60000` in pattern status. Long stop diagnostics can fill the BLE reply. If those fields are missing, read the same capabilities with `sensor.read` at `pattern.modifiers`. A version-1 device that omits `maxPauseMs` from this capability read supports a maximum of 10,000 ms. On the same control lease, `setting.write` at `motion.sensation` accepts an integer from 0 through 100 while a drawn pattern is playing. On an unmarked drawing the setting has no effect on playback. Physical controls can also set Sensation. A saved slot with markers reports its `modifierCount` in the pattern catalog.
+
+### Transferring markers
+
+Send `pattern.modifiers` with a nonzero random unsigned 32-bit `key`, zero-based record `offset`, and `data`. Encode each record in twelve lowercase hexadecimal characters, four per unsigned field in this order.
+
+| Field | Vibration | Pause |
+| --- | --- | --- |
+| Start | 0–999 thousandths of the cycle | 0–999 thousandths of the cycle |
+| End | Greater than start, up to 1000 | Same as start |
+| Hold | 0 | Maximum hold in milliseconds, 1–60000 |
+
+Sort by start. Send at most 32 whole records per request, reducing chunk size as needed for the BLE packet budget. Start at offset zero. The reply's `count` acknowledges the number of records received. A retry of an identical chunk returns the current count. A gap, overlap, invalid field or conflicting retry returns `invalid_value`. If the device cannot allocate another page for a valid packet, it returns `busy` and keeps the previously acknowledged prefix. Retry the same chunk on the same lease.
+
+Commit on the same connection and lease with `pattern.playModified` or `pattern.saveModified`. Supply the usual sample/period and optional save destination, plus `modifierKey` and the exact `modifierCount`. A commit consumes the upload. For a new attempt after a failed commit, start a fresh transfer. Stop and lease release discard uncommitted markers. A live upload alone cannot move the shaft or change a saved slot.
+
+Each of the 1,000 distinct start positions can carry a marker. The device allocates transfer and playback memory as needed, and stores a dense slot in at most 2,000 bytes of modifier data. After the first annotated save, each changed slot stores its waveform, name and markers in one atomic NVS blob (`slot4_0` through `slot4_3`). A full slot occupies 2,304 bytes. Slots containing a pause over 10,000 ms carry the V5 storage header. Shorter pauses and vibration ranges retain the V4 layout. V5 retains the dense range words `0x8001`–`0x83e8` and stores pause lengths 32,768–33,768 as words 60,001–61,001. Other pause lengths use their duration directly. Word zero denotes an empty tick. Word `0x8000` and words above 61,001 are reserved. Sparse slots keep the three original unsigned 16-bit fields. On an empty device the first blob also records the initial selection. Later explicit selections write one four-byte `selected4` value. Earlier library snapshots and untouched slots remain available. Downgrading exposes the older snapshot. If the shared NVS partition lacks room for an atomic change, the device reports a save failure. A malformed slot remains unavailable until an explicitly named save replaces that slot. Other readable slots remain available by number. An invalid selection requires a deliberate selection before wired recall. Existing drawings and saves on earlier firmware continue using the original commands. After upgrading, both Dashboard slot playback and the wired controller replay the saved markers.
+
+With the shaft stopped, USB `patternfeel <sequence>` reads the sensation associated with an accepted frame on the same sequence as `patterntime`. Zero requests the newest record. The fields following `RAD_PATTERN_FEEL` are sequence, uptime in milliseconds, requested strength in thousandths of a percent, current gain in millionths, target gain in millionths, carrier phase in billionths of a cycle, and accepted frame index since Play. The record captures changes in commanded timing or effect strength. Both readouts survive Stop.
+
+After Stop, USB `patternwork` returns the last playback’s accepted frame count, queue retry count, longest single-frame planning time, longest driver submission time, and longest wait for the motion mutex during a heartbeat renewal. The three elapsed-time maxima are in microseconds and include task preemption. The next accepted Play resets the counters.
+
+After Stop, USB `patterncost` reports the number of planned frames, plans whose target changes by at least one native step, total planning time in microseconds, plans over 2 ms, backend submission attempts, total submission time in microseconds, attempts over 2 ms, and the timing sequence of the initial software-to-raw handoff (zero if absent). Times include task preemption. A full queue retries a prepared frame. A change to its applicable motion settings causes a fresh plan. After a verified finite entry, initial stationary STEP/DIR frames run on the 2 ms software clock until the first changed target. An unexpected underrun once the raw queue owns movement still stops playback.
+
+Ordinary positive STEP/DIR playback can combine two consecutive 2 ms intervals at one unchanged target into a single 4 ms hardware wait. The device preserves both source frames, DIR and the exact time of the following STEP. Immediately after a single step, it can also submit up to two known stationary successors under the same motor lock, with a fresh permission check and the original STEP time and direction. Both paths use the existing 16 ms queue limit. A stopped raw queue still ends playback with `pulse_underrun`.
+
+After Stop, USB `patternretry` reports the previous accepted hardware reserve in microseconds, the interval from that append to the latest one in microseconds, the last non-full driver retry code, its offset after the latest accepted append in microseconds, and the number of additional stationary source frames committed in grouped submissions during this Play. A zero retry code means no numeric driver retry was recorded in the last interval. `patterngap` continues to report the corresponding final reserve and time to Stop. A hardware reserve of zero can still include the currently executing command. Neither measurement records a physical pin edge.

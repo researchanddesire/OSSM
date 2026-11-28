@@ -42,12 +42,11 @@ public:
         return false;
 #else
         if (serial_.load()) return true;
-        const auto hat = getOssmHatStatus();
         // A receive-only HAT shares its bus with another master and can never
         // send a target, so motion stays on STEP/DIR (shared_bus_logic.h).
         // The request that reveals the other master is always decoded before
         // its reply can mark the HAT detected.
-        if (!hat.detected || hat.passive) return false;
+        if (!ossmHatCanSelectSerial()) return false;
         bool expected = false;
         if (serial_.compare_exchange_strong(expected, true)) {
             // A HAT that owned its bus never falls back to pulses, including
@@ -156,7 +155,7 @@ public:
         }
         return 0;
     }
-    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial, uint16_t crossing) {
+    drawn_pattern::FrameResult patternFrame(int32_t logical, uint64_t owner, bool serial, uint16_t crossing, unsigned followingHolds, bool appendSeparateTail) {
         using drawn_pattern::Frame;
         if (!motorSafetyEventCurrent(owner) || !motorSafetyCanEnableOutputs() ||
             serialSelected() != serial) return {Frame::Rejected, "guard"};
@@ -165,19 +164,19 @@ public:
                 const bool running = pulse_->isRunning();
                 const auto wait = primeWait_.poll(millis(), running, pulse_->getCurrentPosition());
                 if (wait.state != Frame::Accepted) return wait;
-                primingPulse_ = false;
+                // The prime already emitted a real step. Keep its completion
+                // pending until the first raw frame is successfully queued.
             }
             if (pulse_->isRampGeneratorActive()) return {Frame::Rejected, "pulse_ramp_active"};
+            using Entry = drawn_pattern::PulseQueue::Entry;
+            const auto entry = pulseQueue_.entryState(*pulse_, logical, primingPulse_);
+            if (entry == Entry::Busy) return {Frame::Rejected, "entry_busy"};
+            if (entry == Entry::Stationary) {
+                return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::EntryHold};
+            }
             if (needsPulseRamp_) {
                 // A force stop inhibits raw writes until a finite ramp has
-                // actually run. Stay at the entry during initial timed holds.
-                if (logical == pulse_->getCurrentPosition()) {
-                    const auto now = millis();
-                    if (now - lastPauseAt_ < drawn_pattern::pulseFrameMs)
-                        return {Frame::Retry, "pulse_entry_hold"};
-                    lastPauseAt_ = now;
-                    return {Frame::Accepted,nullptr,0,drawn_pattern::FrameTiming::EntryHold};
-                }
+                // actually run. Re-prime on the first changed target.
                 const auto result = static_cast<int8_t>(pulse_->moveTo(logical));
                 if (result != 0) return {Frame::Rejected, "pulse_prime", result};
                 primeWait_.start(logical, millis(), pulse_->getSpeedInTicks(),
@@ -186,9 +185,13 @@ public:
                 primingPulse_ = true;
                 return {Frame::Retry, "pulse_priming"};
             }
-            return pulseQueue_.submit<stepper_command_s>(*pulse_, logical,
+            const auto result = pulseQueue_.submit<stepper_command_s>(*pulse_, logical,
                 TICKS_PER_S / 1000 * drawn_pattern::pulseFrameMs, crossing, MIN_CMD_TICKS,
-                static_cast<int8_t>(MOVE_TIMED_EMPTY));
+                static_cast<int8_t>(MOVE_TIMED_EMPTY), followingHolds, [&] {
+                    return motorSafetyEventCurrent(owner) && motorSafetyCanEnableOutputs() && !serialSelected();
+                }, appendSeparateTail);
+            if (result.state == Frame::Accepted) primingPulse_ = false;
+            return result;
         }
 
         refresh();
@@ -233,6 +236,23 @@ public:
         pendingProposal_ = {double(logical), 0, true};
         portEXIT_CRITICAL(&mux_);
         return {Frame::Accepted};
+    }
+    drawn_pattern::Park parkPattern(uint64_t owner, int32_t target, bool draining) {
+        using drawn_pattern::Park;
+        if (!serialSelected()) {
+            if (primingPulse_ || pulse_->isRampGeneratorActive()) return Park::Failed;
+            return pulseQueue_.park(*pulse_, target, draining);
+        }
+        refresh();
+        portENTER_CRITICAL(&mux_);
+        const bool available = commandOwnerRevision_ == owner && frameValid_ &&
+                               position_.fresh(millis()) && commandTarget_ == target;
+        const bool acknowledged = !pending_ && !trajectory_.active();
+        const bool settled = !position_.running(millis()) &&
+                             std::abs(int64_t(position_.current()) - target) <= 1;
+        portEXIT_CRITICAL(&mux_);
+        if (!available) return Park::Failed;
+        return acknowledged && settled ? Park::Parked : Park::Draining;
     }
     bool beginPatternStop(uint64_t owner) {
         if (!motorSafetyEventCurrent(owner)) return false;
@@ -510,7 +530,6 @@ private:
     drawn_pattern::PulseQueue pulseQueue_;
     drawn_pattern::PulsePrimeWait primeWait_;
     std::atomic_bool primingPulse_{false}, needsPulseRamp_{true};
-    uint32_t lastPauseAt_ = 0;
     bool serialPatternFrame_ = false;
     bool frameValid_ = false;
     portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
@@ -550,8 +569,11 @@ MotorMotionStatus getMotorMotionStatus() { return axis.status(); }
 FastAccelStepper *getMotorPulseStepper() { return pulseEngine; }
 
 
-drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing) {
-    return axis.patternFrame(target, revision, serial, crossing);
+drawn_pattern::FrameResult submitPatternFrame(int32_t target, uint64_t revision, bool serial, uint16_t crossing, unsigned followingHolds, bool appendSeparateTail) {
+    return axis.patternFrame(target, revision, serial, crossing, followingHolds, appendSeparateTail);
+}
+drawn_pattern::Park parkPatternMotion(uint64_t owner, int32_t target, bool draining) {
+    return axis.parkPattern(owner, target, draining);
 }
 void stopPatternMotion(uint64_t owner) {
     bool drain = false;

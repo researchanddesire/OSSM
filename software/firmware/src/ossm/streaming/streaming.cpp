@@ -65,19 +65,23 @@ static void startStreamingTask(void *pvParameters) {
     PositionTime targetPositionTime{};
     bool haveTarget = false;
     const char *exitReason = "mode_exit";
-    while (isInCorrectState()) {
+    for (;;) {
+        const uint32_t wakeUs = patternServiceMicros();
+        if (!isInCorrectState()) break;
         if (!calibration.isHomed) {
             exitReason = "reference_lost";
             stateMachine->process_event(PatternReferenceLost{safetyRevision});
             break;
         }
         if (!motorSafetyCanEnableOutputs()) { exitReason = "guard"; break; }
-        uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - best).count();
-        if (serviceDrawnPattern(safetyRevision)) {
+        bool refillNow;
+        if (serviceDrawnPattern(safetyRevision, wakeUs, &refillNow)) {
             haveTarget = false;
             lastPositionTime = {};
             best = std::chrono::steady_clock::now();
-            vTaskDelay(1);
+            // A depleted raw queue gets another separately guarded turn.
+            // All other paths, including driver retries, yield a full tick.
+            if (!refillNow) vTaskDelay(1);
             continue;
         }
         // Keep the actual popped item pending while waiting for reversal.
@@ -99,6 +103,8 @@ static void startStreamingTask(void *pvParameters) {
 
         // settime is when the message was received. If we trust the source we can reduce perceived lag by creating a buffer.
         if (USE_LATENCY_COMPENSATION){
+            const uint16_t currentBuffer = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - best).count();
             int16_t mincomp =  min(int(settings.buffer * 2),int(lastPositionTime.inTime));
             int16_t offset = mincomp - currentBuffer;
             int16_t lag = std::chrono::duration_cast<std::chrono::milliseconds>(targetPositionTime.setTime - best).count();
@@ -157,8 +163,11 @@ void startStreaming() {
     const uint32_t stackSize = 5 * configMINIMAL_STACK_SIZE;
     auto *revision = new (std::nothrow) uint64_t(getMotorSafetyStatus().controlRevision);
     if (!revision) return;
+    // Keep radio callbacks off the timed refill core. HAT sampling and the
+    // pulse driver can preempt the feeder even during a low-water refill.
     if (!Tasks::startOperation(startStreamingTask, "startStreamingTask",
-                               stackSize, nullptr, revision)) {
+                               stackSize, nullptr, revision, Tasks::stepperCore,
+                               Tasks::streamingPriority)) {
         delete revision;
         return;
     }

@@ -50,20 +50,37 @@ bool readFreshTelemetry(OssmHatTelemetry &sample) {
     return false;
 }
 
-bool captureStoppedSample(OssmHatTelemetry &sample, int32_t &command) {
+enum class StoppedSample { Fresh, SettledHome };
+
+bool captureStoppedSample(OssmHatTelemetry &sample, int32_t &command,
+                          StoppedSample mode = StoppedSample::Fresh) {
     if (!ossmHatDetected() || stepper == nullptr || stepper->isRunning() ||
         stepperFrame != StepperFrame::Native)
         return false;
 
     command = stepper->getCurrentPosition();
     const uint32_t started = millis();
+    motor_feedback_logic::StationaryEncoderWindow window;
+    uint32_t continuity = 0;
     while (static_cast<uint32_t>(millis() - started) < stoppedSampleWaitMs) {
         if (stepper->isRunning() || stepper->getCurrentPosition() != command ||
             stepperFrame != StepperFrame::Native)
             return false;
         if (readOssmHatTelemetry(sample)) {
             const uint32_t sinceStopped = sample.updatedAtMs - started;
-            if (sinceStopped != 0 && sinceStopped < 0x80000000U) return true;
+            if (sinceStopped != 0 && sinceStopped < 0x80000000U) {
+                if (mode == StoppedSample::Fresh) return true;
+                if (sample.continuity != continuity) {
+                    window.reset();
+                    continuity = sample.continuity;
+                }
+                // The final STEP can precede shaft rest. Anchor home after
+                // at least 60 ms inside half a native step of encoder travel.
+                constexpr double halfStepCounts =
+                    motor_feedback_logic::encoderCountsPerRevolution / (2.0 * Config::Driver::motorStepPerRevolution);
+                if (window.update(sample.sequence, sample.updatedAtMs, sample.positionCounts, halfStepCounts, 60))
+                    return true;
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
@@ -195,7 +212,7 @@ bool rebaseMotorFeedbackAtHome(homing_session::Ticket ticket) {
     if (!commitMotorHomingState(ticket, [] { invalidateHome(); return true; })) return false;
     OssmHatTelemetry sample;
     int32_t command;
-    if (!captureStoppedSample(sample, command) || command != 0) return false;
+    if (!captureStoppedSample(sample, command, StoppedSample::SettledHome) || command != 0) return false;
     return commitMotorHomingState(ticket, [&] {
         portENTER_CRITICAL(&referenceMux);
         reference.homeEncoder = sample.positionCounts;

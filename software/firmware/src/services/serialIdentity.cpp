@@ -23,9 +23,13 @@
 
 namespace {
 TaskHandle_t identityTask = nullptr;
+// ESP-IDF task stack sizes and high-water marks are in bytes.
 #ifdef VERSIONDEV
+constexpr uint32_t consoleStackBytes = 6656; // Includes development screen encoding.
 std::atomic<void (*)(const char*)> developmentCommand{nullptr};
 std::atomic<void (*)()> developmentPoll{nullptr};
+#else
+constexpr uint32_t consoleStackBytes = 3584;
 #endif
 
 void announce() {
@@ -42,9 +46,10 @@ void announce() {
     if (size) Serial.write(reinterpret_cast<const uint8_t*>(frame), size);
 }
 
-void announceHat() {
+// Collect each snapshot and serialize in separate frames. The 640-byte output
+// buffer must not share a call chain with the HAT and motor safety readers.
+[[gnu::noinline]] void appendHatTelemetry(JsonDocument &doc) {
     const auto status = getOssmHatStatus();
-    JsonDocument doc;
     doc["detected"] = status.detected;
     doc["fresh"] = status.fresh;
     doc["passive"] = status.passive;
@@ -59,6 +64,9 @@ void announceHat() {
         doc["voltageVolts"] = sample.voltageVolts;
         doc["alarm"] = sample.alarm;
     }
+}
+
+[[gnu::noinline]] void appendHatSafety(JsonDocument &doc) {
     const auto safety = getMotorSafetyStatus();
     doc["guardReady"] = safety.ready;
     doc["guardArmed"] = safety.armed;
@@ -66,10 +74,20 @@ void announceHat() {
     doc["guardFault"] = safety.fault;
     doc["outputDisabled"] = safety.outputDisableVerified;
     doc["externalGuard"] = getMotorSerialSafetyStatus().externalGuard;
+}
+
+[[gnu::noinline]] void writeHatFrame(const JsonDocument &doc) {
     char frame[640] = "RAD_HAT ";
     const size_t size = serializeJson(doc, frame + 8, sizeof(frame) - 10);
     frame[size + 8] = '\n';
     Serial.write(reinterpret_cast<const uint8_t *>(frame), size + 9);
+}
+
+[[gnu::noinline]] void announceHat() {
+    JsonDocument doc;
+    appendHatTelemetry(doc);
+    appendHatSafety(doc);
+    writeHatFrame(doc);
 }
 
 #if OSSM_HAT_SERIAL_BACKEND
@@ -90,6 +108,15 @@ void announceDriveConfig() {
 }
 #endif
 
+void announcePatternRate(uint32_t sequence) {
+    streaming::PatternRateStamp stamp{};
+    if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
+        Serial.printf("RAD_PATTERN_RATE unavailable %lu\n", static_cast<unsigned long>(sequence));
+        return;
+    }
+    Serial.printf("RAD_PATTERN_RATE %lu %lld %u\n", static_cast<unsigned long>(stamp.sequence),
+                  std::llround(stamp.goalRateHz * 1.e9), stamp.rawHandoff);
+}
 void announcePatternTime(uint32_t sequence) {
     streaming::PatternRateStamp stamp{};
     if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
@@ -101,6 +128,116 @@ void announcePatternTime(uint32_t sequence) {
                   static_cast<unsigned long>(stamp.periodMs), std::llround(stamp.phase * 1e9),
                   std::llround(stamp.rateHz * 1e6), std::llround(stamp.phaseAcceleration * 1e6),
                   unsigned(stamp.leadBoundMs), unsigned(stamp.first), unsigned(stamp.serial), unsigned(stamp.leadKnown));
+}
+
+void announcePatternFeel(uint32_t sequence) {
+    streaming::PatternRateStamp stamp{};
+    if (!streaming::drawnPatternRateStamp(sequence, stamp)) {
+        Serial.printf("RAD_PATTERN_FEEL unavailable %lu\n", static_cast<unsigned long>(sequence));
+        return;
+    }
+    Serial.printf("RAD_PATTERN_FEEL %lu %lu %lld %lld %lld %lld %lu\n",
+                  static_cast<unsigned long>(stamp.sequence), static_cast<unsigned long>(stamp.atMs),
+                  std::llround(stamp.requestedStrength * 1e5), std::llround(stamp.gain * 1e6),
+                  std::llround(stamp.targetGain * 1e6), std::llround(stamp.carrier * 1e9),
+                  static_cast<unsigned long>(stamp.frameIndex));
+}
+
+// Keep stopped-work snapshots off the ordinary console and HAT call paths.
+[[gnu::noinline]] void announcePatternWork() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_WORK unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_WORK %lu %lu %lu %lu %lu\n",
+                  static_cast<unsigned long>(work.frames), static_cast<unsigned long>(work.retries),
+                  static_cast<unsigned long>(work.maxPlanUs), static_cast<unsigned long>(work.maxSubmitUs),
+                  static_cast<unsigned long>(work.maxRenewLockUs));
+}
+
+[[gnu::noinline]] void announcePatternBuffer() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_BUFFER unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_BUFFER %u %u %u %u %u %llu %u\n", unsigned(work.lastQueuedUs),
+                  unsigned(work.minRunningUs), unsigned(work.maxQueuedUs),
+                  unsigned(work.immediateTurns), unsigned(work.lowWaterYields),
+                  static_cast<unsigned long long>(work.movingPlanTotalUs), unsigned(work.maxMovingPlanUs));
+}
+
+[[gnu::noinline]] void announcePatternGap() {
+    streaming::PatternFeedGap gap;
+    if (!streaming::stoppedPatternFeedGap(gap)) {
+        Serial.println("RAD_PATTERN_GAP unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_GAP %u %u %u %u %u %u %u %u %u %u %u %u %u\n",
+                  unsigned(gap.frame), unsigned(gap.queuedUs), unsigned(gap.elapsedUs),
+                  unsigned(gap.serviceTurns), unsigned(gap.emptyReads), unsigned(gap.firstEmptyUs),
+                  unsigned(gap.lastEmptyUs), unsigned(gap.fullRetries), unsigned(gap.lastFullUs),
+                  unsigned(gap.otherRetries), unsigned(gap.assistAttempts),
+                  unsigned(gap.assistPublished), unsigned(gap.assistMaxUs));
+}
+
+[[gnu::noinline]] void announcePatternRetry() {
+    streaming::PatternFeedGap gap;
+    if (!streaming::stoppedPatternFeedGap(gap)) {
+        Serial.println("RAD_PATTERN_RETRY unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_RETRY %u %u %d %u %u\n", unsigned(gap.previousQueuedUs),
+                  unsigned(gap.previousAppendIntervalUs), int(gap.lastOtherDriverCode),
+                  unsigned(gap.lastOtherOffsetUs), unsigned(gap.combinedHoldFrames));
+}
+
+[[gnu::noinline]] void announcePatternPause() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_PAUSE unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_PAUSE %u %u %u %u\n", unsigned(work.pauseComputed),
+                  unsigned(work.pauseAdopted), unsigned(work.pauseChanges), unsigned(work.pauseMaxUs));
+}
+
+[[gnu::noinline]] void announcePatternPlanner() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_PLANNER unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_PLANNER %u %u %u %u %u\n", unsigned(work.prepared),
+                  unsigned(work.discarded), unsigned(work.emptyTurns), unsigned(work.maxPrepared),
+                  unsigned(work.plannerStackFree));
+}
+
+[[gnu::noinline]] void announcePatternSchedule(uint32_t argument) {
+    streaming::PatternWork work;
+    if (argument > 1 || !streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_SCHED unavailable");
+        return;
+    }
+    const auto &turn = argument == 0 ? work.lastService : work.longestService;
+    Serial.printf("RAD_PATTERN_SCHED %u %u %u %u %u %u %u %u %u\n",
+                  unsigned(argument), unsigned(turn.atMs), unsigned(turn.frame),
+                  unsigned(turn.offUs), unsigned(turn.outerUs), unsigned(turn.mailboxUs),
+                  unsigned(turn.readUs), unsigned(turn.commandGateUs), unsigned(turn.serviceUs));
+}
+
+[[gnu::noinline]] void announcePatternCost() {
+    streaming::PatternWork work;
+    if (!streaming::stoppedPatternWork(work)) {
+        Serial.println("RAD_PATTERN_COST unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_COST %lu %lu %llu %lu %lu %llu %lu %lu\n",
+                  static_cast<unsigned long>(work.plans), static_cast<unsigned long>(work.movingPlans),
+                  static_cast<unsigned long long>(work.planTotalUs), static_cast<unsigned long>(work.planOver2ms),
+                  static_cast<unsigned long>(work.submissions), static_cast<unsigned long long>(work.submitTotalUs),
+                  static_cast<unsigned long>(work.submitOver2ms), static_cast<unsigned long>(work.rawStartSequence));
 }
 
 void console(void*) {
@@ -127,6 +264,22 @@ void console(void*) {
                               static_cast<unsigned long>(sampledAt));
             }
             else if (serialIdentity::unsignedArgument(command, "patterntime", argument)) announcePatternTime(argument);
+            else if (serialIdentity::unsignedArgument(command, "patternrate", argument)) announcePatternRate(argument);
+            else if (serialIdentity::unsignedArgument(command, "patternfeel", argument))
+                announcePatternFeel(argument);
+            else if (strcmp(command, "patternwork") == 0) announcePatternWork();
+            else if (serialIdentity::unsignedArgument(command, "patternsched", argument))
+                announcePatternSchedule(argument);
+            else if (strcmp(command, "patternpause") == 0) announcePatternPause();
+            else if (strcmp(command, "patternplanner") == 0) announcePatternPlanner();
+            else if (strcmp(command, "patterngap") == 0) announcePatternGap();
+            else if (strcmp(command, "patternretry") == 0) announcePatternRetry();
+            else if (strcmp(command, "patternbuffer") == 0) announcePatternBuffer();
+            else if (strcmp(command, "patterncost") == 0) announcePatternCost();
+            else if (strcmp(command, "identitystack") == 0) {
+                Serial.printf("RAD_ID_STACK %lu %lu\n", static_cast<unsigned long>(consoleStackBytes),
+                              static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr)));
+            }
             else if (strcmp(command, "hat") == 0) announceHat();
 #if OSSM_HAT_SERIAL_BACKEND
             else if (strcmp(command, "driveconfig") == 0) announceDriveConfig();
@@ -158,12 +311,7 @@ void configureSerialIdentityUsb() {
 
 void startSerialIdentity() {
     if (identityTask) return;
-#ifdef VERSIONDEV
-    constexpr uint32_t stackBytes = 6144; // Includes development screen encoding.
-#else
-    constexpr uint32_t stackBytes = 3072;
-#endif
-    if (xTaskCreate(console, "serialIdentity", stackBytes, nullptr, 1, &identityTask) != pdPASS)
+    if (xTaskCreate(console, "serialIdentity", consoleStackBytes, nullptr, 1, &identityTask) != pdPASS)
         Serial.println("RAD_ID_ERROR console_task");
 }
 

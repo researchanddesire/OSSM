@@ -40,15 +40,8 @@ class CharacteristicCallbacks : public NimBLECharacteristicCallbacks {
             pCharacteristic->setValue("fail:" + String(cmd.c_str()));
             return;
         }
-        noteBleMotionCommand(connInfo.getConnHandle(), cmd);
-        if (!messageQueue.push(String(cmd.c_str()))) {
-            if (cmd == "go:menu") {
-                // A stop is never dropped behind a flood of other commands.
-                messageQueue.replaceAll(String(cmd.c_str()));
-            } else {
-                ESP_LOGW("NIMBLE_COMMAND", "Command queue full; dropped %s",
-                         cmd.c_str());
-            }
+        if (!enqueueLegacyBleCommand(connInfo.getConnHandle(), cmd)) {
+            ESP_LOGW("NIMBLE_COMMAND", "Command queue full; dropped %s", cmd.c_str());
         }
 
         // Trigger LED communication pulse for received command

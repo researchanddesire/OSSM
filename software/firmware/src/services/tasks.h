@@ -20,13 +20,18 @@ namespace Tasks {
     // Constants can stay in the header
     constexpr int stepperCore = 1;
     constexpr int operationTaskCore = 0;
+    // The radio controller and Wi-Fi run on CPU0. Service the bounded STEP
+    // queue beside its driver, strictly below the HAT reader and FAS tasks.
+    constexpr UBaseType_t hatReaderPriority = configMAX_PRIORITIES - 3;
+    constexpr UBaseType_t streamingPriority = configMAX_PRIORITIES - 4;
 
     // Start a motion mode's task. Internal RAM fragments while TLS sessions
     // come and go, so retry briefly before giving up; logs and returns false
     // if the task never starts.
     bool startOperation(TaskFunction_t task, const char *name,
                         uint32_t stackSize, TaskHandle_t *handle = nullptr,
-                        void *context = nullptr);
+                        void *context = nullptr, BaseType_t core = operationTaskCore,
+                        UBaseType_t priority = configMAX_PRIORITIES - 1);
 }
 
 #endif  // OSSM_SOFTWARE_TASKS_H

@@ -4,18 +4,37 @@
 #include <cstdint>
 
 #include "drawn_waveform.h"
+#include "drawn_prepared_pulses.h"
 
 namespace drawn_pattern {
 enum class Frame { Accepted, Retry, Rejected };
+enum class Park { Fill, Draining, Parked, Failed };
 enum class FrameTiming : uint8_t { Unknown, EntryHold, Prefill, Started, Running, PrimeTail };
 struct FrameResult {
     Frame state;
     const char *reason = nullptr;
     int8_t driverResult = 0;
     FrameTiming timing = FrameTiming::Unknown;
+    uint32_t commandGateUs = 0;
+    uint16_t queuedUs = UINT16_MAX; // FAS time behind its current command, when sampled.
+    uint8_t frames = 1; // Exact source intervals accepted by this hardware command.
 };
 
 constexpr uint32_t frameStarvationMs = 200;
+
+// While the driver confirms identical targets before its first STEP, the
+// feeder owns their timing. Only accepted stationary rows consume this clock.
+class StationaryEntryClock {
+    uint32_t lastFrameAt_ = 0;
+    bool active_ = false;
+public:
+    bool due(uint32_t now) const { return !active_ || now - lastFrameAt_ >= pulseFrameMs; }
+    void accepted(uint32_t now) {
+        lastFrameAt_ = active_ ? lastFrameAt_ + pulseFrameMs : now;
+        active_ = true;
+    }
+    void reset() { active_ = false; }
+};
 
 // FAS can emit the one-step re-prime immediately, then keep its finite
 // ramp busy with the remainder of that step interval. Only an observed
@@ -59,6 +78,81 @@ static_assert(queuedDurationMs + 2*maxGroupMs < pulseStopDrainMs);
 // for hardware buffering, direction setup and timer rounding.
 static_assert((pulseQueueFrames + 2) * pulseFrameMs < pulseStopDrainMs);
 
+// Refill toward 14 ms within the 16 ms hardware limit. A full-sized
+// command may not fit before that threshold; wait normally on such retries.
+constexpr uint16_t refillBelowUs = (queuedDurationMs - pulseFrameMs) * 1000;
+class PulseRefillSchedule {
+    uint8_t consecutive_ = 0;
+public:
+    bool immediate(bool lowAfterProgress) {
+        if (lowAfterProgress && consecutive_ < 2) {
+            ++consecutive_;
+            return true;
+        }
+        consecutive_ = 0;
+        return false;
+    }
+};
+
+static_assert(PreparedPulses::horizonRows == queuedDurationMs / pulseFrameMs);
+
+struct PulseBatch {
+    struct Attempt {
+        FrameResult result{Frame::Rejected, "guard"};
+        uint32_t atUs = 0;
+        uint32_t boundaryAtMs = 0;
+    };
+    Attempt attempts[1 + PreparedPulses::capacity]{};
+    unsigned count = 0;
+    bool revoked = false, controlsChanged = false;
+
+    void revoke(uint32_t nowUs) {
+        revoked = true;
+        if (!count || attempts[0].result.state != Frame::Accepted) {
+            // No accepted prefix exists. A simultaneous full-queue Retry
+            // must never defer a definitive guard or ownership revocation.
+            count = 1;
+            attempts[0] = {{Frame::Rejected, "guard"}, nowUs};
+        }
+    }
+
+    template<class Write, class Allowed, class Clock>
+    void submit(PreparedPulses::Target first, const PreparedPulses &next, Write write,
+                Allowed allowed, Clock clock, uint32_t (*millisAtBoundary)() = nullptr) {
+        auto target = first;
+        unsigned consumed = 0;
+        unsigned available = next.initialRows;
+        const uint32_t entered = clock();
+        for (;;) {
+            // A pair must fit the remaining logical allowance, even when
+            // a rate boundary or prefill leaves only one ordinary row.
+            target.followingHolds = std::min<unsigned>(target.followingHolds, available - consumed - 1);
+            auto &attempt = attempts[count++];
+            attempt.result = write(target);
+            attempt.atUs = clock();
+            if (attempt.result.state != Frame::Accepted) return;
+            if (next.boundaryAt(consumed) && millisAtBoundary) {
+                attempt.boundaryAtMs = millisAtBoundary();
+            }
+            consumed += attempt.result.frames;
+            if (consumed > next.count ||
+                (attempt.result.timing != FrameTiming::Running && attempt.result.timing != FrameTiming::Prefill) ||
+                attempt.result.queuedUs >= refillBelowUs) return;
+            if (attempt.result.timing == FrameTiming::Running) {
+                const uint32_t elapsed = attempt.atUs - entered;
+                available = next.initialRows + std::min<unsigned>(PreparedPulses::horizonRows,
+                                                  elapsed / (pulseFrameMs * 1000));
+            }
+            if (consumed >= available) return;
+            if (!allowed()) {
+                controlsChanged = true;
+                return;
+            }
+            target = next.targets[consumed - 1];
+        }
+    }
+};
+
 // Raw pulses can leave FAS's last finite target behind the drained queue.
 // Its idle forceStop flag would then consume the next move to that old target.
 // Resetting an empty hardware queue also cancels an as-yet-unpublished ramp.
@@ -81,18 +175,45 @@ class PulseQueue {
 
 public:
     bool owned() const { return stage_.load() != Stage::Idle; }
+    enum class Entry { Raw, Busy, Stationary, FirstMove };
+    // A drained Running queue stays owned and must report its underrun,
+    // even if the next target equals the current physical count.
+    template <class Driver>
+    Entry entryState(Driver &driver, int32_t target, bool completedPrime = false) const {
+        if (owned()) return Entry::Raw;
+        if (driver.isQueueRunning() || !driver.isQueueEmpty()) return Entry::Busy;
+        if (completedPrime) return Entry::Raw;
+        return driver.getCurrentPosition() == target ? Entry::Stationary : Entry::FirstMove;
+    }
     bool filling() const { return stage_.load() == Stage::Filling; }
     int32_t initialPosition() const { return initialPosition_; }
     void reset() { stage_ = Stage::Idle; }
+
+    // The controller has committed two identical terminal frames. Approve
+    // the drain while the driver still runs, then verify its physical count
+    // and empty queue before surrendering raw ownership.
+    template <class Driver>
+    Park park(Driver &driver, int32_t target, bool draining) {
+        if (filling()) return Park::Fill;
+        if (owned() && (pendingTarget_ != target || (!draining && !driver.isQueueRunning())))
+            return Park::Failed;
+        if (owned() && driver.getPositionAfterCommandsCompleted() != target) return Park::Failed;
+        if (driver.isQueueRunning() || !driver.isQueueEmpty()) return owned() ? Park::Draining : Park::Failed;
+        if (driver.getCurrentPosition() != target) return Park::Failed;
+        reset();
+        return Park::Parked;
+    }
 
     // A moving group's first electrical edge is immediate in moveTimed().
     // Start that group at the outgoing half-step crossing. Its duration runs
     // to the first crossing of the following frame. A hold uses the midpoint
     // of its frame. The one pending group is software only and drops on Stop.
-    template <class Command, class Driver>
+    struct MayExtend { bool operator()() const { return true; } };
+    template <class Command, class Driver, class CanExtend = MayExtend>
     FrameResult submit(Driver &driver, int32_t target, uint32_t frameTicks,
                        uint16_t firstCrossing, uint16_t minCommandTicks,
-                       int8_t movedFromEmpty) {
+                       int8_t movedFromEmpty, unsigned followingHolds = 0, CanExtend canExtend = {},
+                       bool appendSeparateTail = true) {
         const bool first = !owned();
         const bool running = stage_.load() == Stage::Running;
         if (running && !driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
@@ -105,18 +226,28 @@ public:
         if (std::abs(delta)>255 || std::abs(upcoming)>255 || !frameTicks || frameTicks>32767)
             return {Frame::Rejected, "pulse_range"};
         const uint32_t offset = upcoming ? (uint32_t(firstCrossing)*frameTicks + 32767)/65535 : frameTicks/2;
+        const auto speedTicks = driver.getMaxSpeedInTicks();
+        const uint32_t minHold = std::max<uint32_t>(minCommandTicks, speedTicks);
+        const uint32_t queuedLimit = frameTicks * queuedDurationMs / pulseFrameMs;
+        const uint32_t queued = count >= 2 ? driver.ticksInQueue() : 0;
+        // Two midpoint-to-midpoint waits have no STEP edge or DIR change
+        // between them. One native wait emits the same next edge with half
+        // the append and interrupt load. Prefer a single wait near capacity.
+        const bool paired = followingHolds && running && delta == 0 && upcoming == 0 &&
+                            pendingOffset_ == offset && !tickResidual_ &&
+                            frameTicks >= minHold &&
+                            queued + 2 * frameTicks <= queuedLimit;
         const int32_t requested = first ? static_cast<int32_t>(offset) :
-            static_cast<int32_t>(frameTicks+offset-pendingOffset_)+tickResidual_;
+            static_cast<int32_t>((paired ? 2 : 1) * frameTicks + offset - pendingOffset_) + tickResidual_;
         const int32_t steps = std::max<int32_t>(1, std::abs(delta));
         // FAS checks the minimum duration after dividing and truncating ticks
         // per edge. Return all quantization/clipping error to the next frame.
-        const int32_t minimum = steps*std::max<int32_t>(driver.getMaxSpeedInTicks(),
+        const int32_t minimum = steps*std::max<int32_t>(speedTicks,
             (minCommandTicks+steps-1)/steps);
         const uint32_t duration = std::max(requested,minimum);
         if (duration>2*frameTicks+255 || duration/steps>65535)
             return {Frame::Rejected, "pulse_range"};
-        const uint32_t queuedLimit = frameTicks*queuedDurationMs/pulseFrameMs;
-        if (count>=2 && driver.ticksInQueue()+duration>queuedLimit) {
+        if (count >= 2 && queued + duration > queuedLimit) {
             if (!running) {
                 const auto started=startQueue(driver);
                 if (started.state==Frame::Rejected) return started;
@@ -158,10 +289,44 @@ public:
             // An interrupt can drain the queue between the first check and
             // our append. The unstarted straggler is flushed during Stop.
             if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
-        } else if (driver.queueEntries() >= pulseQueueFrames || driver.ticksInQueue() >= queuedLimit) {
-            return startQueue(driver);
         }
-        return {Frame::Accepted,nullptr,0,running ? FrameTiming::Running : FrameTiming::Prefill};
+        FrameResult result{Frame::Accepted, nullptr, 0, running ? FrameTiming::Running : FrameTiming::Prefill};
+        if (!running && (driver.queueEntries() >= pulseQueueFrames || driver.ticksInQueue() >= queuedLimit)) {
+            result = startQueue(driver);
+        }
+        if (result.state == Frame::Accepted) {
+            result.frames = paired ? 2 : 1;
+            if (appendSeparateTail && followingHolds && running && std::abs(delta) == 1 && !upcoming && !tickResidual_ &&
+                frameTicks >= minHold &&
+                driver.queueEntries() < pulseQueueFrames) {
+                // The first command emitted the preceding row's single step.
+                // Append its known stationary successor without a second
+                // controller turn. Keep the original pulse width, time and
+                // direction, even when its two intervals cannot fit one wait.
+                const auto queuedTicks = driver.ticksInQueue();
+                const unsigned available = (queuedLimit - std::min(queuedTicks, queuedLimit)) / frameTicks;
+                const auto tailFrames = std::min({followingHolds, available, 2u});
+                if (!tailFrames) {
+                    result.queuedUs = static_cast<uint16_t>(queuedTicks * (1000 * pulseFrameMs) / frameTicks);
+                    return result;
+                }
+                if (!canExtend()) return {Frame::Rejected, "guard"};
+                if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
+                Command hold{static_cast<uint16_t>(tailFrames * frameTicks), 0, direction_};
+                const auto extra = static_cast<int8_t>(driver.addQueueEntry(&hold, false));
+                if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun", extra};
+                if (extra < 0) return {Frame::Rejected, "pulse_append", extra};
+                // A busy driver accepted only the first row. Its successor
+                // is still at the software front on the next guarded turn.
+                if (extra == 0) result.frames = static_cast<uint8_t>(1 + tailFrames);
+                else result.driverResult = extra;
+            }
+            // Read after the append/start: the interrupt may have consumed
+            // commands since the admission check. FAS excludes the active entry.
+            const uint32_t queuedTicks = driver.ticksInQueue();
+            result.queuedUs = static_cast<uint16_t>(queuedTicks * (1000 * pulseFrameMs) / frameTicks);
+        }
+        return result;
     }
 
 private:
