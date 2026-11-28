@@ -58,81 +58,80 @@ inline double positionInFrameMm(double nativeMm, bool strokeEngineFrame,
     return strokeEngineFrame ? -(nativeMm + keepoutMm) : nativeMm;
 }
 
-// A high-current sample during acceleration is not an endpoint. Require a
-// short stationary dwell measured by independent, fresh encoder samples.
-// The caller must check sample age before update; timestamps here belong to
-// the physical samples, so repeated reads of a cached sample cannot add dwell.
-class HatContactDetector {
+// Sample times and sequences belong to the physical encoder. A cached reply
+// cannot establish elapsed time. Encoder travel is relative to the first count
+// in a window so a signed counter rollover preserves small movements.
+class StationaryEncoderWindow {
   public:
     void reset() {
-        candidate_ = false;
-        contact_ = false;
         samples_ = 0;
-        lastSequence_ = 0;
+        settled_ = false;
     }
 
-    bool update(uint32_t sequence, uint32_t sampleAtMs,
-                int32_t encoderCounts, float currentAmps,
-                float thresholdAmps, double countsPerMm) {
-        if (sequence == 0 || !std::isfinite(currentAmps) ||
-            !std::isfinite(thresholdAmps) || thresholdAmps < 0 ||
-            !std::isfinite(countsPerMm) || countsPerMm <= 0 ||
-            currentAmps <= thresholdAmps) {
+    bool update(uint32_t sequence, uint32_t sampleAtMs, int32_t encoderCounts,
+                double maximumSpanCounts, uint32_t dwellMs) {
+        if (sequence == 0 || !std::isfinite(maximumSpanCounts) || maximumSpanCounts <= 0) {
             reset();
             return false;
         }
-        if (sequence == lastSequence_) return contact_;
-
-        if (!candidate_ ||
-            static_cast<uint32_t>(sampleAtMs - lastSampleAtMs_) > 100) {
+        if (samples_ && sequence == lastSequence_) return settled_;
+        if (!samples_ || static_cast<uint32_t>(sampleAtMs - lastSampleAtMs_) > 100) {
             begin(sequence, sampleAtMs, encoderCounts);
             return false;
         }
-
-        const int64_t position = encoderDelta(encoderCounts, originEncoder_);
-        const int64_t newMinimum = position < minimum_ ? position : minimum_;
-        const int64_t newMaximum = position > maximum_ ? position : maximum_;
-        if (static_cast<double>(newMaximum - newMinimum) >=
-            countsPerMm * 0.25) {
-            // This sample is moving. It can be the first observation of a
-            // subsequent stationary dwell, but never completes this one.
+        const int64_t delta = encoderDelta(encoderCounts, originEncoder_);
+        minimum_ = delta < minimum_ ? delta : minimum_;
+        maximum_ = delta > maximum_ ? delta : maximum_;
+        if (static_cast<double>(maximum_ - minimum_) >= maximumSpanCounts) {
             begin(sequence, sampleAtMs, encoderCounts);
             return false;
         }
-
-        minimum_ = newMinimum;
-        maximum_ = newMaximum;
         lastSequence_ = sequence;
         lastSampleAtMs_ = sampleAtMs;
         if (samples_ < 3) ++samples_;
-        contact_ = samples_ >= 3 &&
-                   static_cast<uint32_t>(sampleAtMs - startedAtMs_) >= 30;
-        return contact_;
+        settled_ = samples_ >= 3 && static_cast<uint32_t>(sampleAtMs - startedAtMs_) >= dwellMs;
+        return settled_;
     }
 
   private:
-    void begin(uint32_t sequence, uint32_t sampleAtMs,
-               int32_t encoderCounts) {
-        candidate_ = true;
-        contact_ = false;
+    void begin(uint32_t sequence, uint32_t sampleAtMs, int32_t encoderCounts) {
         samples_ = 1;
+        settled_ = false;
         lastSequence_ = sequence;
-        startedAtMs_ = sampleAtMs;
-        lastSampleAtMs_ = sampleAtMs;
+        lastSampleAtMs_ = startedAtMs_ = sampleAtMs;
         originEncoder_ = encoderCounts;
-        minimum_ = 0;
-        maximum_ = 0;
+        minimum_ = maximum_ = 0;
     }
 
-    bool candidate_ = false;
-    bool contact_ = false;
     uint8_t samples_ = 0;
+    bool settled_ = false;
     uint32_t lastSequence_ = 0;
-    uint32_t startedAtMs_ = 0;
     uint32_t lastSampleAtMs_ = 0;
+    uint32_t startedAtMs_ = 0;
     int32_t originEncoder_ = 0;
     int64_t minimum_ = 0;
     int64_t maximum_ = 0;
 };
 
-}  // namespace motor_feedback_logic
+// A high-current sample during acceleration is not an endpoint. Require a
+// stationary encoder window while current remains above the contact threshold.
+class HatContactDetector {
+  public:
+    void reset() { window_.reset(); }
+
+    bool update(uint32_t sequence, uint32_t sampleAtMs,
+                int32_t encoderCounts, float currentAmps,
+                float thresholdAmps, double countsPerMm) {
+        if (!std::isfinite(currentAmps) || !std::isfinite(thresholdAmps) ||
+            thresholdAmps < 0 || currentAmps <= thresholdAmps) {
+            reset();
+            return false;
+        }
+        return window_.update(sequence, sampleAtMs, encoderCounts, countsPerMm * 0.25, 30);
+    }
+
+  private:
+    StationaryEncoderWindow window_;
+};
+
+} // namespace motor_feedback_logic

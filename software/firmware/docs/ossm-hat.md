@@ -283,6 +283,11 @@ Homing selects RS-485 current when the HAT is detected. Its separate
 `Config::Hat::sensorlessCurrentLimitAmps` is initially 1.5 A; the legacy threshold
 is six ADC percentage points and is not interchangeable. Contact requires three
 distinct loaded samples over at least 30 ms with less than 0.25 mm encoder travel.
+At the backed-off zero, homing waits for at least three fresh encoder readings
+spanning 60 ms with less than half a native step of shaft movement before
+recording the physical origin. Stroke and Depth use this origin. A failed
+final zero reference requires a new home.
+
 Homing requires samples no older than 100 ms, supply at least 20 V, and no fatal
 alarm (AIM battery warning `0x10` is permitted). Lost feedback stops pulses and
 disables output, including during retreat and final reposition. The independent
