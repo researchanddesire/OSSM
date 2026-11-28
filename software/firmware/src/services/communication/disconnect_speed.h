@@ -19,19 +19,19 @@ public:
     bool active() const { return active_.load(std::memory_order_relaxed); }
     void cancel() { active_.store(false, std::memory_order_relaxed); }
 
-    std::optional<float> start(uint32_t now, float effective, std::optional<float> remote) {
+    // A true result requests an immediate zero for a stopped effective output.
+    bool start(uint32_t now, float effective, std::optional<float> remote) {
         const float cap = remote.value_or(0);
         if (!(cap > 0 && effective > 0)) {
             cancel();
-            if (cap > 0) return 0;
-            return {};
+            return cap > 0;
         }
         // Another observer leaving cannot give an existing shutdown more time.
-        if (active()) return {};
+        if (active()) return false;
         started_ = now;
         from_ = std::min(effective, cap);
         active_.store(true, std::memory_order_relaxed);
-        return {};
+        return false;
     }
 
     std::optional<float> next(uint32_t now, std::optional<float> remote) {

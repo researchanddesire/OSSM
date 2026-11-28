@@ -93,9 +93,7 @@ void test_disconnect_preserves_explicit_zero_despite_old_effective_speed() {
     TEST_ASSERT_FALSE(ramp.active());
     TEST_ASSERT_FALSE(ramp.start(dropped, 82, std::nullopt));
     TEST_ASSERT_FALSE(ramp.next(dropped + 2100, std::nullopt));
-    const auto stopped = ramp.start(dropped, 0, 82);
-    TEST_ASSERT_TRUE(stopped.has_value());
-    TEST_ASSERT_EQUAL_FLOAT(0, *stopped);
+    TEST_ASSERT_TRUE(ramp.start(dropped, 0, 82));
 }
 
 void test_positive_shutdown_survives_observers_until_new_drive_or_zero() {

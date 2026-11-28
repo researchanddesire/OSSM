@@ -217,9 +217,8 @@ class ServerCallbacks : public NimBLEServerCallbacks {
                 const bool pendingZero = clearQueuedSpeeds();
                 if (pendingZero) writeBleSpeed(0, true);
                 streaming::cancelRemoteDrawnPattern();
-                if (ossm) {
-                    const auto zero = disconnectSpeed.start(millis(), ossm->getSpeed(), settings.speedBLE);
-                    if (zero) writeBleSpeed(*zero, true);
+                if (ossm && disconnectSpeed.start(millis(), ossm->getSpeed(), settings.speedBLE)) {
+                    writeBleSpeed(0, true);
                 }
             }
         }
