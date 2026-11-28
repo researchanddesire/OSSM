@@ -330,6 +330,8 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
     std::unique_ptr<drawn_pattern::Modifiers> effects;
     if (!modified && !save && (args.size() == 0 || (args.size() == 1 && slot != selectedPatternSlot))) {
         const auto status = drawnPatternStartStatus(getMotorSafetyStatus().controlRevision);
+        if (status == PatternStart::NoTravel)
+            return radble::Result::failure("limits_zero", "Choose a nonzero travel range with Depth and Stroke");
         if (status == PatternStart::Busy)
             return radble::Result::failure("busy", "Stop the current motion before playing a stored pattern");
         if (status != PatternStart::Accepted)
@@ -365,6 +367,8 @@ radble::Result handlePatternCommand(const String &operation, JsonObjectConst arg
     const auto started = startBlePattern(radBleServer.currentRequestConnection(),
                                          value.samples, value.length, value.periodMs, value.format(), std::move(effects));
     if (started == PatternStart::Accepted) return patternStatus();
+    if (started == PatternStart::NoTravel)
+        return radble::Result::failure("limits_zero", "Choose a nonzero travel range with Depth and Stroke");
     if (started == PatternStart::Busy)
         return radble::Result::failure("busy", "Stop the current pattern before playing another");
     if (started == PatternStart::MarkerMemory)

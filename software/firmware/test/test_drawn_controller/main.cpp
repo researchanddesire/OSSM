@@ -1644,7 +1644,7 @@ void test_paused_remote_lease_and_finite_entry_remain_guarded() {
     TEST_ASSERT_FALSE(drawnPatternActive());
 }
 
-void test_window_edit_serializes_with_finite_and_timed_driver_admission() {
+static void checkWindowEditsAtDriverAdmission(bool viaBle) {
     const auto waitFor = [](auto ready) {
         const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (!ready() && std::chrono::steady_clock::now() < until) std::this_thread::yield();
@@ -1669,7 +1669,15 @@ void test_window_edit_serializes_with_finite_and_timed_driver_admission() {
                 feeder.join();
                 TEST_FAIL_MESSAGE("Expected a real driver admission");
             }
-            std::thread control([] { DrawnWindowEdit edit; edit.set(100, 20); });
+            std::thread control([viaBle] {
+                if (viaBle) {
+                    motion_link::Owner link;
+                    link.onMotionCommand(7);
+                    link.takeCommand(7, "set:depth:20", cancelDrawnPattern);
+                }
+                DrawnWindowEdit edit;
+                edit.set(50, 20);
+            });
             const bool editPending = waitFor([] { return streaming::pendingControl.load() != 0; });
             releaseMotorGate = true;
             feeder.join();
@@ -1680,12 +1688,17 @@ void test_window_edit_serializes_with_finite_and_timed_driver_admission() {
             TEST_ASSERT_EQUAL_FLOAT(100, depthAtStop);
             TEST_ASSERT_EQUAL_FLOAT(20, settings.depth);
             TEST_ASSERT_FALSE(drawnPatternActive());
-            TEST_ASSERT_EQUAL_STRING("window_changed", drawnPatternStatus().lastStop.reason);
+            TEST_ASSERT_EQUAL_STRING(viaBle ? "stop" : "window_changed", drawnPatternStatus().lastStop.reason);
             const auto count = frames.size();
             tick(50);
             TEST_ASSERT_EQUAL_UINT(count, frames.size());
         }
     }
+}
+
+void test_window_edit_serializes_with_finite_and_timed_driver_admission() {
+    checkWindowEditsAtDriverAdmission(false);
+    checkWindowEditsAtDriverAdmission(true);
 }
 
 void test_window_edits_at_zero_wait_for_deliberate_motion_and_preserve_equal_step_bounds() {
@@ -1694,11 +1707,11 @@ void test_window_edits_at_zero_wait_for_deliberate_motion_and_preserve_equal_ste
     settings.depth = 100;
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
     { DrawnWindowEdit edit; edit.set(25, 10); }
+    motor.from = -10;
+    motor.to = -8;
     tick(20);
     TEST_ASSERT_TRUE(drawnPatternActive());
     TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
-    motor.from = -10;
-    motor.to = -8;
     motor.speed = 1000;
     tick(10);
     { DrawnWindowEdit edit; edit.set(26, 10); }
@@ -1711,10 +1724,90 @@ void test_window_edits_at_zero_wait_for_deliberate_motion_and_preserve_equal_ste
     TEST_ASSERT_FALSE(drawnPatternActive());
 }
 
+void test_zero_window_rejects_direct_and_stored_play_without_arming() {
+    using drawn_pattern::SampleFormat;
+    for (bool serial : {false, true}) {
+        motor.serial = serial;
+        motor.rail = 3276;
+        for (const auto &[depth, stroke] : {std::pair{80, 0}, {0, 100}, {1, 1}}) {
+            const auto span = streaming_logic::calculateMaxStroke(stroke, depth, motor.rail);
+            const auto near = streaming_logic::calculateDepthOffset(motor.rail, span, depth);
+            TEST_ASSERT_EQUAL_INT(0, span);
+            motor.from = motor.to = -near;
+            for (auto speed : {0, 5000}) {
+                motor.speed = speed;
+                // Wired recall and BLE stored-slot Play preflight before reading flash.
+                TEST_ASSERT_EQUAL_INT(int(PatternStart::NoTravel), int(drawnPatternStartStatus(revision)));
+                TEST_ASSERT_EQUAL_INT(int(PatternStart::NoTravel), int(start()));
+                auto marks = std::make_unique<drawn_pattern::Modifiers>();
+                marks->entries[marks->count++] = {0, 1000, 0};
+                TEST_ASSERT_EQUAL_INT(int(PatternStart::NoTravel), int(startOwnedDrawnPattern(
+                    samples, 32, 2000, revision, true, SampleFormat::Q8, std::move(marks))));
+                TEST_ASSERT_FALSE(drawnPatternActive());
+            }
+            motor.from = -2620;
+            motor.to = -1965;
+            tick(300);
+            TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
+            TEST_ASSERT_TRUE(frames.empty());
+        }
+    }
+}
+
+void test_changed_positive_waiting_window_requires_new_play_before_first_driver_write() {
+    for (bool serial : {false, true}) {
+        for (bool wiredEdit : {false, true}) {
+            motor.serial = serial;
+            motor.rail = 3276;
+            motor.from = -3276;
+            motor.to = 0;
+            settings.stroke = settings.depth = 100;
+            settings.speed = 25;
+            motor.speed = 5000;
+            TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+            if (wiredEdit) {
+                DrawnWindowEdit edit;
+                edit.set(25, 80);
+            }
+            // The fallback covers a changed motor snapshot even before the first tick.
+            motor.from = -2620;
+            motor.to = -1965;
+            tick(300);
+            TEST_ASSERT_FALSE(drawnPatternActive());
+            TEST_ASSERT_EQUAL_STRING("window_changed", drawnPatternStatus().lastStop.reason);
+            TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
+            TEST_ASSERT_TRUE(frames.empty());
+        }
+    }
+}
+
+void test_collapsing_a_valid_waiting_window_disarms_it_at_zero_speed() {
+    for (bool serial : {false, true}) {
+        motor.serial = serial;
+        motor.rail = 3276;
+        motor.from = -3276;
+        motor.to = 0;
+        motor.speed = settings.speed = 0;
+        settings.stroke = settings.depth = 100;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
+        { DrawnWindowEdit edit; edit.set(0, 100); }
+        TEST_ASSERT_FALSE(drawnPatternActive());
+        TEST_ASSERT_EQUAL_STRING("limits_zero", drawnPatternStatus().lastStop.reason);
+        { DrawnWindowEdit edit; edit.set(100, 100); }
+        motor.speed = 5000;
+        tick(300);
+        TEST_ASSERT_EQUAL_UINT(0, entrySubmissions);
+        TEST_ASSERT_TRUE(frames.empty());
+    }
+}
+
 int main() {
     UNITY_BEGIN();
     RUN_TEST(test_window_edit_serializes_with_finite_and_timed_driver_admission);
     RUN_TEST(test_window_edits_at_zero_wait_for_deliberate_motion_and_preserve_equal_step_bounds);
+    RUN_TEST(test_zero_window_rejects_direct_and_stored_play_without_arming);
+    RUN_TEST(test_changed_positive_waiting_window_requires_new_play_before_first_driver_write);
+    RUN_TEST(test_collapsing_a_valid_waiting_window_disarms_it_at_zero_speed);
     RUN_TEST(test_worker_allocation_failure_leaves_motor_and_serial_available);
     RUN_TEST(test_retired_planner_keeps_its_own_source_and_cannot_publish_after_stop);
     RUN_TEST(test_worker_retargets_from_last_accepted_frame_with_continuous_slider_changes);

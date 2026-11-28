@@ -205,6 +205,23 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     speedStatus = {};
 }
 
+bool confirmWindow(int32_t from, int32_t to, bool zeroSpeed, uint32_t now) {
+    if (to <= from) {
+        stopLocked("limits_zero", now);
+        return false;
+    }
+    if (from == lower && to == upper) return true;
+    // A still-waiting Play may adopt a valid window at zero Speed.
+    // Once Speed is positive, a different window needs its own Play.
+    if (stage == Stage::Waiting && zeroSpeed) {
+        lower = from;
+        upper = to;
+        return true;
+    }
+    stopLocked("window_changed", now);
+    return false;
+}
+
 void recordPlan(frame_plan::Frame &frame) {
     if (frame.offered) return;
     frame.offered = true;
@@ -238,12 +255,13 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     const auto &markerIndex = activeMarkers ? activeMarkers->index : unmarked;
     if (!caps.ready) return stopLocked("guard", now);
     if (caps.serial != serial) return stopLocked("backend_changed", now);
+    const bool zero = caps.fraction == 0;
+    if (!confirmWindow(caps.from, caps.to, zero, now)) return;
     if (!(caps.fullSpeed > 0 && caps.stepsPerMm > 0 && caps.fraction >= 0 && caps.fraction <= 1 &&
-          caps.acceleration >= 0 && (caps.acceleration >= 1 || caps.fraction == 0) && caps.to > caps.from)) {
+          caps.acceleration >= 0 && (caps.acceleration >= 1 || zero))) {
         if (stage != Stage::Waiting) stopLocked("limits_zero", now);
         return;
     }
-    const bool zero = caps.fraction == 0;
     const bool pendingPositive = rawPlanner && rawPlanner->positivePending();
     const bool limitsChanged = caps.speed != lastSpeed || caps.acceleration != lastAcceleration;
     const bool strengthChanged = caps.strength != lastStrength;
@@ -261,13 +279,15 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     }
     speedStatus.speedPct = 100. * caps.fraction;
     speedStatus.nominalMmS = caps.nominalSpeed * caps.fraction / caps.stepsPerMm;
-    if (stage != Stage::Waiting && (lower != caps.from || upper != caps.to))
-        return stopLocked("window_changed", now);
     if (zero) {
         goalRate = 0;
         effectivePeriod = speedStatus.periodMs = 0;
         speedStatus.phaseRateHz = speedStatus.plannedPeakMmS = speedStatus.steadyJerkLimitMmS3 = 0;
-        if (stage == Stage::Waiting) { speedStatus.state = "waiting"; return; }
+        if (stage == Stage::Waiting) {
+            windowRail = caps.rail;
+            speedStatus.state = "waiting";
+            return;
+        }
         speedStatus.state = stage == Stage::Paused ? "paused" : "pausing";
     }
     if (stage == Stage::Positioning && (zero || (caps.speed < 1 && caps.moving))) {
@@ -366,9 +386,6 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, unsigned allowance,
     }
     if (stage == Stage::Waiting) {
         if (caps.moving || caps.queued) return stopLocked("entry_busy", now);
-        lower = caps.from;
-        upper = caps.to;
-        windowRail = caps.rail;
         entry = curve.nativeTarget(0, lower, upper);
         motionPhase = {};
         // The finite approach API takes whole steps per second. At a
@@ -649,12 +666,10 @@ void DrawnWindowEdit::set(float stroke, float depth) {
     if (!std::isfinite(stroke) || !std::isfinite(depth) ||
         stroke < 0 || stroke > 100 || depth < 0 || depth > 100) return;
     if (settings.stroke == stroke && settings.depth == depth) return;
-    if (stage != Stage::Idle && stage != Stage::Waiting) {
+    if (stage != Stage::Idle) {
         const int32_t span = streaming_logic::calculateMaxStroke(stroke, depth, windowRail);
         const int32_t offset = streaming_logic::calculateDepthOffset(windowRail, span, depth);
-        if (!span) stopLocked("limits_zero", pattern_motor::now());
-        else if (-offset - span != lower || -offset != upper)
-            stopLocked("window_changed", pattern_motor::now());
+        confirmWindow(-offset - span, -offset, settings.speed == 0, pattern_motor::now());
     }
     settings.stroke = stroke;
     settings.depth = depth;
@@ -672,6 +687,7 @@ PatternStart startStatusLocked(uint64_t revision, pattern_motor::State &caps) {
     if (stage != Stage::Idle) return PatternStart::Busy;
     pattern_motor::readFiniteState(caps, true);
     if (caps.moving || caps.queued) return PatternStart::Busy;
+    if (caps.to <= caps.from) return PatternStart::NoTravel;
     return PatternStart::Accepted;
 }
 }  // namespace
@@ -743,6 +759,9 @@ static PatternStart startPattern(const char *hex, size_t length, uint32_t period
     lastStrength = -1;
     local = localControl;
     serial = caps.serial;
+    lower = caps.from;
+    upper = caps.to;
+    windowRail = caps.rail;
     lastStop = {};
     work = {};
     feedGap = {};
