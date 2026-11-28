@@ -42,9 +42,20 @@ void recordEmptyFrame() {
 
 void recordPulseSubmit(const drawn_pattern::FrameResult &result, uint32_t frame, uint32_t atUs) {
     if (result.state == drawn_pattern::Frame::Accepted && result.queuedUs != UINT16_MAX) {
+        const auto previousQueued = feedGap.queuedUs;
+        const auto previousInterval = feedGap.frame ? atUs - lastAppendUs : 0;
+        const auto pairs = feedGap.pairedHoldAppends + (result.frames == 2);
         feedGap = {};
+        feedGap.previousQueuedUs = previousQueued;
+        feedGap.previousAppendIntervalUs = previousInterval;
+        feedGap.pairedHoldAppends = pairs;
         feedGap.frame = frame;
         feedGap.queuedUs = result.queuedUs;
+        if (result.driverResult > 0) {
+            // The step was accepted but FAS refused its optional waiting tail.
+            feedGap.otherRetries = 1;
+            feedGap.lastOtherDriverCode = result.driverResult;
+        }
         lastAppendUs = atUs;
     } else if (feedGap.frame && result.state == drawn_pattern::Frame::Retry) {
         if (result.reason && std::strcmp(result.reason, "pulse_full") == 0) {
@@ -52,6 +63,8 @@ void recordPulseSubmit(const drawn_pattern::FrameResult &result, uint32_t frame,
             feedGap.lastFullUs = atUs - lastAppendUs;
         } else {
             ++feedGap.otherRetries;
+            feedGap.lastOtherDriverCode = result.driverResult;
+            feedGap.lastOtherOffsetUs = atUs - lastAppendUs;
         }
     }
 }
@@ -179,6 +192,21 @@ void stopLocked(const char *reason, uint32_t now, int8_t driverResult = 0) {
     for (auto &waiting : awaitingStart) waiting = false;
     effectivePeriod = 0;
     speedStatus = {};
+}
+
+void recordPlan(frame_plan::Frame &frame) {
+    if (frame.offered) return;
+    frame.offered = true;
+    const auto planUs = frame.planUs;
+    ++work.plans;
+    work.planTotalUs += planUs;
+    if (frame.from != frame.target) {
+        ++work.movingPlans;
+        work.movingPlanTotalUs += planUs;
+        work.maxMovingPlanUs = std::max(work.maxMovingPlanUs, planUs);
+    }
+    if (planUs > 2000) ++work.planOver2ms;
+    work.maxPlanUs = std::max(work.maxPlanUs, planUs);
 }
 
 void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, RawFramePlanner *&assist) {
@@ -389,23 +417,15 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
             const auto in = inputs();
             frame_plan::calculate(in, cursor(), frame, curve, activeMarkers ? &activeMarkers->index : nullptr);
         }
-        if (!frame.offered) {
-            frame.offered = true;
-            const auto planUs = frame.planUs;
-            ++work.plans;
-            work.planTotalUs += planUs;
-            if (frame.from != frame.target) {
-                ++work.movingPlans;
-                work.movingPlanTotalUs += planUs;
-                work.maxMovingPlanUs = std::max(work.maxMovingPlanUs, planUs);
-            }
-            if (planUs > 2000) ++work.planOver2ms;
-            work.maxPlanUs = std::max(work.maxPlanUs, planUs);
-        }
+        recordPlan(frame);
         const uint32_t submitStart = patternServiceMicros();
-        const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing);
+        const bool pair = rawClockStarted && rawPlanner && !activeMarkers && !zero &&
+                          !softwareEntry && frame.from == frame.target &&
+                          stampedGoal == speedStatus.phaseRateHz && lastAppliedPeriod == speedStatus.periodMs &&
+                          rawPlanner->followingFrameHolds(frame.target);
+        const auto result = pattern_motor::submit(frame.target, owner, serial, frame.crossing, pair);
         const uint32_t submitUs = patternServiceMicros() - submitStart;
-        if (!serial) recordPulseSubmit(result, acceptedFrames + 1, submitStart + submitUs);
+        if (!serial) recordPulseSubmit(result, acceptedFrames + result.frames, submitStart + submitUs);
         work.lastService.commandGateUs = std::max(work.lastService.commandGateUs, result.commandGateUs);
         ++work.submissions;
         work.submitTotalUs += submitUs;
@@ -438,6 +458,15 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
                 work.minRunningUs = std::min(work.minRunningUs, result.queuedUs);
             lowAfterBatch = i + 1 == pulseFramesPerTurn && result.queuedUs < drawn_pattern::refillBelowUs;
         }
+        if (result.frames == 2) {
+            // Only this locked consumer can remove or invalidate the second
+            // prepared row. Both stationary intervals are already in FAS.
+            rawPlanner->pop();
+            next = rawPlanner->front();
+            recordPlan(*next);
+            ++acceptedFrames;
+        }
+        const auto &accepted = *next;
         const bool entryToRaw = softwareEntry &&
             (result.timing == drawn_pattern::FrameTiming::Prefill ||
              result.timing == drawn_pattern::FrameTiming::Started ||
@@ -446,18 +475,18 @@ void service(uint32_t now, unsigned pulseFramesPerTurn, bool &lowAfterBatch, Raw
         const auto &applied = retainedGoal ? rawPlanner->previousSpeed : speedStatus;
         if (entryToRaw || stampedGoal != applied.phaseRateHz || lastAppliedPeriod != applied.periodMs ||
             (activeMarkers &&
-              (lastStampedStrength != caps.strength || vibration.gain.goal() != frame.vibration.gain.goal())))
-            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, frame.vibration.gain.goal(), entryToRaw, applied);
+              (lastStampedStrength != caps.strength || vibration.gain.goal() != accepted.vibration.gain.goal())))
+            recordRateGoal(pattern_motor::now(), result.timing, caps.strength, accepted.vibration.gain.goal(), entryToRaw, applied);
         if (entryToRaw) work.rawStartSequence = rateSequence;
         softwareEntry = result.timing == drawn_pattern::FrameTiming::EntryHold;
         if (result.timing == drawn_pattern::FrameTiming::Running) rawClockStarted = true;
-        const bool settled = zero && frame.phase.clock.secondsToGoal() == 0 &&
-            frame.phase.clock.rate() == 0 && frame.vibration.gain.atZero() && frame.from == frame.target;
+        const bool settled = zero && accepted.phase.clock.secondsToGoal() == 0 &&
+            accepted.phase.clock.rate() == 0 && accepted.vibration.gain.atZero() && accepted.from == accepted.target;
         stationaryFrames = settled ? stationaryFrames + 1 : 0;
-        committedTarget = frame.target;
+        committedTarget = accepted.target;
         work.frames = ++acceptedFrames;
-        motionPhase = frame.phase;
-        vibration = frame.vibration;
+        motionPhase = accepted.phase;
+        vibration = accepted.vibration;
         committedTargetValid = true;
         if (rawPlanner) rawPlanner->pop();
         else frame.valid = false;

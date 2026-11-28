@@ -234,6 +234,11 @@ public:
         return nullptr;
     }
 
+    bool followingFrameHolds(int32_t target) {
+        std::lock_guard<RingMutex> guard(mux_);
+        return warmed_ && !positivePending_ && rows_.nextTwoHold(target);
+    }
+
     bool hasPreparedFrame() {
         std::lock_guard<RingMutex> guard(mux_);
         return warmed_ && rows_.size() != 0;

@@ -155,6 +155,9 @@ struct InterruptingQueue {
     bool running = false, discarded = false, drainOnAppend = false;
     int8_t startResult = 0;
     PulseCommand last{};
+    int8_t refuseHold = 0;
+    uint32_t queuedTicks = 0;
+    std::vector<PulseCommand> journal;
     bool retireImmediately = false;
     unsigned moveTimedCalls = 0;
     int32_t tail = -896;
@@ -164,7 +167,7 @@ struct InterruptingQueue {
     int32_t getPositionAfterCommandsCompleted() const { return tail; }
     bool isQueueRunning() const { return running; }
     uint16_t getMaxSpeedInTicks() const { return 80; }
-    uint32_t ticksInQueue() const { return 0; }
+    uint32_t ticksInQueue() const { return queuedTicks; }
     int moveTimed(int16_t steps,uint32_t duration,uint32_t *actual,bool start) {
         ++moveTimedCalls;
         const bool wasEmpty=count==0;
@@ -175,7 +178,9 @@ struct InterruptingQueue {
         return code ? code : (wasEmpty?7:0);
     }
     int addQueueEntry(const PulseCommand *command, bool start) {
+        if (command && !command->steps && refuseHold) return refuseHold;
         if (command && !discarded) {
+            journal.push_back(*command);
             if (drainOnAppend) { count = 0; running = false; }
             last=*command;
             if (!retireImmediately || !running) ++count;
@@ -351,6 +356,114 @@ void test_unstarted_raw_queue_preserves_physical_position_and_reports_driver_err
     TEST_ASSERT_FALSE(driver.running);
     TEST_ASSERT_EQUAL_INT32(-896, q.initialPosition());
     TEST_ASSERT_EQUAL_INT32(-895, driver.tail); // Most recent sampled group remains software-only.
+}
+
+void test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_driver() {
+    using namespace drawn_pattern;
+    // Actual Q8 2 mm/s capture: native -143 -> -142 at crossing 31440,
+    // twelve unchanged source positions, then another step at 43279.
+    std::vector<uint32_t> referenceTimes;
+    std::vector<int> referenceSigns;
+    uint32_t referenceEnd = 0;
+    size_t referenceCommands = 0;
+    for (bool compact : {false, true}) {
+        PulseQueue queue;
+        InterruptingQueue driver;
+        driver.tail = -143;
+        while (!driver.running)
+            queue.submit<PulseCommand>(driver, -143, 32000, 32768, 3200, 7);
+        driver.retireImmediately = true;
+        driver.count = 1;
+        driver.journal.clear();
+        std::array<int32_t, 40> target;
+        std::array<uint16_t, 40> crossing;
+        target.fill(-143);
+        crossing.fill(32768);
+        for (unsigned i = 3; i < target.size(); ++i) target[i] = i < 16 ? -142 : i < 24 ? -141 : -142;
+        crossing[3] = 31440;
+        crossing[16] = 43279;
+        crossing[24] = 28900;
+        unsigned pairs = 0;
+        for (unsigned i = 0; i < target.size();) {
+            const bool same = i + 1 < target.size() && target[i] == target[i + 1] &&
+                              (i == 0 || target[i] == target[i - 1]);
+            const auto count = driver.journal.size();
+            auto result = queue.submit<PulseCommand>(driver, target[i], 32000, crossing[i], 3200, 7, compact && same);
+            TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(result.state));
+            if (compact && i == 4) {
+                // Real edge and its first unchanged successor within the same motor call.
+                TEST_ASSERT_EQUAL_UINT8(2, result.frames);
+                TEST_ASSERT_EQUAL_UINT(count + 2, driver.journal.size());
+                TEST_ASSERT_EQUAL_UINT8(1, driver.journal[count].steps);
+                TEST_ASSERT_EQUAL_UINT16(32648, driver.journal[count].ticks);
+                TEST_ASSERT_EQUAL_UINT16(32000, driver.journal[count + 1].ticks);
+            }
+            pairs += result.frames == 2;
+            i += result.frames;
+        }
+        std::vector<uint32_t> edgeTimes;
+        std::vector<int> edgeSigns;
+        uint32_t elapsed = 0;
+        for (const auto &cmd : driver.journal) {
+            if (cmd.steps) { edgeTimes.push_back(elapsed); edgeSigns.push_back(cmd.count_up ? 1 : -1); }
+            elapsed += cmd.ticks * std::max<int>(cmd.steps, 1);
+        }
+        if (compact) {
+            TEST_ASSERT_GREATER_THAN_UINT(10, pairs);
+            TEST_ASSERT_LESS_THAN_UINT(referenceCommands, driver.journal.size());
+            TEST_ASSERT_TRUE(edgeTimes == referenceTimes);
+            TEST_ASSERT_TRUE(edgeSigns == referenceSigns);
+            TEST_ASSERT_EQUAL_UINT32(referenceEnd, elapsed);
+        } else {
+            referenceTimes = edgeTimes;
+            referenceSigns = edgeSigns;
+            referenceEnd = elapsed;
+            referenceCommands = driver.journal.size();
+        }
+        driver.running = false;
+        auto dead = queue.submit<PulseCommand>(driver, -142, 32000, 32768, 3200, 7, true);
+        TEST_ASSERT_EQUAL_STRING("pulse_underrun", dead.reason);
+        TEST_ASSERT_EQUAL_UINT(1, driver.starts);
+    }
+}
+
+void test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation() {
+    using namespace drawn_pattern;
+    for (int mode = 0; mode < 3; ++mode) {
+        PulseQueue queue;
+        InterruptingQueue driver;
+        while (!driver.running)
+            queue.submit<PulseCommand>(driver, -896, 32000, 32768, 3200, 7);
+        driver.retireImmediately = true;
+        driver.count = 2;
+        // 12.5 ms exists already: a single 2 ms wait fits, a 4 ms wait cannot.
+        driver.queuedTicks = 200000;
+        auto single = queue.submit<PulseCommand>(driver, -896, 32000, 32768, 3200, 7, true);
+        TEST_ASSERT_EQUAL_UINT8(1, single.frames);
+        TEST_ASSERT_EQUAL_UINT16(32000, driver.last.ticks);
+        driver.queuedTicks = 0;
+        queue.submit<PulseCommand>(driver, -895, 32000, 31440, 3200, 7);
+        if (mode == 1) driver.refuseHold = 4;
+        const auto old = driver.journal.size();
+        auto step = queue.submit<PulseCommand>(driver, -895, 32000, 32768, 3200, 7, true,
+                                              [&] { return mode != 2; });
+        TEST_ASSERT_EQUAL_UINT32(old + (mode == 0 ? 2 : 1), driver.journal.size());
+        if (mode == 2) {
+            TEST_ASSERT_EQUAL_INT(int(Frame::Rejected), int(step.state));
+            TEST_ASSERT_EQUAL_STRING("guard", step.reason);
+        } else {
+            TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(step.state));
+            TEST_ASSERT_EQUAL_UINT8(mode == 0 ? 2 : 1, step.frames);
+            TEST_ASSERT_EQUAL_INT8(mode == 0 ? 0 : 4, step.driverResult);
+        }
+        if (mode == 1) {
+            driver.refuseHold = 0;
+            const auto retry = queue.submit<PulseCommand>(driver,-895,32000,32768,3200,7);
+            TEST_ASSERT_EQUAL_INT(int(Frame::Accepted), int(retry.state));
+            TEST_ASSERT_EQUAL_UINT8(0,driver.last.steps);
+            TEST_ASSERT_EQUAL_INT(-895,driver.tail);
+        }
+    }
 }
 
 void test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate() {
@@ -852,6 +965,8 @@ int main() {
     RUN_TEST(test_hold_lands_once_per_cycle_at_the_original_phase_and_scales_stationary_time);
     RUN_TEST(test_close_points_start_at_seam_and_late_activation_does_not_snap);
     RUN_TEST(test_rumble_wall_clock_linearity_region_bias_limits_and_live_derivatives);
+    RUN_TEST(test_sparse_wait_groups_preserve_each_real_edge_and_stop_on_a_drained_driver);
+    RUN_TEST(test_sparse_wait_pair_obeys_available_ticks_and_partial_append_or_revocation);
     RUN_TEST(test_timed_edges_follow_subframe_crossings_in_both_directions_and_floor_ticks_do_not_accumulate);
     RUN_TEST(test_time_domain_derivatives_remain_bounded_during_repeated_live_retargets);
     RUN_TEST(test_periodic_quintic_preserves_acceleration_holds_and_bounds_the_three_derivatives);

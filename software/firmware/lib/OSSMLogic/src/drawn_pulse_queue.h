@@ -16,6 +16,7 @@ struct FrameResult {
     FrameTiming timing = FrameTiming::Unknown;
     uint32_t commandGateUs = 0;
     uint16_t queuedUs = UINT16_MAX; // FAS time behind its current command, when sampled.
+    uint8_t frames = 1; // Exact source intervals accepted by this hardware command.
 };
 
 constexpr uint32_t frameStarvationMs = 200;
@@ -133,10 +134,11 @@ public:
     // Start that group at the outgoing half-step crossing. Its duration runs
     // to the first crossing of the following frame. A hold uses the midpoint
     // of its frame. The one pending group is software only and drops on Stop.
-    template <class Command, class Driver>
+    struct MayExtend { bool operator()() const { return true; } };
+    template <class Command, class Driver, class CanExtend = MayExtend>
     FrameResult submit(Driver &driver, int32_t target, uint32_t frameTicks,
                        uint16_t firstCrossing, uint16_t minCommandTicks,
-                       int8_t movedFromEmpty) {
+                       int8_t movedFromEmpty, bool consecutiveHolds = false, CanExtend canExtend = {}) {
         const bool first = !owned();
         const bool running = stage_.load() == Stage::Running;
         if (running && !driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
@@ -149,18 +151,28 @@ public:
         if (std::abs(delta)>255 || std::abs(upcoming)>255 || !frameTicks || frameTicks>32767)
             return {Frame::Rejected, "pulse_range"};
         const uint32_t offset = upcoming ? (uint32_t(firstCrossing)*frameTicks + 32767)/65535 : frameTicks/2;
+        const auto speedTicks = driver.getMaxSpeedInTicks();
+        const uint32_t minHold = std::max<uint32_t>(minCommandTicks, speedTicks);
+        const uint32_t queuedLimit = frameTicks * queuedDurationMs / pulseFrameMs;
+        const uint32_t queued = count >= 2 ? driver.ticksInQueue() : 0;
+        // Two midpoint-to-midpoint waits have no STEP edge or DIR change
+        // between them. One native wait emits the same next edge with half
+        // the append and interrupt load. Prefer a single wait near capacity.
+        const bool paired = consecutiveHolds && running && delta == 0 && upcoming == 0 &&
+                            pendingOffset_ == offset && !tickResidual_ &&
+                            frameTicks >= minHold &&
+                            queued + 2 * frameTicks <= queuedLimit;
         const int32_t requested = first ? static_cast<int32_t>(offset) :
-            static_cast<int32_t>(frameTicks+offset-pendingOffset_)+tickResidual_;
+            static_cast<int32_t>((paired ? 2 : 1) * frameTicks + offset - pendingOffset_) + tickResidual_;
         const int32_t steps = std::max<int32_t>(1, std::abs(delta));
         // FAS checks the minimum duration after dividing and truncating ticks
         // per edge. Return all quantization/clipping error to the next frame.
-        const int32_t minimum = steps*std::max<int32_t>(driver.getMaxSpeedInTicks(),
+        const int32_t minimum = steps*std::max<int32_t>(speedTicks,
             (minCommandTicks+steps-1)/steps);
         const uint32_t duration = std::max(requested,minimum);
         if (duration>2*frameTicks+255 || duration/steps>65535)
             return {Frame::Rejected, "pulse_range"};
-        const uint32_t queuedLimit = frameTicks*queuedDurationMs/pulseFrameMs;
-        if (count>=2 && driver.ticksInQueue()+duration>queuedLimit) {
+        if (count >= 2 && queued + duration > queuedLimit) {
             if (!running) {
                 const auto started=startQueue(driver);
                 if (started.state==Frame::Rejected) return started;
@@ -208,6 +220,25 @@ public:
             result = startQueue(driver);
         }
         if (result.state == Frame::Accepted) {
+            result.frames = paired ? 2 : 1;
+            if (consecutiveHolds && running && std::abs(delta) == 1 && !upcoming && !tickResidual_ &&
+                frameTicks >= minHold &&
+                driver.queueEntries() < pulseQueueFrames && driver.ticksInQueue() + frameTicks <= queuedLimit) {
+                // The first command emitted the preceding row's single step.
+                // Append its known stationary successor without a second
+                // controller turn. Keep the original pulse width, time and
+                // direction, even when its two intervals cannot fit one wait.
+                if (!canExtend()) return {Frame::Rejected, "guard"};
+                if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun"};
+                Command hold{static_cast<uint16_t>(frameTicks), 0, direction_};
+                const auto extra = static_cast<int8_t>(driver.addQueueEntry(&hold, false));
+                if (!driver.isQueueRunning()) return {Frame::Rejected, "pulse_underrun", extra};
+                if (extra < 0) return {Frame::Rejected, "pulse_append", extra};
+                // A busy driver accepted only the first row. Its successor
+                // is still at the software front on the next guarded turn.
+                if (extra == 0) result.frames = 2;
+                else result.driverResult = extra;
+            }
             // Read after the append/start: the interrupt may have consumed
             // commands since the admission check. FAS excludes the active entry.
             const uint32_t queuedTicks = driver.ticksInQueue();

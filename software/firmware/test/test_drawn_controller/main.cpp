@@ -21,6 +21,8 @@ int entryUpdates;
 unsigned finiteReads, legacyQueueReads;
 double entrySpeed, entryAcceleration;
 bool timedPulses = false, simulateReserve = false;
+bool compactHolds = false;
+size_t stopAtFrame = 0;
 size_t guardTripAfter = SIZE_MAX;
 uint32_t reserveThrough = 0;
 uint32_t nextPulseAt = 0;
@@ -73,7 +75,14 @@ bool position(uint64_t ticket, int32_t target, const State &caps, bool starting)
     if (!deferEntry) motor.position = target;
     return true;
 }
-FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing) {
+FrameResult submit(int32_t target, uint64_t ticket, bool, uint16_t crossing, bool consecutiveHolds) {
+    if (stopAtFrame) {
+        if (!read(ticket).ready) return {Frame::Rejected, "guard"};
+        if (frames.size() == stopAtFrame) return {Frame::Retry, "pulse_full"};
+        const auto count = uint8_t(compactHolds && consecutiveHolds && frames.size() + 2 <= stopAtFrame ? 2 : 1);
+        frames.insert(frames.end(), count, target);
+        return {Frame::Accepted, nullptr, 0, drawn_pattern::FrameTiming::Running, 0, 16000, count};
+    }
     if (!read(ticket).ready) return {Frame::Rejected, "guard"};
     if (simulateReserve) {
         if (!observedPulseRunning) return {Frame::Rejected, "pulse_underrun"};
@@ -116,7 +125,8 @@ void setUp() {
     frame_plan::RawFramePlanner::pumpInline = true;
     frame_plan::RawFramePlanner::workerAvailable = true;
     io::observedPulseRunning = true;
-    timedPulses = simulateReserve = false;
+    timedPulses = simulateReserve = compactHolds = false;
+    stopAtFrame = 0;
     guardTripAfter = SIZE_MAX;
     nextPulseAt = 0;
     settings = {};
@@ -1241,6 +1251,65 @@ void test_operator_pause_preserves_remaining_authored_hold() {
     TEST_ASSERT_GREATER_THAN_DOUBLE(0, clock.phase);
 }
 
+void test_paired_holds_commit_every_cursor_and_stop_at_the_same_phase() {
+    const char curve[] = "0003091625364f688398b1c9dae9f6fcfffcf6e9dac9b19883684f3625160903";
+    std::vector<int32_t> plain;
+    double finalPhase = 0;
+    for (bool compact : {false,true}) {
+        frames.clear();
+        motor.from = -240;
+        motor.to = motor.position = 0;
+        motor.strength = .05;
+        motor.acceleration = 50000;
+        motor.speed = 1600;
+        compactHolds = compact;
+        stopAtFrame = 7350;
+        TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted),
+                int(startDrawnPattern(curve, sizeof(curve)-1, 12000, revision, true)));
+        for (unsigned t = 0; frames.size() < stopAtFrame && t < 10000; ++t) tick();
+        TEST_ASSERT_EQUAL_UINT32(stopAtFrame, frames.size());
+        const double phase = motionPhase.phase;
+        cancelDrawnPattern();
+        PatternFeedGap gap;
+        PatternWork costs;
+        TEST_ASSERT_TRUE(stoppedPatternFeedGap(gap));
+        TEST_ASSERT_TRUE(stoppedPatternWork(costs));
+        TEST_ASSERT_EQUAL_UINT32(stopAtFrame, gap.frame);
+        TEST_ASSERT_EQUAL_UINT32(stopAtFrame, costs.frames);
+        if (compact) {
+            TEST_ASSERT_TRUE(frames == plain);
+            TEST_ASSERT_EQUAL_DOUBLE(finalPhase,phase);
+            TEST_ASSERT_GREATER_THAN_UINT32(1500,gap.pairedHoldAppends);
+            TEST_ASSERT_LESS_THAN_UINT32(stopAtFrame-1000,costs.submissions);
+        } else {
+            plain = frames;
+            finalPhase = phase;
+            TEST_ASSERT_EQUAL_UINT32(0,gap.pairedHoldAppends);
+        }
+        tick(10);
+        TEST_ASSERT_EQUAL_UINT32(stopAtFrame,frames.size());
+    }
+}
+
+void test_feed_gap_retains_driver_retry_after_a_single_accepted_edge() {
+    using drawn_pattern::FrameTiming;
+    feedGap = {};
+    recordPulseSubmit({io::Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 6000, 2}, 7295, 10000);
+    recordPulseSubmit({io::Frame::Accepted, nullptr, 0, FrameTiming::Running, 0, 0}, 7296, 14000);
+    recordPulseSubmit({io::Frame::Retry, "pulse_append", 4}, 7297, 16450);
+    TEST_ASSERT_EQUAL_UINT32(7296, feedGap.frame);
+    TEST_ASSERT_EQUAL_UINT32(6000, feedGap.previousQueuedUs);
+    TEST_ASSERT_EQUAL_UINT32(4000, feedGap.previousAppendIntervalUs);
+    TEST_ASSERT_EQUAL_UINT32(1, feedGap.otherRetries);
+    TEST_ASSERT_EQUAL_UINT32(2450, feedGap.lastOtherOffsetUs);
+    TEST_ASSERT_EQUAL_INT8(4, feedGap.lastOtherDriverCode);
+    TEST_ASSERT_EQUAL_UINT32(1, feedGap.pairedHoldAppends);
+    recordPulseSubmit({io::Frame::Accepted, nullptr, 4, FrameTiming::Running, 0, 2000}, 7297, 17000);
+    TEST_ASSERT_EQUAL_UINT32(1, feedGap.otherRetries);
+    TEST_ASSERT_EQUAL_INT8(4, feedGap.lastOtherDriverCode);
+    TEST_ASSERT_EQUAL_UINT32(0, feedGap.lastOtherOffsetUs);
+}
+
 void test_stopped_service_cost_retains_failing_turn_and_longest_interval() {
     motor.speed = 200;
     TEST_ASSERT_EQUAL_INT(int(PatternStart::Accepted), int(start(true)));
@@ -1334,6 +1403,8 @@ int main() {
     RUN_TEST(test_rejected_next_row_does_not_hide_a_started_prefill);
     RUN_TEST(test_raw_low_water_reenters_with_unlocked_owner_and_bounded_cpu_turns);
     RUN_TEST(test_operator_pause_preserves_remaining_authored_hold);
+    RUN_TEST(test_paired_holds_commit_every_cursor_and_stop_at_the_same_phase);
+    RUN_TEST(test_feed_gap_retains_driver_retry_after_a_single_accepted_edge);
     RUN_TEST(test_stopped_service_cost_retains_failing_turn_and_longest_interval);
     RUN_TEST(test_paused_remote_lease_and_finite_entry_remain_guarded);
     RUN_TEST(test_pause_drain_deadline_and_resume_position_fail_closed);

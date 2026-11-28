@@ -182,6 +182,17 @@ void announcePatternFeel(uint32_t sequence) {
                   unsigned(gap.assistPublished), unsigned(gap.assistMaxUs));
 }
 
+[[gnu::noinline]] void announcePatternRetry() {
+    streaming::PatternFeedGap gap;
+    if (!streaming::stoppedPatternFeedGap(gap)) {
+        Serial.println("RAD_PATTERN_RETRY unavailable");
+        return;
+    }
+    Serial.printf("RAD_PATTERN_RETRY %u %u %d %u %u\n", unsigned(gap.previousQueuedUs),
+                  unsigned(gap.previousAppendIntervalUs), int(gap.lastOtherDriverCode),
+                  unsigned(gap.lastOtherOffsetUs), unsigned(gap.pairedHoldAppends));
+}
+
 [[gnu::noinline]] void announcePatternPlanner() {
     streaming::PatternWork work;
     if (!streaming::stoppedPatternWork(work)) {
@@ -251,6 +262,7 @@ void console(void*) {
                 announcePatternSchedule(argument);
             else if (strcmp(command, "patternplanner") == 0) announcePatternPlanner();
             else if (strcmp(command, "patterngap") == 0) announcePatternGap();
+            else if (strcmp(command, "patternretry") == 0) announcePatternRetry();
             else if (strcmp(command, "patternbuffer") == 0) announcePatternBuffer();
             else if (strcmp(command, "patterncost") == 0) announcePatternCost();
             else if (strcmp(command, "identitystack") == 0) {

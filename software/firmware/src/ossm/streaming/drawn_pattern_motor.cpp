@@ -72,13 +72,13 @@ bool position(uint64_t revision, int32_t target, const State &caps, bool startin
         return true;
     });
 }
-FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing) {
+FrameResult submit(int32_t target, uint64_t revision, bool serial, uint16_t crossing, bool consecutiveHolds) {
     FrameResult result{Frame::Rejected, "guard"};
     const uint32_t start = micros();
     uint32_t gateUs = 0;
     if (!runMotorPatternCommand(revision, [&] {
         gateUs = micros() - start;
-        result = submitPatternFrame(target, revision, serial, crossing);
+        result = submitPatternFrame(target, revision, serial, crossing, consecutiveHolds);
         return true;
     })) return {Frame::Rejected, "guard", 0, drawn_pattern::FrameTiming::Unknown, micros() - start};
     result.commandGateUs = gateUs;

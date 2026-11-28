@@ -80,6 +80,13 @@ public:
         return true;
     }
 
+    bool nextTwoHold(int32_t target) const {
+        if (count_ < 2) return false;
+        const auto second = advance(read_, lengths_[firstRecord_]);
+        const uint32_t same = static_cast<uint32_t>(target);
+        return storage_[second] == same && storage_[advance(second, 1)] == same;
+    }
+
     Frame *front() {
         if (!count_) return nullptr;
         if (!decoded_) {
