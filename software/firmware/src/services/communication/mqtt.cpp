@@ -6,6 +6,7 @@
 #include <utils/random.h>
 #include "FirmwareProvenance.h"
 #include "constants/Version.h"
+#include "services/feedbackTiming.h"
 
 // Define the global variables here
 bool mqttConnected = false;
@@ -45,6 +46,7 @@ void event_connected_handler(void* handler_args, esp_event_base_t base,
                              int32_t event_id, void* event_data) {
     ESP_LOGD("MQTT", "Connected to MQTT broker");
     mqttConnected = true;
+    feedbackTimingMilestone(feedback_timing::Milestone::MqttConnected);
     const auto token = firmware::provenance::currentToken();
     JsonDocument document;
     document["provenanceCapability"] = 1;
@@ -99,6 +101,7 @@ void initMQTT() {
     mqttClient = esp_mqtt_client_init(&mqtt_cfg);
     ESP_LOGD("MQTT", "Starting MQTT client");
     esp_mqtt_client_start(mqttClient);
+    feedbackTimingMilestone(feedback_timing::Milestone::MqttStarted);
     ESP_LOGD("MQTT", "MQTT client started");
     esp_mqtt_client_register_event(mqttClient, MQTT_EVENT_CONNECTED,
                                    event_connected_handler, nullptr);

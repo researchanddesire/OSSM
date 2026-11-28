@@ -93,6 +93,15 @@ a quiet bus before probing, and latch receive-only mode after observing another
 master. Listen-first discovery is not an arbitration guarantee: use the explicit
 listen-only build when sharing any bus with another master.
 
+The reader takes bytes from the UART driver one hardware FIFO (128 bytes) per
+call, and at most 512 bytes (its receive ring) per pass before it publishes
+(`lib/OSSMLogic/src/uart_drain.h`). Do not go back to one byte per call. When
+the ring is full, the ESP-IDF driver can wait one RTOS tick in every read call.
+One byte per call then drains about one byte per millisecond, against about 3.4
+from the Test Rig guard's polling, so the pass never ends. On the rig that held
+the guard's snapshot stale for 0.9 to 5.3 s shortly after MQTT started, and the
+guard refused motion on 4 of 20 cold boots.
+
 Once serial position preparation is requested, every existing telemetry poll
 includes register0/count26, through cancellation and final quiet. This supplies
 fresh control-mode evidence during the GPIO stop test without adding a second
@@ -297,6 +306,44 @@ stale startup/fault events cannot adopt a newer Home request's revision.
 The existing USB input reader accepts the read-only `hat` command on every track.
 Its `RAD_HAT` JSON record reports detection, freshness, passive mode, baud, sample
 age, position source and fresh measurements. It does not reset or move the motor.
+
+### Shaft feedback timing
+
+When the guard's telemetry snapshot is more than 100 ms old, the firmware opens a
+stall record. The 100 ms is a reporting threshold only. The guard's freshness and
+stop limits do not change. All times use the controller's `millis()` clock.
+
+The record lists how long ago each stage of the feedback path last happened:
+
+1. the HAT reader task ran (`loop`)
+2. it took bytes from the UART driver (`uart`)
+3. it decoded the other master's request or sent its own (`request`)
+4. it accepted a CRC-valid reply (`frame`)
+5. it published the sample to the guard (`publish`)
+
+It also records the longest reader-loop gap during the stall and the reader's
+last reported position in its loop. From the guard task on the other core it
+samples what the reader's core is running: the reader, the idle task, or another
+task, which is named. It also records the most bytes the reader drained in one
+pass. The most upstream stage that stopped is reported as the `finding`:
+
+- `reader-preempted`, `reader-blocked` or `reader-busy`: the reader stopped,
+  while its core ran another task, sat idle, or kept running the reader.
+- `no-uart-bytes`: the reader ran but the UART driver delivered nothing.
+- `no-requests` or `no-replies`: bytes arrived, but no request decoded, or no
+  reply was accepted.
+- `not-published`: replies were accepted, but the guard's snapshot did not change.
+- `guard-only`: every reader stage was fresh.
+
+The firmware writes one `RAD_FEEDBACK {json}` line on USB serial for each stall
+when it ends, at most one a second. When the guard faults (a refusal), it writes
+the stall that was open at that moment, then again when that stall ends. Only the
+first refusal of a boot is kept. The read-only `feedback` command prints the
+latest stall and the refusal. Each line also gives the longest gap since boot for
+every stage, with the time it ended (`longest`). The `last` object gives the last
+time homing finished, MQTT started and connected, a pairing-status round started,
+and a BLE central connected. The pull-request harness drops these lines from its
+redacted log, so read them from a raw serial capture.
 
 RAD BLE exposes read-only `motor.guard`, `motor.guardControl`, `motor.hat`, `motor.currentAmps` (A) and
 `motor.voltageVolts` (V) resources. The Analog surface also includes explicitly

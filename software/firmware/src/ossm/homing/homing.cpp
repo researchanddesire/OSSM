@@ -16,6 +16,7 @@
 #include "services/stepper.h"
 #include "services/motorFeedback.h"
 #include "services/ossmHat.h"
+#include "services/feedbackTiming.h"
 #include "services/motorSafety.h"
 #include "services/tasks.h"
 #include "utils/analog.h"
@@ -292,6 +293,7 @@ void runHomingPass(const HomingTaskContext &context) {
             return;
         }
         if (!commitMotorHomingState(context.ticket, [] { setHomingActive(false, false); return true; })) return;
+        if (backward) feedbackTimingMilestone(feedback_timing::Milestone::HomingDone);
         stateMachine->process_event(HomingPassDone{context.ticket, context.pass});
         return;
     }

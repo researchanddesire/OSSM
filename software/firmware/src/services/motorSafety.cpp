@@ -19,6 +19,7 @@
 #include "ossm/state/error.h"
 #include "ossm/state/settings.h"
 #include "ossm/state/state.h"
+#include "services/feedbackTiming.h"
 #include "services/led.h"
 #include "services/motorFeedback.h"
 #include "services/motorMotion.h"
@@ -515,6 +516,7 @@ void monitor(void *) {
     int32_t stationaryOrigin = 0;
     uint32_t stationaryEpoch = 0;
     uint32_t stationarySequence = 0;
+    bool faultNoted = false;
     TickType_t wake = xTaskGetTickCount();
     for (;;) {
         ossmHatEmergencyGuardHeartbeat();
@@ -540,6 +542,8 @@ void monitor(void *) {
         // floor the earliest event bound conservatively by at most1ms plus
         // the measured<=2ms status-read bracket. Never subtract raw epochs.
         const uint32_t irqAtMs = emergencyBeforeMs - (rawIrqAgeUs + 999U) / 1000U;
+        // Timing evidence only: which stage stopped if this snapshot ages.
+        feedbackTimingObserve(now, hat.detected, sample.sequence != 0 ? sample.updatedAtMs : 0);
         const bool fresh = haveSample &&
             static_cast<uint32_t>(now - sample.updatedAtMs) <= 100;
         const bool freshSerialControl = haveSerialControl &&
@@ -746,9 +750,14 @@ void monitor(void *) {
         }
         guard.tick(now);
         armed = guard.armed();
-        fault = guard.fault() != motor_guard::Fault::None;
+        const auto faultCode = guard.fault();
+        fault = faultCode != motor_guard::Fault::None;
         if (fault) revokeHomingLocked();
         portEXIT_CRITICAL(&guardMux);
+        if (fault != faultNoted) {
+            if (fault) feedbackTimingRefused(now, static_cast<uint8_t>(faultCode));
+            faultNoted = fault;
+        }
 
         if ((needed || shared) && fault) enforceCurrentFaultStop();
         else if (needed && !armed && !serialProbeClaimed.load()) {
@@ -871,6 +880,7 @@ void report(void *) {
                 else reported = UINT8_MAX;
             }
             persistFaultIfNeeded();
+            feedbackTimingReportDue();
         } else {
             reported = UINT8_MAX;
             // Remembering a newly detected HAT is also an NVS write. Apply
@@ -897,6 +907,7 @@ void report(void *) {
                     xSemaphoreGive(persistenceMutex);
                 }
             }
+            feedbackTimingReportDue();
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }

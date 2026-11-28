@@ -14,6 +14,7 @@
 #include "config.hpp"
 #include "gpio.hpp"
 #include "motion_link.h"
+#include "services/feedbackTiming.h"
 #include "services/motorSafety.h"
 #include "services/radHil.h"
 #include "ossm/OSSM.h"
@@ -134,6 +135,7 @@ class StateCallbacks : public NimBLECharacteristicCallbacks {
 /** Handler class for server actions */
 class ServerCallbacks : public NimBLEServerCallbacks {
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+        feedbackTimingMilestone(feedback_timing::Milestone::BleConnected);
         radHilBleConnected(true);
         ESP_LOGI(NIMBLE_TAG, "Client connected: %s",
                  connInfo.getAddress().toString().c_str());

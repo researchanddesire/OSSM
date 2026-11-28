@@ -11,10 +11,12 @@
 #include <soc/uart_struct.h>
 
 #include "constants/Pins.h"
+#include "feedbackTiming.h"
 #include "ossmHatProtocol.hpp"
 #include "ossmHatPositionProtocol.hpp"
 #include "ossmHatTxAudit.hpp"
 #include "ossmHatEmergencyInternal.h"
+#include "uart_drain.h"
 #include "ossmHatEmergencyLogic.hpp"
 
 namespace {
@@ -326,6 +328,9 @@ bool startUart(uint32_t baud) {
 }
 
 void reader(void *) {
+    using feedback_timing::ReaderPoint;
+    using feedback_timing::Stage;
+    feedbackTimingReaderStarted();
     // Install both raw IRQs on this pinned core, with UART1 clean before the
     // ordinary UART2 driver is initialized. No UART1 default pins are attached.
     ossm_hat_emergency::installHardware();
@@ -385,6 +390,7 @@ void reader(void *) {
     uint32_t procedureAt = 0, backupRequestAt = 0, backupPollAt = 0;
     uint8_t echoWindow[8] = {};
     size_t echoUsed = 0;
+    uint32_t publishedSequence = 0;
 
     auto publishDecoder = [&]() {
         const uint32_t at = millis();
@@ -400,6 +406,10 @@ void reader(void *) {
             publishedDriveConfig = driveConfig;
         }
         portEXIT_CRITICAL(&stateMux);
+        if (decoder.sample().sequence != publishedSequence) {
+            publishedSequence = decoder.sample().sequence;
+            if (publishedSequence != 0) feedbackTimingMark(Stage::Published, at);
+        }
         ossm_hat_emergency::ownerLease(lockedBaud && !status.passive && status.baudRate==115200);
         ossm_hat_emergency::observe(decoder.sample(),decoder.controls());
     };
@@ -538,7 +548,14 @@ void reader(void *) {
     };
 
     for (;;) {
-        if (emergencyService()) { vTaskDelay(pdMS_TO_TICKS(1)); continue; }
+        feedbackTimingMark(Stage::ReaderLoop, millis());
+        feedbackTimingPoint(ReaderPoint::Emergency);
+        if (emergencyService()) {
+            feedbackTimingPoint(ReaderPoint::Sleeping);
+            vTaskDelay(pdMS_TO_TICKS(1));
+            continue;
+        }
+        feedbackTimingPoint(ReaderPoint::StopService);
         uint32_t now = millis();
         portENTER_CRITICAL(&stateMux);
         const OssmHatStopStatus stopRequest = publishedStop;
@@ -585,48 +602,65 @@ void reader(void *) {
             lastByteAt = millis();
         }
 
+        feedbackTimingPoint(ReaderPoint::Reading);
         // A truncated/noisy frame cannot poison the next transaction forever.
         // The AIM's normal request/reply turnaround is far below 20 ms.
         if (static_cast<uint32_t>(now - lastByteAt) > 20 &&
             !awaiting && Serial2.available()) {
             decoder.reset();
         }
-        while (uartReady && Serial2.available()) {
-            const int byte = Serial2.read();
-            if (byte < 0) break;
+        // Whole chunks, never one byte per call: with the driver's ring full,
+        // each read call can wait a tick (see uart_drain.h). One bounded pass.
+        uint8_t received[uart_drain::kChunkBytes];
+        auto consume = [&](const uint8_t *chunk, size_t count) {
             now = millis();
             lastByteAt = now;
-            const bool lateOwn = latePositionReply.push(static_cast<uint8_t>(byte), now);
-            const uint8_t events = decoder.push(static_cast<uint8_t>(byte), now);
-            if ((events & ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
-                if (!status.passive) {
-                    ESP_LOGI(tag, "External RS485 master detected; receive only until reboot");
+            for (size_t i = 0; i < count; ++i) {
+                const uint8_t byte = chunk[i];
+                const bool lateOwn = latePositionReply.push(byte, now);
+                const uint8_t events = decoder.push(byte, now);
+                if (events & ossm_hat::Decoder::ExternalRequest)
+                    feedbackTimingMark(Stage::RequestSeen, now);
+                if ((events & ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
+                    if (!status.passive) {
+                        ESP_LOGI(tag, "External RS485 master detected; receive only until reboot");
+                    }
+                    status.passive = true;
+                    lockedBaud = true;
+                    lastFrameAt = now;
+                    portENTER_CRITICAL(&stateMux);
+                    const auto motion = positionQueue.status();
+                    const bool hadPositionOwner = motion.requested && !motion.faulted;
+                    if (hadPositionOwner) positionQueue.cancel(OssmHatPositionFault::SharedBus);
+                    portEXIT_CRITICAL(&stateMux);
+                    if (hadPositionOwner) requestOssmHatEmergencyStop();
                 }
-                status.passive = true;
-                lockedBaud = true;
-                lastFrameAt = now;
-                portENTER_CRITICAL(&stateMux);
-                const auto motion = positionQueue.status();
-                const bool hadPositionOwner = motion.requested && !motion.faulted;
-                if (hadPositionOwner) positionQueue.cancel(OssmHatPositionFault::SharedBus);
-                portEXIT_CRITICAL(&stateMux);
-                if (hadPositionOwner) requestOssmHatEmergencyStop();
-            }
-            if (events & ossm_hat::Decoder::Telemetry) {
-                if (!status.detected) {
-                    ESP_LOGI(tag, "HAT AIM telemetry detected at %lu baud (%s)",
-                             static_cast<unsigned long>(status.baudRate),
-                             status.passive ? "passive" : "polled");
+                if (events & ossm_hat::Decoder::Telemetry) {
+                    feedbackTimingMark(Stage::FrameAccepted, now);
+                    if (!status.detected) {
+                        ESP_LOGI(tag, "HAT AIM telemetry detected at %lu baud (%s)",
+                                 static_cast<unsigned long>(status.baudRate),
+                                 status.passive ? "passive" : "polled");
+                    }
+                    status.detected = true;
+                    status.discoveryComplete = true;
+                    lockedBaud = true;
+                    lastFrameAt = now;
+                    awaiting = false;
+                    sampleRate.accepted(now);
                 }
-                status.detected = true;
-                status.discoveryComplete = true;
-                lockedBaud = true;
-                lastFrameAt = now;
-                awaiting = false;
-                sampleRate.accepted(now);
             }
+        };
+        const size_t drained = !uartReady ? 0 : uart_drain::pass(
+            [] { return Serial2.available(); },
+            [](uint8_t *buffer, size_t capacity) { return Serial2.read(buffer, capacity); },
+            consume, received);
+        if (drained != 0) {
+            feedbackTimingMark(Stage::UartBytes, lastByteAt);
+            feedbackTimingDrained(drained);
         }
 
+        feedbackTimingPoint(ReaderPoint::Reconnecting);
         now = millis();
         // A boot stop can fail before power/link is restored. Only the safe
         // output-off/readback sequence may reassert automatically, at most
@@ -669,6 +703,7 @@ void reader(void *) {
             }
         }
 
+        feedbackTimingPoint(ReaderPoint::Polling);
         now = millis();
         // Full physical telemetry has priority over every ordinary position
         // transaction. Setup/enable are split into individual operations so
@@ -743,9 +778,13 @@ void reader(void *) {
             lastPollAt = now;
             ownerWrite(request, length);
             Serial2.flush();
+            // As bus master the request is this reader's own.
+            feedbackTimingMark(Stage::RequestSeen, millis());
         }
 
+        feedbackTimingPoint(ReaderPoint::Publishing);
         publishDecoder();
+        feedbackTimingPoint(ReaderPoint::Sleeping);
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
