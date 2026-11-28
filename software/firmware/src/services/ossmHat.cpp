@@ -16,6 +16,7 @@
 #include "ossmHatPositionProtocol.hpp"
 #include "ossmHatTxAudit.hpp"
 #include "ossmHatEmergencyInternal.h"
+#include "uart_drain.h"
 #include "ossmHatEmergencyLogic.hpp"
 
 namespace {
@@ -608,46 +609,52 @@ void reader(void *) {
             !awaiting && Serial2.available()) {
             decoder.reset();
         }
-        uint32_t drained = 0;
-        while (uartReady && Serial2.available()) {
-            const int byte = Serial2.read();
-            if (byte < 0) break;
+        // Whole chunks, never one byte per call: with the driver's ring full,
+        // each read call can wait a tick (see uart_drain.h). One bounded pass.
+        uint8_t received[uart_drain::kChunkBytes];
+        auto consume = [&](const uint8_t *chunk, size_t count) {
             now = millis();
             lastByteAt = now;
-            ++drained;
-            const bool lateOwn = latePositionReply.push(static_cast<uint8_t>(byte), now);
-            const uint8_t events = decoder.push(static_cast<uint8_t>(byte), now);
-            if (events & ossm_hat::Decoder::ExternalRequest)
-                feedbackTimingMark(Stage::RequestSeen, now);
-            if ((events & ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
-                if (!status.passive) {
-                    ESP_LOGI(tag, "External RS485 master detected; receive only until reboot");
+            for (size_t i = 0; i < count; ++i) {
+                const uint8_t byte = chunk[i];
+                const bool lateOwn = latePositionReply.push(byte, now);
+                const uint8_t events = decoder.push(byte, now);
+                if (events & ossm_hat::Decoder::ExternalRequest)
+                    feedbackTimingMark(Stage::RequestSeen, now);
+                if ((events & ossm_hat::Decoder::ExternalRequest) && !lateOwn) {
+                    if (!status.passive) {
+                        ESP_LOGI(tag, "External RS485 master detected; receive only until reboot");
+                    }
+                    status.passive = true;
+                    lockedBaud = true;
+                    lastFrameAt = now;
+                    portENTER_CRITICAL(&stateMux);
+                    const auto motion = positionQueue.status();
+                    const bool hadPositionOwner = motion.requested && !motion.faulted;
+                    if (hadPositionOwner) positionQueue.cancel(OssmHatPositionFault::SharedBus);
+                    portEXIT_CRITICAL(&stateMux);
+                    if (hadPositionOwner) requestOssmHatEmergencyStop();
                 }
-                status.passive = true;
-                lockedBaud = true;
-                lastFrameAt = now;
-                portENTER_CRITICAL(&stateMux);
-                const auto motion = positionQueue.status();
-                const bool hadPositionOwner = motion.requested && !motion.faulted;
-                if (hadPositionOwner) positionQueue.cancel(OssmHatPositionFault::SharedBus);
-                portEXIT_CRITICAL(&stateMux);
-                if (hadPositionOwner) requestOssmHatEmergencyStop();
-            }
-            if (events & ossm_hat::Decoder::Telemetry) {
-                feedbackTimingMark(Stage::FrameAccepted, now);
-                if (!status.detected) {
-                    ESP_LOGI(tag, "HAT AIM telemetry detected at %lu baud (%s)",
-                             static_cast<unsigned long>(status.baudRate),
-                             status.passive ? "passive" : "polled");
+                if (events & ossm_hat::Decoder::Telemetry) {
+                    feedbackTimingMark(Stage::FrameAccepted, now);
+                    if (!status.detected) {
+                        ESP_LOGI(tag, "HAT AIM telemetry detected at %lu baud (%s)",
+                                 static_cast<unsigned long>(status.baudRate),
+                                 status.passive ? "passive" : "polled");
+                    }
+                    status.detected = true;
+                    status.discoveryComplete = true;
+                    lockedBaud = true;
+                    lastFrameAt = now;
+                    awaiting = false;
+                    sampleRate.accepted(now);
                 }
-                status.detected = true;
-                status.discoveryComplete = true;
-                lockedBaud = true;
-                lastFrameAt = now;
-                awaiting = false;
-                sampleRate.accepted(now);
             }
-        }
+        };
+        const size_t drained = !uartReady ? 0 : uart_drain::pass(
+            [] { return Serial2.available(); },
+            [](uint8_t *buffer, size_t capacity) { return Serial2.read(buffer, capacity); },
+            consume, received);
         if (drained != 0) {
             feedbackTimingMark(Stage::UartBytes, lastByteAt);
             feedbackTimingDrained(drained);

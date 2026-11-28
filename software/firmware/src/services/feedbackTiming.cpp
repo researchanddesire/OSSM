@@ -26,8 +26,11 @@ constexpr char kPrefix[] = "RAD_FEEDBACK ";
 
 Snapshot snapshotLocked() {
     portENTER_CRITICAL(&recordMux);
-    const Snapshot snapshot = recorder.snapshot();
+    Snapshot snapshot = recorder.snapshot();
     portEXIT_CRITICAL(&recordMux);
+    // ESP-IDF reports a task's unused stack in bytes.
+    const TaskHandle_t reader = readerTask.load();
+    if (reader != nullptr) snapshot.readerStackFreeBytes = uxTaskGetStackHighWaterMark(reader);
     return snapshot;
 }
 

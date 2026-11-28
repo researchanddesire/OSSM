@@ -121,6 +121,7 @@ struct Snapshot {
     uint32_t milestones[kMilestoneCount] = {};
     uint32_t stalls = 0;
     uint16_t longestBacklogBytes = 0;
+    uint32_t readerStackFreeBytes = 0;  // filled in by the firmware; 0 = unknown
     Stall latest;
     Stall refusal;
 };
@@ -438,7 +439,8 @@ inline size_t format(char *out, size_t capacity, const char *event, uint32_t now
         w.put("%s\"%s\":[%lu,%lu]", i ? "," : "", stageNames[i],
               static_cast<unsigned long>(snapshot.stages[i].longestGapMs),
               static_cast<unsigned long>(snapshot.stages[i].longestGapEndMs));
-    w.put("},\"backlog\":%u", static_cast<unsigned>(snapshot.longestBacklogBytes));
+    w.put("},\"backlog\":%u,\"stackFree\":%lu", static_cast<unsigned>(snapshot.longestBacklogBytes),
+          static_cast<unsigned long>(snapshot.readerStackFreeBytes));
     static const char *const milestoneNames[kMilestoneCount] = {"homed", "mqttStart", "mqttUp",
                                                                 "pairing", "ble"};
     w.raw(",\"last\":{");

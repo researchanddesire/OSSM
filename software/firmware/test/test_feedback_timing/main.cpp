@@ -351,6 +351,7 @@ void test_report_is_compact_valid_json() {
     TEST_ASSERT_EQUAL(18523, doc["last"]["homed"].as<long>());
     TEST_ASSERT_EQUAL(21200, doc["last"]["pairing"].as<long>());
     TEST_ASSERT_EQUAL(0, doc["last"]["ble"].as<long>());
+    TEST_ASSERT_EQUAL(0, doc["stackFree"].as<long>());
     TEST_ASSERT_TRUE(doc["longest"]["loop"].is<JsonArray>());
     TEST_ASSERT_GREATER_OR_EQUAL(260, doc["longest"]["publish"][0].as<long>());
 }
@@ -386,7 +387,8 @@ void test_report_worst_case_fits_its_buffer_and_never_overflows() {
     TEST_ASSERT_TRUE(recorder.observe(now, true, now - 0x70000000u));
     for (int i = 0; i < 70000; ++i) recorder.core(Core::Other, "0123456789abcdefXYZ");
     recorder.refused(UINT32_MAX, 255);
-    const auto snapshot = recorder.snapshot();
+    auto snapshot = recorder.snapshot();
+    snapshot.readerStackFreeBytes = UINT32_MAX;
     char out[kReportBytes];
     const size_t length = format(out, sizeof(out), "refusal", UINT32_MAX, snapshot, snapshot.refusal);
     TEST_ASSERT_GREATER_THAN(0, length);

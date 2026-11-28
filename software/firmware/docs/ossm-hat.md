@@ -93,6 +93,15 @@ a quiet bus before probing, and latch receive-only mode after observing another
 master. Listen-first discovery is not an arbitration guarantee: use the explicit
 listen-only build when sharing any bus with another master.
 
+The reader takes bytes from the UART driver one hardware FIFO (128 bytes) per
+call, and at most 512 bytes (its receive ring) per pass before it publishes
+(`lib/OSSMLogic/src/uart_drain.h`). Do not go back to one byte per call. When
+the ring is full, the ESP-IDF driver can wait one RTOS tick in every read call.
+One byte per call then drains about one byte per millisecond, against about 3.4
+from the Test Rig guard's polling, so the pass never ends. On the rig that held
+the guard's snapshot stale for 0.9 to 5.3 s shortly after MQTT started, and the
+guard refused motion on 4 of 20 cold boots.
+
 Once serial position preparation is requested, every existing telemetry poll
 includes register0/count26, through cancellation and final quiet. This supplies
 fresh control-mode evidence during the GPIO stop test without adding a second
